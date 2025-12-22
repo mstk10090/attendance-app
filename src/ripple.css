@@ -1,0 +1,46 @@
+.tab {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  text-align: center;
+  border-right: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.tab:last-child {
+  border-right: none;
+}
+
+.tab-link {
+  display: block;
+  color: white;
+  text-decoration: none;
+  padding: 18px 0;
+  font-size: 18px;
+  position: relative;
+  z-index: 1;
+}
+
+/* Ripple本体 */
+.tab:active::after {
+  content: "";
+  position: absolute;
+  background: rgba(255, 255, 255, 0.4);
+  border-radius: 50%;
+  width: 200px;
+  height: 200px;
+  left: calc(50% - 100px);
+  top: calc(50% - 100px);
+  opacity: 0;
+  animation: ripple-effect 0.6s ease-out;
+}
+
+@keyframes ripple-effect {
+  0% {
+    transform: scale(0.3);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
