@@ -1,0 +1,481 @@
+/* === FullCalendar の土日色 === */
+/* 日付数字 */
+.fc .fc-day-sun a {
+  color: #e53935; /* 日曜・祝日：赤 */
+}
+.fc .fc-day-sat a {
+  color: #1e88e5; /* 土曜：青 */
+}
+
+/* 曜日ヘッダー */
+.fc .fc-col-header-cell.fc-day-sun {
+  color: #e53935;
+}
+.fc .fc-col-header-cell.fc-day-sat {
+  color: #1e88e5;
+}
+
+/* === 希望シフト入力ダイアログ === */
+.request-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+}
+
+.request-dialog {
+  background: #ffffff;
+  padding: 20px 24px;
+  border-radius: 8px;
+  width: 360px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.request-dialog h3 {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+.request-form-row {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.request-form-row label {
+  margin-bottom: 4px;
+  font-weight: bold;
+}
+
+.request-form-row input[type="time"],
+.request-form-row textarea {
+  padding: 6px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.request-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.request-form-actions button {
+  border-radius: 4px;
+  border: 1px solid #1976d2;
+  padding: 6px 12px;
+  font-size: 14px;
+  cursor: pointer;
+  background: #ffffff;
+  color: #1976d2;
+}
+
+.request-form-actions button[type="submit"] {
+  background: #1976d2;
+  color: #ffffff;
+}
+
+/* ===== 確定シフトページ ===== */
+
+.shift-page {
+  padding-top: 4px;
+}
+
+.shift-subtitle {
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: #555;
+}
+
+/* 確定シフトの横スクロール表（全体を大きめに） */
+.shift-grid-container {
+width: 100%;
+overflow-x: auto;
+overflow-y: auto;          /* ← 縦スクロールはコンテナ内だけにする */
+border: 1px solid #ddd;
+border-radius: 6px;
+background: #ffffff;
+padding: 16px;
+margin-top: 16px;
+box-sizing: border-box;
+max-height: calc(100vh - 200px);
+}
+
+
+/* 表本体：横幅を広めに取る */
+.shift-grid {
+  min-width: 1600px;         /* ← ここを大きくすると列が広がる */
+  font-size: 14px;
+}
+
+/* 各行 */
+.shift-row {
+  display: flex;
+  border-bottom: 1px solid #eee;
+  min-height: 48px;          /* 行を高くして見やすく */
+}
+
+.shift-row:last-child {
+  border-bottom: none;
+}
+
+/* 左の「人数」「田中」などのラベル列（固定表示） */
+.shift-row-label {
+  width: 110px;
+  padding: 8px;
+  background: #fafafa;
+  border-right: 1px solid #eee;
+  font-weight: bold;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  position: sticky;        /* ★ 横スクロールしても固定 */
+  left: 0;
+  z-index: 3;
+}
+
+/* 日付ヘッダー */
+.shift-day-header {
+  width: 60px;
+  padding: 6px 0;
+  text-align: center;
+  border-right: 1px solid #eee;
+  background: #fafafa;
+}
+
+.shift-day-header.shift-day-clickable {
+  cursor: pointer;
+}
+
+.shift-day-header.shift-day-clickable:hover {
+  background: #e3f2fd;
+}
+
+.shift-weekday {
+  font-size: 12px;
+  color: #555;
+}
+
+.shift-weekday.sun {
+  color: #e53935; /* 日曜赤 */
+}
+
+.shift-weekday.sat {
+  color: #1e88e5; /* 土曜青 */
+}
+
+.shift-date {
+  font-size: 16px;        /* 日付の数字を大きめに */
+}
+
+/* 各マス */
+.shift-cell {
+  width: 60px;
+  height: 40px;
+  border-right: 1px solid #eee;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+/* シフトが入っているマス */
+.shift-cell-working {
+  background: #e3f2fd;
+  font-weight: bold;
+}
+
+/* カレンダーの日付マスにホバーした時の背景色 */
+.fc-daygrid-day:hover {
+  background-color: #e3f2fd;  /* 薄い青 */
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+/* 今日の色を強調している場合はホバー時にも上書き */
+.fc-day-today:hover {
+  background-color: #bbdefb !important;
+}
+
+/* 日付ヘッダーを縦スクロールでも固定 */
+.shift-grid-header {
+  position: sticky;
+  top: -20px; /* ナビバーに重ならないように調整。navbarが60pxならこれ */
+  z-index: 5;
+  background: #fff;
+}
+
+/* 人数行（2段目）も sticky 固定 */
+.shift-grid-header-people {
+  position: sticky;
+  top: 30px;  /* 60px(nav) + 40px(日付) */
+  background: #fff;
+  z-index: 6;
+  padding: 0 !important;
+  margin: 0 !important;
+  height: 40px;  /* 行の高さ統一 */
+  display: flex;
+  align-items: center;
+}
+
+/* ログインボタンの中で使う小さなスピナー */
+.spinner-login {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* 共通のぐるぐるアニメーション */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ===== 管理画面用 ガントチャート ===== */
+
+.admin-section {
+  margin-bottom: 24px;
+}
+
+.admin-section-requests {
+  background: #e3f2fd;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.admin-section-fixed {
+  background: #e8f5e9;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.admin-table-wrapper {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+/* 左側テーブル */
+.admin-shift-table {
+  border-collapse: collapse;
+  min-width: 380px;
+  font-size: 14px;
+  background: #fff;
+}
+
+.admin-shift-table th,
+.admin-shift-table td {
+  border: 1px solid #ddd;
+  padding: 4px 8px;
+}
+
+.admin-shift-table th {
+  background: #f5f5f5;
+}
+
+/* 右側ガント */
+.admin-gantt-wrapper {
+  flex: 1;
+  overflow-x: auto;
+}
+
+.admin-gantt-scroll {
+  min-width: 900px; /* 横スクロールのベース幅 */
+  margin-top: 32px; /* ← ここを追加（30〜36の間で微調整してOK） */
+}
+
+/* ヘッダーと各行を同じグリッドにする */
+.admin-gantt-header,
+.admin-gantt-row {
+  display: grid;
+  grid-template-columns: repeat(18, 1fr); /* 7:00〜24:00 の 18 コマ */
+}
+
+.admin-gantt-header {
+  border-bottom: 1px solid #ddd;
+}
+
+.admin-gantt-header-cell {
+  font-size: 10px;
+  text-align: center;
+  padding: 2px 0;
+  border-right: 1px solid #eee;
+  color: #666;
+}
+
+.admin-gantt-row {
+  height: 24px;
+}
+
+.admin-gantt-cell {
+  border-right: 1px solid #f0f0f0;
+  border-bottom: 1px solid #f0f0f0;
+  background: #fafafa;
+}
+
+.admin-gantt-active {
+  background: #1976d2;
+}
+
+.admin-gantt-empty {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #777;
+}
+
+/* ドラッグ対象行に軽いハイライト */
+.admin-draggable-row {
+  cursor: grab;
+}
+
+.admin-draggable-row:active {
+  cursor: grabbing;
+  opacity: 0.8;
+}
+
+/* 確定シフトのドロップエリア */
+.admin-drop-area {
+  border: 2px dashed #90caf9;
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(144, 202, 249, 0.12);
+}
+.admin-drop-area:hover {
+  background: rgba(144, 202, 249, 0.2);
+}
+
+/* ==== 管理者シフト編集（ガントチャート） ==== */
+
+.admin-shift-detail-page {
+  padding: 0 16px 24px;
+}
+
+.admin-shift-section {
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: 8px;
+}
+
+.admin-shift-section-requests {
+  background: #e3f2fd;
+}
+
+.admin-shift-section-fixed {
+  background: #e8f5e9;
+}
+
+.admin-shift-section-title {
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.admin-shift-section-desc {
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.admin-shift-body {
+  display: grid;
+  grid-template-columns: minmax(260px, 360px) 1fr;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+/* テーブル */
+.admin-shift-table-wrapper {
+  overflow-x: auto;
+}
+
+.admin-shift-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+}
+
+.admin-shift-table th,
+.admin-shift-table td {
+  border: 1px solid #ddd;
+  padding: 4px 6px;
+  font-size: 13px;
+}
+
+.admin-shift-table th {
+  background: #f5f5f5;
+}
+
+.admin-drag-handle {
+  text-align: center;
+  cursor: grab;
+  user-select: none;
+  color: #999;
+  font-size: 16px;
+}
+
+/* ガントチャート */
+.admin-gantt-wrapper {
+  overflow-x: auto;
+}
+
+.admin-gantt-scroll {
+  min-width: 720px; /* 横スクロール用 */
+}
+
+.admin-gantt-header {
+  display: grid;
+  grid-template-columns: repeat(18, 1fr);
+  font-size: 10px;
+  color: #555;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.admin-gantt-header-cell {
+  text-align: center;
+  padding: 2px 0;
+}
+
+.admin-gantt-row {
+  display: grid;
+  grid-template-columns: repeat(18, 1fr);
+  height: 22px;
+}
+
+.admin-gantt-cell {
+  border-right: 1px solid #f0f0f0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.admin-gantt-cell-working {
+  background: #1976d2;
+}
+
+.admin-gantt-empty {
+  font-size: 12px;
+  color: #777;
+  padding: 8px 0;
+}
+
+
+
+
+
+
+
+
+
+
+
+
