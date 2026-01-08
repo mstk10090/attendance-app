@@ -15,11 +15,14 @@ import ShiftDetail from "./pages/ShiftDetail";
 import Login from "./pages/Login";
 import AdminUser from "./pages/AdminUser";
 import RequireAdmin from "./components/RequireAdmin";
+
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminShifts from "./pages/admin/AdminShifts";
-import AdminShiftsDetail from "./pages/admin/AdminShiftsDetail"; // ★ 追加
+import AdminShiftsDetail from "./pages/admin/AdminShiftsDetail";
 import AdminFixedShifts from "./pages/admin/AdminFixedShifts";
+import AdminAttendance from "./pages/admin/AdminAttendance"; // ★ 追加
 
+import Attendance from "./pages/Attendance";
 
 import "./ripple.css";
 import "./App.css";
@@ -53,11 +56,12 @@ export default function App() {
   const navLinkClass = ({ isActive }) =>
     "tab-link" + (isActive ? " tab-link-active" : "");
 
-  const isAdmin = isLoggedIn && localStorage.getItem("role") === "admin";
+  const isAdmin =
+    isLoggedIn && localStorage.getItem("role") === "admin";
 
   return (
     <Router>
-      {/* ログイン済みナビ */}
+      {/* ===== ナビゲーションバー ===== */}
       {isLoggedIn && (
         <nav
           style={{
@@ -67,10 +71,29 @@ export default function App() {
             right: 0,
             zIndex: 1000,
             display: "flex",
-            backgroundColor: "#1976d2",
+            alignItems: "center",
+            backgroundColor: isAdmin ? "#ed6c02" : "#1976d2",
             height: "60px",
+            padding: "0 12px",
+            color: "#fff",
           }}
         >
+          {/* 画面種別 */}
+          <div
+            style={{
+              fontWeight: "bold",
+              marginRight: "16px",
+              padding: "4px 10px",
+              borderRadius: "6px",
+              background: "rgba(255,255,255,0.2)",
+              fontSize: "13px",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {isAdmin ? "管理者画面" : "一般ユーザー画面"}
+          </div>
+
+          {/* ===== 管理者ナビ ===== */}
           {isAdmin ? (
             <>
               <div className="tab">
@@ -78,27 +101,41 @@ export default function App() {
                   管理TOP
                 </NavLink>
               </div>
+
+              <div className="tab">
+                <NavLink
+                  to="/admin/attendance"
+                  className={navLinkClass}
+                >
+                  勤怠管理
+                </NavLink>
+              </div>
+
               <div className="tab">
                 <NavLink to="/admin/fixed" className={navLinkClass}>
                   確定シフト
                 </NavLink>
               </div>
+
               <div className="tab">
                 <NavLink to="/admin/shifts" className={navLinkClass}>
                   シフト編集
                 </NavLink>
               </div>
+
               <div className="tab">
                 <NavLink to="/admin/users" className={navLinkClass}>
                   スタッフ管理
                 </NavLink>
               </div>
+
               <button
                 onClick={handleLogout}
                 style={{
                   marginLeft: "auto",
-                  padding: "0 16px",
+                  padding: "8px 16px",
                   border: "none",
+                  borderRadius: "6px",
                   background: "#d32f2f",
                   color: "#fff",
                   cursor: "pointer",
@@ -108,17 +145,29 @@ export default function App() {
               </button>
             </>
           ) : (
+            /* ===== スタッフナビ ===== */
             <>
+              <div className="tab">
+                <NavLink
+                  to="/attendance"
+                  className={navLinkClass}
+                >
+                  出退勤入力
+                </NavLink>
+              </div>
+
               <div className="tab">
                 <NavLink to="/" className={navLinkClass}>
                   確定シフト
                 </NavLink>
               </div>
+
               <div className="tab">
                 <NavLink to="/request" className={navLinkClass}>
                   希望シフト
                 </NavLink>
               </div>
+
               <div className="tab">
                 <NavLink to="/mypage" className={navLinkClass}>
                   マイページ
@@ -129,6 +178,7 @@ export default function App() {
         </nav>
       )}
 
+      {/* ===== メイン ===== */}
       <div
         style={{
           marginTop: isLoggedIn ? "60px" : 0,
@@ -149,7 +199,7 @@ export default function App() {
             </>
           ) : isAdmin ? (
             <>
-              {/* ===== 管理者用ルート ===== */}
+              {/* ===== 管理者ルート ===== */}
               <Route
                 path="/admin"
                 element={
@@ -158,6 +208,16 @@ export default function App() {
                   </RequireAdmin>
                 }
               />
+
+              <Route
+                path="/admin/attendance"
+                element={
+                  <RequireAdmin>
+                    <AdminAttendance />
+                  </RequireAdmin>
+                }
+              />
+
               <Route
                 path="/admin/users"
                 element={
@@ -166,6 +226,7 @@ export default function App() {
                   </RequireAdmin>
                 }
               />
+
               <Route
                 path="/admin/shifts"
                 element={
@@ -174,7 +235,7 @@ export default function App() {
                   </RequireAdmin>
                 }
               />
-              {/* ★ ここが日別ガントチャート */}
+
               <Route
                 path="/admin/shifts/:date"
                 element={
@@ -183,6 +244,7 @@ export default function App() {
                   </RequireAdmin>
                 }
               />
+
               <Route
                 path="/admin/fixed"
                 element={
@@ -192,15 +254,12 @@ export default function App() {
                 }
               />
 
-
-              {/* 管理者で / や /login に来たら /admin へ */}
               <Route path="/" element={<Navigate to="/admin" replace />} />
-              <Route path="/login" element={<Navigate to="/admin" replace />} />
               <Route path="*" element={<Navigate to="/admin" replace />} />
             </>
           ) : (
             <>
-              {/* ===== スタッフ用ルート ===== */}
+              {/* ===== スタッフルート ===== */}
               <Route path="/" element={<Home />} />
               <Route path="/request" element={<ShiftRequest />} />
               <Route
@@ -208,11 +267,9 @@ export default function App() {
                 element={<MyPage onLogout={handleLogout} />}
               />
               <Route path="/shift/:date" element={<ShiftDetail />} />
-              <Route path="/login" element={<Navigate to="/" replace />} />
+              <Route path="/attendance" element={<Attendance />} />
               <Route path="*" element={<Navigate to="/" replace />} />
-
             </>
-
           )}
         </Routes>
       </div>

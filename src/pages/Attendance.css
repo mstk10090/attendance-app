@@ -1,0 +1,142 @@
+/* =========================
+   ページ全体
+========================= */
+
+.page-bg {
+  background: #f4f6f8;
+  min-height: 100vh;
+}
+
+.page-container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 40px 24px;
+}
+
+/* =========================
+   ページタイトル
+========================= */
+
+.page-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 32px;
+}
+
+.page-title h1 {
+  font-size: 32px;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+/* =========================
+   カード共通
+========================= */
+
+.card {
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+  padding: 32px;
+}
+
+/* =========================
+   出退勤アクション
+========================= */
+
+.attendance-actions {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.attendance-actions button {
+  padding: 16px 32px;
+  font-size: 16px;
+  font-weight: 700;
+  border-radius: 14px;
+  border: none;
+  cursor: pointer;
+}
+
+/* 出勤ボタン */
+.attendance-actions .clock-in {
+  background: #16a34a;
+  color: #fff;
+}
+
+.attendance-actions .clock-in:hover {
+  background: #15803d;
+}
+
+/* 退勤ボタン */
+.attendance-actions .clock-out {
+  background: #dc2626;
+  color: #fff;
+}
+
+.attendance-actions .clock-out:hover {
+  background: #b91c1c;
+}
+
+/* 無効状態 */
+.attendance-actions button:disabled {
+  background: #d1d5db;
+  color: #6b7280;
+  cursor: not-allowed;
+}
+
+/* =========================
+   勤務履歴
+========================= */
+
+.attendance-history {
+  margin-top: 32px;
+}
+
+.attendance-history h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: #111827;
+}
+
+/* =========================
+   テーブル
+========================= */
+
+.attendance-history table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.attendance-history thead {
+  color: #6b7280;
+}
+
+.attendance-history th,
+.attendance-history td {
+  padding: 12px;
+  text-align: left;
+}
+
+.attendance-history tbody tr {
+  border-top: 1px solid #e5e7eb;
+}
+
+.attendance-history tbody tr:hover {
+  background: #f9fafb;
+}
+
+/* =========================
+   空表示
+========================= */
+
+.attendance-history .empty {
+  text-align: center;
+  color: #6b7280;
+  padding: 40px 0;
+}

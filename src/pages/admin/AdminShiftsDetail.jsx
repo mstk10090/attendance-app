@@ -12,7 +12,7 @@ const FIXED_SHIFTS_GET_API_URL =
 
 // 確定シフトの保存（★ SaveFixedShifts を紐づけた URL にしてください）
 const FIXED_SHIFTS_POST_API_URL =
-  "https://cma9brof8g.execute-api.ap-northeast-1.amazonaws.com/prod/savefixedshifts";
+  "https://cma9brof8g.execute-api.ap-northeast-1.amazonaws.com/prod/fixedshifts";
 
 const HOURS = Array.from({ length: 18 }, (_, i) => 7 + i); // 7:00〜24:00
 
