@@ -20,7 +20,8 @@ import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminShifts from "./pages/admin/AdminShifts";
 import AdminShiftsDetail from "./pages/admin/AdminShiftsDetail";
 import AdminFixedShifts from "./pages/admin/AdminFixedShifts";
-import AdminAttendance from "./pages/admin/AdminAttendance"; // ★ 追加
+import AdminAttendance from "./pages/admin/AdminAttendance";
+import AdminHistory from "./pages/admin/AdminHistory";
 
 import Attendance from "./pages/Attendance";
 
@@ -96,11 +97,11 @@ export default function App() {
           {/* ===== 管理者ナビ ===== */}
           {isAdmin ? (
             <>
-              <div className="tab">
+              {/* <div className="tab">
                 <NavLink to="/admin" className={navLinkClass}>
                   管理TOP
                 </NavLink>
-              </div>
+              </div> */}
 
               <div className="tab">
                 <NavLink
@@ -112,16 +113,25 @@ export default function App() {
               </div>
 
               <div className="tab">
-                <NavLink to="/admin/fixed" className={navLinkClass}>
-                  確定シフト
+                <NavLink
+                  to="/admin/history"
+                  className={navLinkClass}
+                >
+                  個人履歴
                 </NavLink>
               </div>
 
-              <div className="tab">
+              {/* <div className="tab">
+                <NavLink to="/admin/fixed" className={navLinkClass}>
+                  確定シフト
+                </NavLink>
+              </div> */}
+
+              {/* <div className="tab">
                 <NavLink to="/admin/shifts" className={navLinkClass}>
                   シフト編集
                 </NavLink>
-              </div>
+              </div> */}
 
               <div className="tab">
                 <NavLink to="/admin/users" className={navLinkClass}>
@@ -156,17 +166,17 @@ export default function App() {
                 </NavLink>
               </div>
 
-              <div className="tab">
+              {/* <div className="tab">
                 <NavLink to="/" className={navLinkClass}>
                   確定シフト
                 </NavLink>
-              </div>
+              </div> */}
 
-              <div className="tab">
+              {/* <div className="tab">
                 <NavLink to="/request" className={navLinkClass}>
                   希望シフト
                 </NavLink>
-              </div>
+              </div> */}
 
               <div className="tab">
                 <NavLink to="/mypage" className={navLinkClass}>
@@ -200,13 +210,10 @@ export default function App() {
           ) : isAdmin ? (
             <>
               {/* ===== 管理者ルート ===== */}
+              {/* 管理TOPは非表示 -> 勤怠管理へリダイレクト */}
               <Route
                 path="/admin"
-                element={
-                  <RequireAdmin>
-                    <AdminDashboard />
-                  </RequireAdmin>
-                }
+                element={<Navigate to="/admin/attendance" replace />}
               />
 
               <Route
@@ -214,6 +221,15 @@ export default function App() {
                 element={
                   <RequireAdmin>
                     <AdminAttendance />
+                  </RequireAdmin>
+                }
+              />
+
+              <Route
+                path="/admin/history"
+                element={
+                  <RequireAdmin>
+                    <AdminHistory />
                   </RequireAdmin>
                 }
               />
@@ -254,13 +270,14 @@ export default function App() {
                 }
               />
 
-              <Route path="/" element={<Navigate to="/admin" replace />} />
-              <Route path="*" element={<Navigate to="/admin" replace />} />
+              <Route path="/" element={<Navigate to="/admin/attendance" replace />} />
+              <Route path="*" element={<Navigate to="/admin/attendance" replace />} />
             </>
           ) : (
             <>
               {/* ===== スタッフルート ===== */}
-              <Route path="/" element={<Home />} />
+              {/* 確定シフト(HOME)非表示 -> 出退勤へリダイレクト */}
+              <Route path="/" element={<Navigate to="/attendance" replace />} />
               <Route path="/request" element={<ShiftRequest />} />
               <Route
                 path="/mypage"
@@ -268,7 +285,7 @@ export default function App() {
               />
               <Route path="/shift/:date" element={<ShiftDetail />} />
               <Route path="/attendance" element={<Attendance />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
+              <Route path="*" element={<Navigate to="/attendance" replace />} />
             </>
           )}
         </Routes>

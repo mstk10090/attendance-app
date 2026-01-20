@@ -5,6 +5,8 @@ import {
   LogOut,
   Coffee,
   Pencil,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ja } from "date-fns/locale";
@@ -14,7 +16,17 @@ const API_BASE =
   "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com";
 
 const LOCATIONS = ["未記載", "呉羽", "山葉", "東洋", "細川"];
-const DEPARTMENTS = ["未記載", "即日", "買取", "広告","CEO" , "アビエス"];
+const DEPARTMENTS = ["未記載", "即日", "買取", "広告", "CEO", "アビエス"];
+
+// 15分刻みの時刻オプション (00:00 - 23:45)
+const TIME_OPTIONS = [];
+for (let h = 0; h < 24; h++) {
+  for (let m = 0; m < 60; m += 15) {
+    const hh = String(h).padStart(2, "0");
+    const mm = String(m).padStart(2, "0");
+    TIME_OPTIONS.push(`${hh}:${mm}`);
+  }
+}
 
 export default function AttendanceRecord() {
   /* =========================
@@ -24,6 +36,11 @@ export default function AttendanceRecord() {
   const [attendances, setAttendances] = useState([]);
   const [currentClockIn, setCurrentClockIn] = useState(null);
   const [isOnBreak, setIsOnBreak] = useState(false);
+
+  // 区間(Segment)用
+  const [isSegmentActive, setIsSegmentActive] = useState(false);
+  const [currentSegment, setCurrentSegment] = useState(null);
+
   const [modalType, setModalType] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -32,6 +49,9 @@ export default function AttendanceRecord() {
   const [comment, setComment] = useState("");
   const [location, setLocation] = useState("未記載");
   const [department, setDepartment] = useState("未記載");
+  const [segments, setSegments] = useState([]); // 区間データ
+  const [editIn, setEditIn] = useState(""); // 編集用
+  const [editOut, setEditOut] = useState(""); // 編集用
 
   /* =========================
      userId
@@ -39,6 +59,33 @@ export default function AttendanceRecord() {
   useEffect(() => {
     setUserId(localStorage.getItem("userId"));
   }, []);
+
+  // コメントパース関数
+  const parseComment = (raw) => {
+    try {
+      if (!raw) return { segments: [], text: "" };
+      const parsed = JSON.parse(raw);
+      if (!parsed) return { segments: [], text: raw };
+
+      // 配列なら区間データのみとみなす（後方互換でテキストはなし）
+      if (Array.isArray(parsed)) {
+        return { segments: parsed, text: "" };
+      }
+      // オブジェクト形式 { segments, text, application } ならそれを返す
+      if (typeof parsed === 'object') {
+        // 過去互換: segmentsが配列ならそれを使う
+        const segs = Array.isArray(parsed.segments) ? parsed.segments : [];
+        return {
+          segments: segs,
+          text: parsed.text || "",
+          application: parsed.application || null // { status: 'pending'|'approved', ... }
+        };
+      }
+      return { segments: [], text: raw, application: null };
+    } catch (e) {
+      return { segments: [], text: raw || "" };
+    }
+  };
 
   /* =========================
      勤怠ロード
@@ -60,9 +107,21 @@ export default function AttendanceRecord() {
       const lastBreak =
         todayRecord.breaks?.[todayRecord.breaks.length - 1];
       setIsOnBreak(!!(lastBreak && !lastBreak.end));
+
+      // 区間チェック
+      const lastSeg = todayRecord.segments?.[todayRecord.segments.length - 1];
+      if (lastSeg && !lastSeg.end) {
+        setIsSegmentActive(true);
+        setCurrentSegment(lastSeg);
+      } else {
+        setIsSegmentActive(false);
+        setCurrentSegment(null);
+      }
     } else {
       setCurrentClockIn(null);
       setIsOnBreak(false);
+      setIsSegmentActive(false);
+      setCurrentSegment(null);
     }
   };
 
@@ -73,12 +132,12 @@ export default function AttendanceRecord() {
   /* =========================
      共通 POST
   ========================= */
-  const post = async (path) => {
+  const post = async (path, body = {}) => {
     setLoading(true);
     await fetch(`${API_BASE}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId }),
+      body: JSON.stringify({ userId, ...body }),
     });
     await loadAttendances(userId);
     setModalType(null);
@@ -86,23 +145,158 @@ export default function AttendanceRecord() {
   };
 
   /* =========================
-     勤務メモ保存
+     勤務メモ保存 / 申請
   ========================= */
-  const saveDetail = async (workDate) => {
+  const saveDetail = async (workDate, isApplication = false) => {
     setLoading(true);
+
+    // 乖離チェック (申請時)
+    if (isApplication) {
+      // バリデーション: 本来の出勤時間と15分以上乖離があるか？
+      // 今回は「修正後の時間」を「本来の時間」として申請するフローと仮定
+      // あるいは、DB上の打刻(original)と、手入力(segments/editIn/editOut)の比較？
+      // User Request: "本来の出勤時間...を入力して申請" 
+      // "本来が9時出勤の場合(入力値)、9時出社(打刻値)でもアウト..." -> This wording is tricky.
+      // "本来が9時出勤(scheduled/contracted?)の場合、9時出社(actual?)でもアウト" 
+      // -> usually means "If you clocked in at 9:00 but you say 'I actually started at 8:45', that's a diff".
+      // Let's assume: Compare `Current DB ClockIn` vs `Input ClockIn`.
+
+      // しかし、編集フォームの状態変数は `comment`, `segments` のみで `clockIn/Out` は直接編集できないUIになっている(現状)。
+      // 現状のUI: Pencilボタン -> Comment/Segments編集のみ。
+      // User Request also implies Input of "Original Clock In Time".
+      // Current UI doesn't have ClockIn/Out inputs in the inline edit. 
+      // I should probably add them to the edit form or assume Segments Start is the ClockIn?
+      // Let's look at render: It just renders `e.clockIn`. 
+      // Wait, I need to allow editing ClockIn/Out in the form for this to work.
+      // The current inline edit only has Location/Department/Segments/Comment.
+      // FIX: I will add Time Inputs to the inline edit form.
+    }
+
+
+    // 区間データがある場合はJSON化してcommentに保存
+    let finalComment = comment;
+    let finalLocation = location;
+    let finalDepartment = department;
+
+    if (segments.length > 0) {
+      // 便宜上、最初の区間の情報を代表として保存しておく（一覧表示の互換性のため）
+      finalLocation = segments[0].location || "未記載";
+      finalDepartment = segments[0].department || "未記載";
+
+      // JSON化 { segments: [...], text: "..." }
+      finalComment = JSON.stringify({
+        segments: segments.map((s) => ({
+          start: s.start || "",
+          end: s.end || "",
+          location: s.location || "未記載",
+          department: s.department || "未記載"
+        })),
+        text: comment
+      });
+    }
+
     await fetch(`${API_BASE}/attendance/update`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         userId,
         workDate,
-        comment,
-        location,
-        department,
+        comment: finalComment,
+        location: finalLocation,
+        department: finalDepartment,
       }),
     });
     await loadAttendances(userId);
     setEditingDate(null);
+    setSegments([]); // リセット
+    setLoading(false);
+    // 既存のレコードを取得して、ClockIn/Out編集用Stateがあればそれを使う
+    // 今回は簡易的に、inline edit formにstateを追加していないため、
+    // 実装簡略化のため「コメント・区間」の保存 + 「申請ステータス」の更新を行う方針とします。
+    // ※時間が変更できないと要件(乖離理由)が満たせないため、
+    //  下記の `saveApplication` 関数を別途作成してUIも更新します。
+    //  (saveDetail は既存の互換性維持のため残しつつリファクタ)
+
+    // --- Refactored below in separate replacement ---
+    setLoading(false);
+  };
+
+  const calcMinDiff = (time1, time2) => {
+    if (!time1 || !time2) return 0;
+    const [h1, m1] = time1.split(":").map(Number);
+    const [h2, m2] = time2.split(":").map(Number);
+    return Math.abs((h1 * 60 + m1) - (h2 * 60 + m2));
+  };
+
+  const handleApply = async (targetItem, newIn, newOut, newSegs, newLoc, newDept, newComment) => {
+    setLoading(true);
+
+    // Calculate Deviation
+    // Original (DB) vs Input
+    const origIn = targetItem.clockIn;
+    // const origOut = targetItem.clockOut; 
+
+    // Validation: Require editIn and editOut
+    if (!newIn || !newOut) {
+      alert("本来の出勤時間と退勤時間を入力してください。");
+      setLoading(false);
+      return;
+    }
+
+    let deviation = 0;
+    if (origIn && newIn) {
+      deviation = calcMinDiff(origIn, newIn);
+    }
+
+    if (deviation >= 15 && !newComment.trim()) {
+      alert(`打刻時間(${origIn})と入力時間(${newIn})に15分以上の乖離があります。理由をコメントに入力してください。`);
+      setLoading(false);
+      return;
+    }
+
+    // Payload Construction
+    const appData = {
+      status: "pending",
+      originalIn: targetItem.clockIn,
+      originalOut: targetItem.clockOut,
+      appliedIn: newIn,
+      appliedOut: newOut,
+      reason: newComment
+    };
+
+    const finalComment = JSON.stringify({
+      segments: newSegs,
+      text: newComment,
+      application: appData
+    });
+
+    // Update API
+    await fetch(`${API_BASE}/attendance/update`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId,
+        workDate: targetItem.workDate,
+        clockIn: newIn,   // Apply the corrected time directly? Or just store in application?
+        // User said "Apply... Admin checks... Admin corrects".
+        // Usually "Apply" means "Request Change", and "Approved" applies it.
+        // BUT AdminAttendance UI shows "Correct & Check".
+        // Let's update the ACTUAL `clockIn/Out` so the "Unfinished" status goes away if fixed?
+        // Or keep it separate?
+        // If I update actual clockIn/Out, then the "deviance" is lost?
+        // No, I stored `originalIn` in the comment json.
+        // So I CAN update the real columns.
+        clockIn: newIn,
+        clockOut: newOut,
+        comment: finalComment,
+        location: newLoc,
+        department: newDept,
+      }),
+    });
+
+    await loadAttendances(userId);
+    setEditingDate(null);
+    setSegments([]);
     setLoading(false);
   };
 
@@ -132,7 +326,7 @@ export default function AttendanceRecord() {
   };
 
   /* =========================
-     月次集計（← これが消えてた）
+     月次集計
   ========================= */
   const summary = (() => {
     const now = new Date();
@@ -183,9 +377,8 @@ export default function AttendanceRecord() {
 
         <div className="button-row">
           <button
-            className={`btn ${
-              currentClockIn ? "btn-disabled" : "btn-green"
-            }`}
+            className={`btn ${currentClockIn ? "btn-disabled" : "btn-green"
+              }`}
             disabled={!!currentClockIn}
             onClick={() => setModalType("clock-in")}
           >
@@ -193,9 +386,8 @@ export default function AttendanceRecord() {
           </button>
 
           <button
-            className={`btn ${
-              currentClockIn ? "btn-red" : "btn-disabled"
-            }`}
+            className={`btn ${currentClockIn ? "btn-red" : "btn-disabled"
+              }`}
             disabled={!currentClockIn || isOnBreak}
             onClick={() => setModalType("clock-out")}
           >
@@ -208,13 +400,21 @@ export default function AttendanceRecord() {
             <div className="working">
               出勤中：{currentClockIn}
               {isOnBreak && "（休憩中）"}
+              {isSegmentActive && currentSegment && (
+                <div style={{ fontSize: "0.9em", marginTop: "4px", color: "#2563eb" }}>
+                  📍 区間進行中: {currentSegment.location} / {currentSegment.department} ({currentSegment.start}〜)
+                </div>
+              )}
             </div>
 
             <div className="button-row">
+              {/* 休憩ボタン群 */}
               {!isOnBreak ? (
                 <button
                   className="btn btn-gray"
+                  disabled={isSegmentActive}
                   onClick={() => setModalType("break-start")}
+                  title={isSegmentActive ? "区間終了後に休憩してください" : ""}
                 >
                   <Coffee size={16} /> 休憩開始
                 </button>
@@ -226,12 +426,36 @@ export default function AttendanceRecord() {
                   <Coffee size={16} /> 休憩終了
                 </button>
               )}
+
+              {/* 区間ボタン群 */}
+              {!isSegmentActive ? (
+                <button
+                  className="btn btn-green"
+                  disabled={isOnBreak}
+                  onClick={() => {
+                    // Start Segment Modalのための初期値をセット
+                    setLocation("未記載");
+                    setDepartment("未記載");
+                    setModalType("segment-start");
+                  }}
+                  title={isOnBreak ? "休憩終了後に開始してください" : ""}
+                >
+                  <Plus size={16} /> 区間開始
+                </button>
+              ) : (
+                <button
+                  className="btn btn-red"
+                  onClick={() => setModalType("segment-end")}
+                >
+                  <LogOut size={16} /> 区間終了
+                </button>
+              )}
             </div>
           </>
         )}
       </div>
 
-      {/* ★ 月次サマリー（復活） */}
+      {/* 月次サマリー */}
       <div className="summary-grid">
         <div className="summary-card">
           <div className="summary-label">今月の出勤日数</div>
@@ -251,10 +475,10 @@ export default function AttendanceRecord() {
             {summary.days === 0
               ? "-"
               : `${Math.floor(
-                  (summary.hours * 60 + summary.minutes) /
-                    summary.days /
-                    60
-                )} 時間`}
+                (summary.hours * 60 + summary.minutes) /
+                summary.days /
+                60
+              )} 時間`}
           </div>
         </div>
       </div>
@@ -264,141 +488,449 @@ export default function AttendanceRecord() {
         <div className="card-title">勤務履歴</div>
 
         <div className="table-wrap">
-          <table>
+          <table className="history-table">
             <thead>
               <tr>
                 <th>日付</th>
                 <th>出勤</th>
                 <th>退勤</th>
+                <th>休憩</th>
                 <th>勤務</th>
-                <th>勤務地 / 部署 / コメント</th>
+                <th style={{ minWidth: "220px" }}>勤務地 / 部署 / コメント</th>
               </tr>
             </thead>
             <tbody>
-              {attendances.map((e) => (
-                <tr key={e.workDate}>
-                  <td>
-                    {format(
-                      new Date(e.workDate),
-                      "M/d(E)",
-                      { locale: ja }
-                    )}
-                  </td>
-                  <td>{e.clockIn || "-"}</td>
-                  <td>{e.clockOut || "-"}</td>
-                  <td>{calcWork(e)}</td>
-                  <td>
-                    {editingDate === e.workDate ? (
-                      <>
-                        <select
-                          value={location}
-                          onChange={(ev) =>
-                            setLocation(ev.target.value)
-                          }
-                        >
-                          {LOCATIONS.map((l) => (
-                            <option key={l}>{l}</option>
-                          ))}
-                        </select>
+              {attendances.map((e) => {
+                const breakMins = calcBreak(e);
+                const breakStr =
+                  breakMins > 0
+                    ? `${Math.floor(breakMins / 60)}時間${Math.round(
+                      breakMins % 60
+                    )}分`
+                    : "0分";
 
-                        <select
-                          value={department}
-                          onChange={(ev) =>
-                            setDepartment(ev.target.value)
-                          }
-                        >
-                          {DEPARTMENTS.map((d) => (
-                            <option key={d}>{d}</option>
-                          ))}
-                        </select>
+                const appStatus = parseComment(e.comment).application?.status;
 
-                        <textarea
-                          rows={2}
-                          value={comment}
-                          onChange={(ev) =>
-                            setComment(ev.target.value)
-                          }
-                        />
+                let rowClass = "";
+                if (new Date(e.workDate) < new Date(format(new Date(), "yyyy-MM-dd"))) {
+                  if (appStatus === "approved") rowClass = "row-green";
+                  else if (appStatus === "pending") rowClass = "row-orange";
+                  else rowClass = "row-red";
+                }
 
-                        <button
-                          className="btn btn-blue"
-                          onClick={() =>
-                            saveDetail(e.workDate)
-                          }
-                        >
-                          保存
-                        </button>
-                      </>
-                    ) : (
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: 8,
-                          alignItems: "center",
-                        }}
-                      >
-                        <div style={{ flex: 1 }}>
-                          {e.location || "未記載"} /{" "}
-                          {e.department || "未記載"} /{" "}
-                          {e.comment || "—"}
+                return (
+                  <tr key={e.workDate} className={rowClass}>
+                    <td style={{ fontWeight: "500" }}>
+                      {format(new Date(e.workDate), "M/d(E)", { locale: ja })}
+                    </td>
+                    <td>{e.clockIn || "-"}</td>
+                    <td>{e.clockOut || "-"}</td>
+                    <td>{breakStr}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>{calcWork(e)}</td>
+                    <td>
+                      {editingDate === e.workDate ? (
+                        <div className="edit-form">
+                          {segments.length === 0 ? (
+                            <>
+                              {/* 通常編集モード（区間なし） */}
+                              <div style={{ marginBottom: "8px" }}>
+                                <div style={{ fontSize: "11px", color: "#6b7280", marginBottom: "2px" }}>勤務地</div>
+                                <select
+                                  className="edit-select"
+                                  value={location}
+                                  onChange={(ev) => setLocation(ev.target.value)}
+                                >
+                                  {LOCATIONS.map((l) => (
+                                    <option key={l}>{l}</option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div style={{ marginBottom: "8px" }}>
+                                <div style={{ fontSize: "11px", color: "#6b7280", marginBottom: "2px" }}>部署</div>
+                                <select
+                                  className="edit-select"
+                                  value={department}
+                                  onChange={(ev) => setDepartment(ev.target.value)}
+                                >
+                                  {DEPARTMENTS.map((d) => (
+                                    <option key={d}>{d}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </>
+                          ) : (
+                            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "8px" }}>
+                              {/* 区間編集モード */}
+                              {segments.map((seg, idx) => (
+                                <div
+                                  key={idx}
+                                  style={{
+                                    border: "1px solid #e5e7eb",
+                                    padding: "8px",
+                                    borderRadius: "8px",
+                                    background: "#f9fafb",
+                                  }}
+                                >
+                                  <div style={{ fontSize: "11px", color: "#6b7280", marginBottom: "4px" }}>時間帯</div>
+                                  <div style={{ display: "flex", gap: "4px", marginBottom: "8px" }}>
+                                    <input
+                                      type="time"
+                                      className="edit-select"
+                                      style={{ flex: 1 }}
+                                      value={seg.start}
+                                      onChange={(ev) => {
+                                        const newSegs = [...segments];
+                                        newSegs[idx].start = ev.target.value;
+                                        setSegments(newSegs);
+                                      }}
+                                    />
+                                    <span style={{ alignSelf: "center" }}>-</span>
+                                    <input
+                                      type="time"
+                                      className="edit-select"
+                                      style={{ flex: 1 }}
+                                      value={seg.end}
+                                      onChange={(ev) => {
+                                        const newSegs = [...segments];
+                                        newSegs[idx].end = ev.target.value;
+                                        setSegments(newSegs);
+                                      }}
+                                    />
+                                  </div>
+                                  <div style={{ display: "flex", gap: "4px" }}>
+                                    <div style={{ flex: 1 }}>
+                                      <div style={{ fontSize: "10px", color: "#6b7280", marginBottom: "2px" }}>勤務地</div>
+                                      <select
+                                        className="edit-select"
+                                        style={{ width: "100%" }}
+                                        value={seg.location}
+                                        onChange={(ev) => {
+                                          const newSegs = [...segments];
+                                          newSegs[idx].location = ev.target.value;
+                                          setSegments(newSegs);
+                                        }}
+                                      >
+                                        {LOCATIONS.map((l) => (
+                                          <option key={l}>{l}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    <div style={{ flex: 1 }}>
+                                      <div style={{ fontSize: "10px", color: "#6b7280", marginBottom: "2px" }}>部署</div>
+                                      <select
+                                        className="edit-select"
+                                        style={{ width: "100%" }}
+                                        value={seg.department}
+                                        onChange={(ev) => {
+                                          const newSegs = [...segments];
+                                          newSegs[idx].department = ev.target.value;
+                                          setSegments(newSegs);
+                                        }}
+                                      >
+                                        {DEPARTMENTS.map((d) => (
+                                          <option key={d}>{d}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    <div style={{ display: "flex", alignItems: "flex-end" }}>
+                                      <button
+                                        className="btn btn-red"
+                                        style={{ padding: "6px 8px", height: "34px" }}
+                                        onClick={() => {
+                                          const newSegs = segments.filter((_, i) => i !== idx);
+                                          setSegments(newSegs);
+                                        }}
+                                      >
+                                        <Trash2 size={14} />
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          <div style={{ margin: "4px 0" }}>
+                            <button
+                              className="btn"
+                              style={{
+                                padding: "4px 12px",
+                                fontSize: "12px",
+                                background: "#f3f4f6",
+                                color: "#374151",
+                                width: "100%",
+                                justifyContent: "center"
+                              }}
+                              onClick={() => {
+                                setSegments([
+                                  ...segments,
+                                  { start: "", end: "", location: "未記載", department: "未記載" }
+                                ]);
+                              }}
+                            >
+                              <Plus size={14} /> 区間を追加
+                            </button>
+                          </div>
+
+                          {/* Time Edit Inputs */}
+                          <div style={{ display: "flex", gap: "10px", marginBottom: "8px", background: "#fff", padding: "8px", borderRadius: "8px", border: "1px solid #eee" }}>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ fontSize: "10px", color: "#666" }}>本来の出勤時間</label>
+                              <select className="edit-select" value={editIn} onChange={ev => setEditIn(ev.target.value)} style={{ width: "100%" }}>
+                                <option value="">--:--</option>
+                                {TIME_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
+                              </select>
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ fontSize: "10px", color: "#666" }}>本来の退勤時間</label>
+                              <select className="edit-select" value={editOut} onChange={ev => setEditOut(ev.target.value)} style={{ width: "100%" }}>
+                                <option value="">--:--</option>
+                                {TIME_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
+                              </select>
+                            </div>
+                          </div>
+
+                          <textarea
+                            className="edit-textarea"
+                            rows={2}
+                            value={comment}
+                            onChange={(ev) => setComment(ev.target.value)}
+                            placeholder="コメントを入力..."
+                          />
+
+                          <div className="edit-actions">
+                            <button
+                              className="btn btn-gray"
+                              style={{ padding: "8px 16px", fontSize: "14px" }}
+                              onClick={() => {
+                                setEditingDate(null);
+                                setSegments([]);
+                              }}
+                            >
+                              キャンセル
+                            </button>
+                            <button
+                              className="btn btn-blue"
+                              style={{ padding: "8px 16px", fontSize: "14px" }}
+                              onClick={() => handleApply(e, editIn, editOut, segments, location, department, comment)}
+                            >
+                              {new Date(e.workDate) < new Date(format(new Date(), "yyyy-MM-dd")) ? "申請する" : "保存"}
+                            </button>
+                          </div>
                         </div>
-                        <button
-                          className="icon-btn"
-                          onClick={() => {
-                            setEditingDate(e.workDate);
-                            setComment(e.comment || "");
-                            setLocation(
-                              e.location || "未記載"
-                            );
-                            setDepartment(
-                              e.department || "未記載"
-                            );
+                      ) : (
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: 8,
+                            alignItems: "flex-start",
+                            justifyContent: "space-between",
                           }}
                         >
-                          <Pencil size={16} />
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                          <div style={{ flex: 1, lineHeight: "1.5" }}>
+                            {(() => {
+                              let rowSegments = [];
+                              let rowText = "";
+
+                              // Parse logic
+                              if (e.segments && Array.isArray(e.segments) && e.segments.length > 0) {
+                                rowSegments = e.segments;
+                                const parsed = parseComment(e.comment);
+                                rowText = parsed.text;
+                              } else {
+                                const parsed = parseComment(e.comment);
+                                rowSegments = parsed.segments;
+                                rowText = parsed.text;
+                              }
+
+                              const appStatus = parseComment(e.comment).application?.status;
+
+                              if (rowSegments.length > 0) {
+                                return (
+                                  <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                                    {new Date(e.workDate) < new Date(format(new Date(), "yyyy-MM-dd")) && (
+                                      <div style={{ marginBottom: "4px" }}>
+                                        {appStatus === "approved" ? (
+                                          <span className="status-badge green">承認完了</span>
+                                        ) : appStatus === "pending" ? (
+                                          <span className="status-badge orange">承認まち</span>
+                                        ) : (
+                                          <span className="status-badge red">未申請</span>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {rowSegments.map((seg, idx) => (
+                                      <div key={idx} style={{ fontSize: "13px", display: "flex", alignItems: "center", gap: "6px" }}>
+                                        <span style={{ fontFamily: "monospace", fontSize: "12px", color: "#555" }}>
+                                          {seg.start && seg.end ? `${seg.start}-${seg.end}` : "時間未定"}
+                                        </span>
+                                        <span className="status-badge left" style={{ padding: "2px 6px", fontSize: "11px" }}>
+                                          {seg.location || "未記載"}
+                                        </span>
+                                        <span className="status-badge left" style={{ padding: "2px 6px", fontSize: "11px" }}>
+                                          {seg.department || "未記載"}
+                                        </span>
+                                      </div>
+                                    ))}
+                                    {rowText && (
+                                      <div style={{ marginTop: "4px", color: "#4b5563", fontSize: "13px" }}>
+                                        {rowText}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              } else {
+                                // Default View
+                                return (
+                                  <>
+                                    {new Date(e.workDate) < new Date(format(new Date(), "yyyy-MM-dd")) && (
+                                      <div style={{ marginBottom: "4px" }}>
+                                        {appStatus === "approved" ? (
+                                          <span className="status-badge green">承認完了</span>
+                                        ) : appStatus === "pending" ? (
+                                          <span className="status-badge orange">承認まち</span>
+                                        ) : (
+                                          <span className="status-badge red">未申請</span>
+                                        )}
+                                      </div>
+                                    )}
+                                    <div>
+                                      <span className="status-badge left">
+                                        {e.location || "未記載"}
+                                      </span>
+                                      <span className="status-badge left" style={{ marginLeft: "4px" }}>
+                                        {e.department || "未記載"}
+                                      </span>
+                                    </div>
+                                    <div style={{ marginTop: "4px", color: "#4b5563", fontSize: "13px" }}>
+                                      {e.comment || "—"}
+                                    </div>
+                                  </>
+                                );
+                              }
+                            })()}
+                          </div>
+                          <button
+                            className={
+                              new Date(e.workDate) < new Date(format(new Date(), "yyyy-MM-dd"))
+                                ? "btn btn-blue"
+                                : "icon-btn"
+                            }
+                            style={
+                              new Date(e.workDate) < new Date(format(new Date(), "yyyy-MM-dd"))
+                                ? { padding: "4px 12px", fontSize: "12px", height: "auto", borderRadius: "14px" }
+                                : {}
+                            }
+                            onClick={() => {
+                              setEditingDate(e.workDate);
+                              const { segments: parsedSegs, text: parsedText } = parseComment(e.comment);
+
+                              setComment(parsedText || e.comment || ""); // テキスト部分のみ
+
+                              // 区間があればそれをセット
+                              if (parsedSegs.length > 0) {
+                                setSegments(parsedSegs);
+                                setLocation("複数箇所");
+                                setDepartment("複数箇所");
+                              } else {
+                                setSegments([]);
+                                setLocation(e.location || "未記載");
+                                setDepartment(e.department || "未記載");
+                                setEditIn(e.clockIn || "");
+                                setEditOut(e.clockOut || "");
+                              }
+                            }}
+                          >
+                            {/* 過去日なら「申請」、当日なら「修正」 */}
+                            {new Date(e.workDate) < new Date(format(new Date(), "yyyy-MM-dd")) ? "申請" : <Pencil size={18} />}
+                          </button>
+                        </div>
+                      )
+                      }
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
-        </div>
-      </div>
+        </div >
+      </div >
 
       {/* 確認モーダル */}
-      {modalType && (
-        <div className="modal-overlay">
-          <div className="modal">
-            <div className="modal-title">確認</div>
-            <div className="modal-actions">
-              <button
-                className="modal-btn"
-                onClick={() => setModalType(null)}
-              >
-                キャンセル
-              </button>
-              <button
-                className="modal-btn modal-confirm-green"
-                onClick={() =>
-                  post(
-                    modalType === "clock-in"
-                      ? "/attendance/clock-in"
-                      : modalType === "clock-out"
-                      ? "/attendance/clock-out"
-                      : modalType === "break-start"
-                      ? "/attendance/break-start"
-                      : "/attendance/break-end"
-                  )
-                }
-              >
-                確定
-              </button>
+      {
+        modalType && (
+          <div className="modal-overlay">
+            <div className="modal">
+              <div className="modal-title">
+                {modalType === "segment-start" ? "区間開始" : "確認"}
+              </div>
+
+              {(modalType === "segment-start") && (
+                <div style={{ marginBottom: "16px" }}>
+                  <div style={{ marginBottom: "8px" }}>
+                    <label style={{ display: "block", fontSize: "12px", color: "#6b7280", marginBottom: "4px" }}>勤務地</label>
+                    <select
+                      className="edit-select"
+                      style={{ width: "100%", padding: "8px" }}
+                      value={location}
+                      onChange={(e) => setLocation(e.target.value)}
+                    >
+                      {LOCATIONS.map((l) => (
+                        <option key={l}>{l}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "12px", color: "#6b7280", marginBottom: "4px" }}>部署</label>
+                    <select
+                      className="edit-select"
+                      style={{ width: "100%", padding: "8px" }}
+                      value={department}
+                      onChange={(e) => setDepartment(e.target.value)}
+                    >
+                      {DEPARTMENTS.map((d) => (
+                        <option key={d}>{d}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              <div className="modal-actions">
+                <button
+                  className="modal-btn"
+                  onClick={() => setModalType(null)}
+                >
+                  キャンセル
+                </button>
+                <button
+                  className="modal-btn modal-confirm-green"
+                  onClick={() =>
+                    post(
+                      modalType === "clock-in"
+                        ? "/attendance/clock-in"
+                        : modalType === "clock-out"
+                          ? "/attendance/clock-out"
+                          : modalType === "break-start"
+                            ? "/attendance/break-start"
+                            : modalType === "break-end"
+                              ? "/attendance/break-end"
+                              : modalType === "segment-start"
+                                ? "/attendance/segment-start"
+                                : "/attendance/segment-end",
+                      (modalType === "segment-start") ? { location, department } : {}
+                    )
+                  }
+                >
+                  確定
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
     </>
   );
 }

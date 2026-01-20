@@ -1,16 +1,20 @@
 /* === FullCalendar の土日色 === */
 /* 日付数字 */
 .fc .fc-day-sun a {
-  color: #e53935; /* 日曜・祝日：赤 */
+  color: #e53935;
+  /* 日曜・祝日：赤 */
 }
+
 .fc .fc-day-sat a {
-  color: #1e88e5; /* 土曜：青 */
+  color: #1e88e5;
+  /* 土曜：青 */
 }
 
 /* 曜日ヘッダー */
 .fc .fc-col-header-cell.fc-day-sun {
   color: #e53935;
 }
+
 .fc .fc-col-header-cell.fc-day-sat {
   color: #1e88e5;
 }
@@ -96,22 +100,24 @@
 
 /* 確定シフトの横スクロール表（全体を大きめに） */
 .shift-grid-container {
-width: 100%;
-overflow-x: auto;
-overflow-y: auto;          /* ← 縦スクロールはコンテナ内だけにする */
-border: 1px solid #ddd;
-border-radius: 6px;
-background: #ffffff;
-padding: 16px;
-margin-top: 16px;
-box-sizing: border-box;
-max-height: calc(100vh - 200px);
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: auto;
+  /* ← 縦スクロールはコンテナ内だけにする */
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 16px;
+  margin-top: 16px;
+  box-sizing: border-box;
+  max-height: calc(100vh - 200px);
 }
 
 
 /* 表本体：横幅を広めに取る */
 .shift-grid {
-  min-width: 1600px;         /* ← ここを大きくすると列が広がる */
+  min-width: 1600px;
+  /* ← ここを大きくすると列が広がる */
   font-size: 14px;
 }
 
@@ -119,7 +125,8 @@ max-height: calc(100vh - 200px);
 .shift-row {
   display: flex;
   border-bottom: 1px solid #eee;
-  min-height: 48px;          /* 行を高くして見やすく */
+  min-height: 48px;
+  /* 行を高くして見やすく */
 }
 
 .shift-row:last-child {
@@ -138,7 +145,8 @@ max-height: calc(100vh - 200px);
   align-items: center;
   justify-content: center;
 
-  position: sticky;        /* ★ 横スクロールしても固定 */
+  position: sticky;
+  /* ★ 横スクロールしても固定 */
   left: 0;
   z-index: 3;
 }
@@ -166,15 +174,18 @@ max-height: calc(100vh - 200px);
 }
 
 .shift-weekday.sun {
-  color: #e53935; /* 日曜赤 */
+  color: #e53935;
+  /* 日曜赤 */
 }
 
 .shift-weekday.sat {
-  color: #1e88e5; /* 土曜青 */
+  color: #1e88e5;
+  /* 土曜青 */
 }
 
 .shift-date {
-  font-size: 16px;        /* 日付の数字を大きめに */
+  font-size: 16px;
+  /* 日付の数字を大きめに */
 }
 
 /* 各マス */
@@ -196,7 +207,8 @@ max-height: calc(100vh - 200px);
 
 /* カレンダーの日付マスにホバーした時の背景色 */
 .fc-daygrid-day:hover {
-  background-color: #e3f2fd;  /* 薄い青 */
+  background-color: #e3f2fd;
+  /* 薄い青 */
   cursor: pointer;
   transition: background-color 0.15s ease;
 }
@@ -209,7 +221,8 @@ max-height: calc(100vh - 200px);
 /* 日付ヘッダーを縦スクロールでも固定 */
 .shift-grid-header {
   position: sticky;
-  top: -20px; /* ナビバーに重ならないように調整。navbarが60pxならこれ */
+  top: -20px;
+  /* ナビバーに重ならないように調整。navbarが60pxならこれ */
   z-index: 5;
   background: #fff;
 }
@@ -217,12 +230,14 @@ max-height: calc(100vh - 200px);
 /* 人数行（2段目）も sticky 固定 */
 .shift-grid-header-people {
   position: sticky;
-  top: 30px;  /* 60px(nav) + 40px(日付) */
+  top: 30px;
+  /* 60px(nav) + 40px(日付) */
   background: #fff;
   z-index: 6;
   padding: 0 !important;
   margin: 0 !important;
-  height: 40px;  /* 行の高さ統一 */
+  height: 40px;
+  /* 行の高さ統一 */
   display: flex;
   align-items: center;
 }
@@ -294,15 +309,18 @@ max-height: calc(100vh - 200px);
 }
 
 .admin-gantt-scroll {
-  min-width: 900px; /* 横スクロールのベース幅 */
-  margin-top: 32px; /* ← ここを追加（30〜36の間で微調整してOK） */
+  min-width: 900px;
+  /* 横スクロールのベース幅 */
+  margin-top: 32px;
+  /* ← ここを追加（30〜36の間で微調整してOK） */
 }
 
 /* ヘッダーと各行を同じグリッドにする */
 .admin-gantt-header,
 .admin-gantt-row {
   display: grid;
-  grid-template-columns: repeat(18, 1fr); /* 7:00〜24:00 の 18 コマ */
+  grid-template-columns: repeat(18, 1fr);
+  /* 7:00〜24:00 の 18 コマ */
 }
 
 .admin-gantt-header {
@@ -354,6 +372,7 @@ max-height: calc(100vh - 200px);
   padding: 12px;
   background: rgba(144, 202, 249, 0.12);
 }
+
 .admin-drop-area:hover {
   background: rgba(144, 202, 249, 0.2);
 }
@@ -431,7 +450,8 @@ max-height: calc(100vh - 200px);
 }
 
 .admin-gantt-scroll {
-  min-width: 720px; /* 横スクロール用 */
+  min-width: 720px;
+  /* 横スクロール用 */
 }
 
 .admin-gantt-header {
@@ -504,6 +524,7 @@ max-height: calc(100vh - 200px);
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  backdrop-filter: blur(2px);
 }
 
 .modal {
@@ -511,7 +532,7 @@ max-height: calc(100vh - 200px);
   padding: 32px;
   border-radius: 16px;
   width: 340px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
 }
 
 .modal-title {
@@ -538,6 +559,11 @@ max-height: calc(100vh - 200px);
   border: none;
   font-weight: 600;
   cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.modal-btn:hover {
+  opacity: 0.8;
 }
 
 .modal-cancel {
@@ -561,9 +587,9 @@ max-height: calc(100vh - 200px);
 }
 
 .page-container {
-  max-width: 900px;
+  max-width: 100%;
   margin: 0 auto;
-  padding: 40px 24px;
+  padding: 24px 16px;
 }
 
 /* ===== ページタイトル ===== */
@@ -583,10 +609,18 @@ max-height: calc(100vh - 200px);
 /* ===== カード共通 ===== */
 .card {
   background: #ffffff;
-  border-radius: 16px;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+  border-radius: 20px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  /* よりソフトなシャドウ */
   padding: 32px;
   margin-bottom: 32px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.08);
+  /* ホバー時のリフトアップ感 */
 }
 
 /* ===== カードタイトル ===== */
@@ -618,95 +652,287 @@ max-height: calc(100vh - 200px);
   border-radius: 14px;
   border: none;
   cursor: pointer;
+  transition: all 0.2s ease-in-out;
 }
 
 .btn-green {
   background: #16a34a;
   color: #fff;
+  box-shadow: 0 4px 6px -1px rgba(22, 163, 74, 0.4);
 }
 
 .btn-green:hover {
   background: #15803d;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 10px -1px rgba(22, 163, 74, 0.5);
 }
 
 .btn-red {
   background: #dc2626;
   color: #fff;
+  box-shadow: 0 4px 6px -1px rgba(220, 38, 38, 0.4);
 }
 
 .btn-red:hover {
   background: #b91c1c;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 10px -1px rgba(220, 38, 38, 0.5);
+}
+
+.btn-gray {
+  background: #f3f4f6;
+  color: #4b5563;
+}
+
+.btn-gray:hover {
+  background: #e5e7eb;
+}
+
+.btn-blue {
+  background: #3b82f6;
+  color: #fff;
+}
+
+.btn-blue:hover {
+  background: #2563eb;
 }
 
 .btn-disabled {
-  background: #d1d5db;
-  color: #6b7280;
+  background: #e5e7eb;
+  color: #9ca3af;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
 /* ===== 出勤中表示 ===== */
 .working {
   text-align: center;
   margin-top: 12px;
-  font-size: 14px;
+  font-size: 15px;
+  font-weight: 500;
   color: #374151;
+  background: #f0fdf4;
+  padding: 12px;
+  border-radius: 8px;
+  color: #166534;
 }
 
-/* ===== 勤務履歴 ===== */
-.empty-text {
-  text-align: center;
-  color: #6b7280;
-  padding: 40px 0;
-}
-
+/* ===== 勤務履歴テーブル（新デザイン） ===== */
 .table-wrap {
   overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
 }
 
-table {
+.history-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 14px;
+  background: #fff;
 }
 
-thead {
-  color: #6b7280;
-}
-
-th,
-td {
-  padding: 12px;
-  text-align: left;
-}
-
-tbody tr {
-  border-top: 1px solid #e5e7eb;
-}
-
-tbody tr:hover {
+.history-table thead {
   background: #f9fafb;
 }
 
-.button-row {
+.history-table th {
+  padding: 16px;
+  border-bottom: 1px solid #e5e7eb;
+  color: #4b5563;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.history-table td {
+  padding: 16px;
+  border-bottom: 1px solid #f3f4f6;
+  color: #1f2937;
+  vertical-align: middle;
+}
+
+.history-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.history-table tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+.history-table tbody tr:hover {
+  background-color: #f9fafb;
+}
+
+/* インライン編集パーツ */
+.edit-select,
+.edit-textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  font-size: 14px;
+  background: #fff;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  box-sizing: border-box;
+}
+
+.edit-select:focus,
+.edit-textarea:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.edit-textarea {
+  min-height: 60px;
+  margin-top: 8px;
+  resize: vertical;
+}
+
+.edit-actions {
   display: flex;
-  gap: 12px;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* アイコンボタン */
+.icon-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: #9ca3af;
+  padding: 8px;
+  border-radius: 50%;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
   justify-content: center;
-  margin-top: 16px;     /* ★ これ重要 */
-  flex-wrap: wrap;     /* ★ 念のため */
 }
 
-.card {
-  padding-bottom: 24px; /* ★ 下が切れないように */
+.icon-btn:hover {
+  color: #4b5563;
+  background: #f3f4f6;
+}
+
+/* バッジスタイル */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.status-badge.working {
+  background: #ecfdf5;
+  color: #059669;
 }
 
 
+.status-badge.left {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.status-badge.red {
+  background: #fef2f2;
+  color: #ef4444;
+  border: 1px solid #fecaca;
+}
+
+.status-badge.orange {
+  background: #fff7ed;
+  color: #f97316;
+  border: 1px solid #fed7aa;
+}
 
 
+/* 行のステータス背景色 */
+.row-red {
+  background-color: #fef2f2;
+}
 
+.row-red:hover {
+  background-color: #fee2e2 !important;
+}
 
+.row-orange {
+  background-color: #fff7ed;
+}
 
+.row-orange:hover {
+  background-color: #ffedd5 !important;
+}
 
+.row-green {
+  background-color: #f0fdf4;
+}
 
+.row-green:hover {
+  background-color: #dcfce7 !important;
+}
 
+/* === Admin UI Refinements === */
 
+/* Tabs */
+.tab {
+  margin-right: 4px;
+}
 
+.tab-link {
+  color: #e0e0e0;
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 14px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.tab-link:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
+.tab-link-active {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+  font-weight: bold;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* Filter Bar */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  background: #ffffff !important;
+  /* Override inline if needed, but better remove inline */
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  align-items: center;
+  margin-bottom: 24px;
+  /* Move margin here */
+}
+
+.filter-bar input,
+.filter-bar select {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: #374151;
+  background: #f9fafb;
+  transition: border-color 0.2s;
+  outline: none;
+}
+
+.filter-bar input:focus,
+.filter-bar select:focus {
+  border-color: #3b82f6;
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
