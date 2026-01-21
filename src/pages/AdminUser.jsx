@@ -1,5 +1,5 @@
-// src/pages/AdminUser.jsx
 import React, { useState } from "react";
+import { UserPlus, User, Lock, Briefcase, Calendar, DollarSign, Home, Save, CheckCircle, AlertTriangle } from "lucide-react";
 
 // ★ /users の URL
 const API_USER_URL =
@@ -19,18 +19,21 @@ export default function AdminUser() {
 
   const [hourlyWage, setHourlyWage] = useState("2200");
   const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setMessage("");
+    setLoading(true);
 
     // いちおうフロント側でも必須チェック
     if (!loginId.trim() || !password.trim()) {
       setMessage("❌ loginId と password は必須です");
+      setLoading(false);
       return;
     }
 
-    // userId が空なら自動採番（例: user-20251122123456）
+    // userId が空なら自動採番
     const trimmedUserId = userId.trim();
     const finalUserId =
       trimmedUserId !== ""
@@ -40,13 +43,13 @@ export default function AdminUser() {
     try {
       const payload = {
         loginId: loginId.trim(),
-        password: password, // パスワードはそのまま（ハッシュは Lambda 側）
+        password: password,
         userId: finalUserId,
         lastName: lastName.trim() || null,
         firstName: firstName.trim() || null,
         startDate: startDate || null,
-        employmentType, // "派遣" or "バイト"
-        livingAlone: livingAlone === "yes", // true / false
+        employmentType,
+        livingAlone: livingAlone === "yes",
         hourlyWage: hourlyWage ? Number(hourlyWage) : null,
       };
 
@@ -59,8 +62,6 @@ export default function AdminUser() {
       });
 
       const text = await res.text();
-      console.log("Admin user response raw:", text);
-
       let outer = null;
       let data = null;
 
@@ -74,7 +75,6 @@ export default function AdminUser() {
         try {
           data = JSON.parse(outer.body);
         } catch (e) {
-          console.error("JSON parse error (body):", e, outer.body);
           data = null;
         }
       } else {
@@ -87,15 +87,13 @@ export default function AdminUser() {
           : res.status;
 
       if (statusCode !== 200) {
-        const msg =
-          (data && data.message) || `エラーが発生しました (status ${statusCode})`;
+        const msg = (data && data.message) || `エラーが発生しました (status ${statusCode})`;
         setMessage(`❌ ${msg}`);
         return;
       }
 
       setMessage(
-        `✅ 保存しました (userId: ${
-          (data && data.user && data.user.userId) || finalUserId
+        `✅ 保存しました (userId: ${(data && data.user && data.user.userId) || finalUserId
         })`
       );
 
@@ -112,179 +110,280 @@ export default function AdminUser() {
     } catch (err) {
       console.error("Admin user error:", err);
       setMessage("❌ 通信エラーが発生しました");
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div style={{ maxWidth: "480px", margin: "40px auto" }}>
-      <h2 style={{ marginBottom: "16px" }}>管理者用：ユーザー登録・更新</h2>
-      <p style={{ marginBottom: "12px", color: "#555" }}>
-        新規スタッフのログインID / パスワードや基本情報を登録する画面です。
-      </p>
+    <div className="admin-container" style={{ maxWidth: "800px", margin: "0 auto", paddingBottom: "80px" }}>
 
-      <form onSubmit={handleSubmit}>
-        {/* ログイン情報 */}
-        <div style={{ marginBottom: "12px" }}>
-          <label>
-            ログインID（必須）
-            <input
-              type="text"
-              value={loginId}
-              onChange={(e) => setLoginId(e.target.value)}
-              required
-              style={{ width: "100%", padding: "8px", marginTop: "4px" }}
-            />
-          </label>
+      {/* Header */}
+      <div style={{ marginBottom: "24px", display: "flex", alignItems: "center", gap: "12px" }}>
+        <div style={{ background: "#eff6ff", padding: "12px", borderRadius: "12px", color: "#2563eb" }}>
+          <UserPlus size={32} />
         </div>
-
-        <div style={{ marginBottom: "12px" }}>
-          <label>
-            パスワード（必須）
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              style={{ width: "100%", padding: "8px", marginTop: "4px" }}
-            />
-          </label>
+        <div>
+          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#1f2937", margin: 0 }}>ユーザー登録・更新</h2>
+          <p style={{ color: "#6b7280", margin: "4px 0 0 0" }}>新規スタッフのアカウント作成や情報更新を行います。</p>
         </div>
+      </div>
 
-        <div style={{ marginBottom: "12px" }}>
-          <label>
-            userId（任意・未入力なら自動採番）
-            <input
-              type="text"
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-              placeholder="例：user-001"
-              style={{ width: "100%", padding: "8px", marginTop: "4px" }}
-            />
-          </label>
-        </div>
+      <div className="card" style={{ padding: "32px" }}>
+        <form onSubmit={handleSubmit}>
 
-        {/* 名前 */}
-        <div
-          style={{
-            display: "flex",
-            gap: "8px",
-            marginBottom: "12px",
-          }}
-        >
-          <div style={{ flex: 1 }}>
-            <label>
-              姓
+          {/* Section: Account Info */}
+          <div className="form-section">
+            <h3 className="section-title"><Lock size={18} /> アカウント情報</h3>
+
+            <div className="form-grid">
+              <div className="form-group">
+                <label>ログインID <span className="req">*</span></label>
+                <input
+                  type="text"
+                  className="input"
+                  value={loginId}
+                  onChange={(e) => setLoginId(e.target.value)}
+                  required
+                  placeholder="例: Aria"
+                />
+              </div>
+              <div className="form-group">
+                <label>パスワード （数字4桁）<span className="req">*</span></label>
+                <input
+                  type="password"
+                  className="input"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  placeholder="••••••••"
+                />
+              </div>
+            </div>
+
+            <div className="form-group" style={{ marginTop: "16px" }}>
+              <label>ユーザーID (任意)</label>
               <input
                 type="text"
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-                style={{ width: "100%", padding: "8px", marginTop: "4px" }}
+                className="input"
+                value={userId}
+                onChange={(e) => setUserId(e.target.value)}
+                placeholder="未入力の場合は自動生成されます (例: user-2025...)"
               />
-            </label>
+              <p className="hint">※ 既存ユーザーを更新する場合は、そのユーザーIDを入力してください。</p>
+            </div>
           </div>
-          <div style={{ flex: 1 }}>
-            <label>
-              名
-              <input
-                type="text"
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-                style={{ width: "100%", padding: "8px", marginTop: "4px" }}
-              />
-            </label>
+
+          <hr className="divider" />
+
+          {/* Section: Personal Info */}
+          <div className="form-section">
+            <h3 className="section-title"><User size={18} /> 基本情報</h3>
+
+            <div className="form-grid">
+              <div className="form-group">
+                <label>姓</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  placeholder="山田"
+                />
+              </div>
+              <div className="form-group">
+                <label>名</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  placeholder="太郎"
+                />
+              </div>
+            </div>
+
+            <div className="form-grid" style={{ marginTop: "16px" }}>
+              <div className="form-group">
+                <label><Calendar size={14} style={{ marginRight: 4 }} /> 勤務開始日</label>
+                <input
+                  type="date"
+                  className="input"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                />
+              </div>
+              <div className="form-group">
+                <label><Briefcase size={14} style={{ marginRight: 4 }} /> 雇用形態</label>
+                <div className="select-wrapper">
+                  <select
+                    className="input"
+                    value={employmentType}
+                    onChange={(e) => setEmploymentType(e.target.value)}
+                  >
+                    <option value="派遣">派遣</option>
+                    <option value="バイト">バイト</option>
+                    <option value="正社員">正社員</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="form-group" style={{ marginTop: "16px" }}>
+              <label><Home size={14} style={{ marginRight: 4 }} /> 住居状況</label>
+              <div className="radio-group">
+                <label className={`radio-card ${livingAlone === "yes" ? "selected" : ""}`}>
+                  <input
+                    type="radio"
+                    name="living"
+                    value="yes"
+                    checked={livingAlone === "yes"}
+                    onChange={(e) => setLivingAlone(e.target.value)}
+                  />
+                  <span>一人暮らし</span>
+                </label>
+                <label className={`radio-card ${livingAlone === "no" ? "selected" : ""}`}>
+                  <input
+                    type="radio"
+                    name="living"
+                    value="no"
+                    checked={livingAlone === "no"}
+                    onChange={(e) => setLivingAlone(e.target.value)}
+                  />
+                  <span>実家 / その他</span>
+                </label>
+              </div>
+            </div>
           </div>
-        </div>
 
-        {/* 勤務開始日 */}
-        <div style={{ marginBottom: "12px" }}>
-          <label>
-            勤務開始日
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              style={{ width: "100%", padding: "8px", marginTop: "4px" }}
-            />
-          </label>
-        </div>
+          <hr className="divider" />
 
-        {/* 区分・一人暮らし */}
-        <div style={{ marginBottom: "12px" }}>
-          <label>
-            区分
-            <select
-              value={employmentType}
-              onChange={(e) => setEmploymentType(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "8px",
-                marginTop: "4px",
-              }}
+          {/* Section: Salary */}
+          <div className="form-section">
+            <h3 className="section-title"><DollarSign size={18} /> 給与設定</h3>
+            <div className="form-group">
+              <label>時給</label>
+              <div className="input-icon-wrapper">
+                <input
+                  type="number"
+                  className="input"
+                  min="0"
+                  value={hourlyWage}
+                  onChange={(e) => setHourlyWage(e.target.value)}
+                  style={{ paddingLeft: "32px" }}
+                />
+                <span className="icon-prefix">¥</span>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ marginTop: "32px" }}>
+            <button
+              type="submit"
+              className="btn btn-blue btn-lg"
+              disabled={loading}
+              style={{ width: "100%", justifyContent: "center", gap: "8px" }}
             >
-              <option value="派遣">派遣</option>
-              <option value="バイト">バイト</option>
-            </select>
-          </label>
-        </div>
-
-        <div style={{ marginBottom: "12px" }}>
-          <label>一人暮らしかどうか</label>
-          <div style={{ marginTop: "4px" }}>
-            <label style={{ marginRight: "12px" }}>
-              <input
-                type="radio"
-                value="yes"
-                checked={livingAlone === "yes"}
-                onChange={(e) => setLivingAlone(e.target.value)}
-              />
-              一人暮らし
-            </label>
-            <label>
-              <input
-                type="radio"
-                value="no"
-                checked={livingAlone === "no"}
-                onChange={(e) => setLivingAlone(e.target.value)}
-              />
-              実家など
-            </label>
+              {loading ? "送信中..." : <><Save size={20} /> 登録 / 更新する</>}
+            </button>
           </div>
-        </div>
 
-        {/* 時給 */}
-        <div style={{ marginBottom: "16px" }}>
-          <label>
-            時給（円）
-            <input
-              type="number"
-              min="0"
-              value={hourlyWage}
-              onChange={(e) => setHourlyWage(e.target.value)}
-              style={{ width: "100%", padding: "8px", marginTop: "4px" }}
-            />
-          </label>
-        </div>
+        </form>
 
-        <button
-          type="submit"
-          style={{
-            width: "100%",
-            padding: "10px",
-            border: "none",
-            borderRadius: "4px",
-            background: "#1976d2",
-            color: "#fff",
-            fontSize: "16px",
-            cursor: "pointer",
-          }}
-        >
-          登録 / 更新
-        </button>
-      </form>
+        {message && (
+          <div className={`message-box ${message.includes("✅") ? "success" : "error"}`}>
+            {message.includes("✅") ? <CheckCircle size={20} /> : <AlertTriangle size={20} />}
+            {message.replace("✅ ", "").replace("❌ ", "")}
+          </div>
+        )}
+      </div>
 
-      {message && (
-        <div style={{ marginTop: "12px", fontWeight: "bold" }}>{message}</div>
-      )}
+      <style>{`
+        .form-section { margin-bottom: 24px; }
+        .section-title {
+          font-size: 1.1rem;
+          font-weight: bold;
+          color: #374151;
+          margin-bottom: 16px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .form-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 16px;
+        }
+        @media (max-width: 600px) {
+          .form-grid { grid-template-columns: 1fr; }
+        }
+        .form-group { margin-bottom: 12px; }
+        .form-group label {
+          display: block;
+          font-size: 0.9rem;
+          font-weight: 500;
+          color: #4b5563;
+          margin-bottom: 6px;
+          display: flex; align-items: center;
+        }
+        .req { color: #ef4444; margin-left: 4px; }
+        .hint { font-size: 0.8rem; color: #9ca3af; margin-top: 4px; }
+        .divider {
+          border: 0;
+          border-top: 1px solid #e5e7eb;
+          margin: 24px 0;
+        }
+        
+        /* Radio Cards */
+        .radio-group { display: flex; gap: 12px; }
+        .radio-card {
+          flex: 1;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 12px;
+          border: 1px solid #d1d5db;
+          border-radius: 8px;
+          cursor: pointer;
+          transition: all 0.2s;
+          background: #f9fafb;
+        }
+        .radio-card:hover { border-color: #9ca3af; }
+        .radio-card.selected {
+          border-color: #2563eb;
+          background: #eff6ff;
+          color: #1e40af;
+          font-weight: 500;
+        }
+        .radio-card input { accent-color: #2563eb; }
+
+        /* Input Icon Wrapper */
+        .input-icon-wrapper { position: relative; }
+        .icon-prefix {
+          position: absolute;
+          left: 12px;
+          top: 50%;
+          transform: translateY(-50%);
+          color: #6b7280;
+          font-weight: bold;
+        }
+
+        .btn-lg { padding: 14px; font-size: 1.1rem; }
+        
+        .message-box {
+          margin-top: 24px;
+          padding: 16px;
+          border-radius: 8px;
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          font-weight: bold;
+        }
+        .message-box.success { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+        .message-box.error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+
+        /* Reusing global classes .card, .input, .btn from App.css effectively */
+      `}</style>
     </div>
   );
 }

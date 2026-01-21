@@ -15,17 +15,53 @@ import ShiftDetail from "./pages/ShiftDetail";
 import Login from "./pages/Login";
 import AdminUser from "./pages/AdminUser";
 import RequireAdmin from "./components/RequireAdmin";
+
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminShifts from "./pages/admin/AdminShifts";
-import AdminShiftsDetail from "./pages/admin/AdminShiftsDetail"; // ★ 追加
+import AdminShiftsDetail from "./pages/admin/AdminShiftsDetail";
 import AdminFixedShifts from "./pages/admin/AdminFixedShifts";
+import AdminAttendance from "./pages/admin/AdminAttendance";
+import AdminHistory from "./pages/admin/AdminHistory";
 
+import Attendance from "./pages/Attendance";
 
 import "./ripple.css";
 import "./App.css";
 
+import { ALLOWED_IPS } from "./constants"; // IPリスト
+
+
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  // IP Restriction State
+  const [ipStatus, setIpStatus] = useState("loading"); // "loading" | "allowed" | "denied"
+  const [clientIp, setClientIp] = useState("");
+
+  useEffect(() => {
+    // Check IP
+    const checkIp = async () => {
+      try {
+        const res = await fetch("https://api.ipify.org?format=json");
+        const data = await res.json();
+        const ip = data.ip;
+        setClientIp(ip);
+
+        // Check against allowed list
+        if (ALLOWED_IPS.includes(ip)) {
+          setIpStatus("allowed");
+        } else {
+          setIpStatus("denied");
+        }
+      } catch (e) {
+        console.error("IP check failed", e);
+        // Fallback: If check fails, maybe deny or allow? 
+        // Strict security -> Deny. 
+        setIpStatus("denied");
+      }
+    };
+    checkIp();
+  }, []);
 
   useEffect(() => {
     const flag = localStorage.getItem("isLoggedIn");
@@ -33,6 +69,25 @@ export default function App() {
       setIsLoggedIn(true);
     }
   }, []);
+
+  // Show Loading
+  if (ipStatus === "loading") {
+    return (
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh", flexDirection: "column" }}>
+        <p>Checking Access Permission...</p>
+      </div>
+    );
+  }
+
+  // Show Denied
+  if (ipStatus === "denied") {
+    return (
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh", flexDirection: "column", color: "#d32f2f" }}>
+        <h1>Access Denied</h1>
+        <p>このIPアドレス({clientIp})からのアクセスは許可されていません。</p>
+      </div>
+    );
+  }
 
   const handleLoginSuccess = () => {
     setIsLoggedIn(true);
@@ -53,11 +108,12 @@ export default function App() {
   const navLinkClass = ({ isActive }) =>
     "tab-link" + (isActive ? " tab-link-active" : "");
 
-  const isAdmin = isLoggedIn && localStorage.getItem("role") === "admin";
+  const isAdmin =
+    isLoggedIn && localStorage.getItem("role") === "admin";
 
   return (
     <Router>
-      {/* ログイン済みナビ */}
+      {/* ===== ナビゲーションバー ===== */}
       {isLoggedIn && (
         <nav
           style={{
@@ -67,38 +123,80 @@ export default function App() {
             right: 0,
             zIndex: 1000,
             display: "flex",
-            backgroundColor: "#1976d2",
+            alignItems: "center",
+            backgroundColor: isAdmin ? "#ed6c02" : "#1976d2",
             height: "60px",
+            padding: "0 12px",
+            color: "#fff",
           }}
         >
+          {/* 画面種別 */}
+          <div
+            style={{
+              fontWeight: "bold",
+              marginRight: "16px",
+              padding: "4px 10px",
+              borderRadius: "6px",
+              background: "rgba(255,255,255,0.2)",
+              fontSize: "13px",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {isAdmin ? "管理者画面" : "一般ユーザー画面"}
+          </div>
+
+          {/* ===== 管理者ナビ ===== */}
           {isAdmin ? (
             <>
-              <div className="tab">
+              {/* <div className="tab">
                 <NavLink to="/admin" className={navLinkClass}>
                   管理TOP
                 </NavLink>
-              </div>
+              </div> */}
+
               <div className="tab">
+                <NavLink
+                  to="/admin/attendance"
+                  className={navLinkClass}
+                >
+                  勤怠管理
+                </NavLink>
+              </div>
+
+              <div className="tab">
+                <NavLink
+                  to="/admin/history"
+                  className={navLinkClass}
+                >
+                  個人履歴
+                </NavLink>
+              </div>
+
+              {/* <div className="tab">
                 <NavLink to="/admin/fixed" className={navLinkClass}>
                   確定シフト
                 </NavLink>
-              </div>
-              <div className="tab">
+              </div> */}
+
+              {/* <div className="tab">
                 <NavLink to="/admin/shifts" className={navLinkClass}>
                   シフト編集
                 </NavLink>
-              </div>
+              </div> */}
+
               <div className="tab">
                 <NavLink to="/admin/users" className={navLinkClass}>
                   スタッフ管理
                 </NavLink>
               </div>
+
               <button
                 onClick={handleLogout}
                 style={{
                   marginLeft: "auto",
-                  padding: "0 16px",
+                  padding: "8px 16px",
                   border: "none",
+                  borderRadius: "6px",
                   background: "#d32f2f",
                   color: "#fff",
                   cursor: "pointer",
@@ -108,17 +206,29 @@ export default function App() {
               </button>
             </>
           ) : (
+            /* ===== スタッフナビ ===== */
             <>
               <div className="tab">
+                <NavLink
+                  to="/attendance"
+                  className={navLinkClass}
+                >
+                  出退勤入力
+                </NavLink>
+              </div>
+
+              {/* <div className="tab">
                 <NavLink to="/" className={navLinkClass}>
                   確定シフト
                 </NavLink>
-              </div>
-              <div className="tab">
+              </div> */}
+
+              {/* <div className="tab">
                 <NavLink to="/request" className={navLinkClass}>
                   希望シフト
                 </NavLink>
-              </div>
+              </div> */}
+
               <div className="tab">
                 <NavLink to="/mypage" className={navLinkClass}>
                   マイページ
@@ -129,6 +239,7 @@ export default function App() {
         </nav>
       )}
 
+      {/* ===== メイン ===== */}
       <div
         style={{
           marginTop: isLoggedIn ? "60px" : 0,
@@ -149,15 +260,31 @@ export default function App() {
             </>
           ) : isAdmin ? (
             <>
-              {/* ===== 管理者用ルート ===== */}
+              {/* ===== 管理者ルート ===== */}
+              {/* 管理TOPは非表示 -> 勤怠管理へリダイレクト */}
               <Route
                 path="/admin"
+                element={<Navigate to="/admin/attendance" replace />}
+              />
+
+              <Route
+                path="/admin/attendance"
                 element={
                   <RequireAdmin>
-                    <AdminDashboard />
+                    <AdminAttendance />
                   </RequireAdmin>
                 }
               />
+
+              <Route
+                path="/admin/history"
+                element={
+                  <RequireAdmin>
+                    <AdminHistory />
+                  </RequireAdmin>
+                }
+              />
+
               <Route
                 path="/admin/users"
                 element={
@@ -166,6 +293,7 @@ export default function App() {
                   </RequireAdmin>
                 }
               />
+
               <Route
                 path="/admin/shifts"
                 element={
@@ -174,7 +302,7 @@ export default function App() {
                   </RequireAdmin>
                 }
               />
-              {/* ★ ここが日別ガントチャート */}
+
               <Route
                 path="/admin/shifts/:date"
                 element={
@@ -183,6 +311,7 @@ export default function App() {
                   </RequireAdmin>
                 }
               />
+
               <Route
                 path="/admin/fixed"
                 element={
@@ -192,27 +321,23 @@ export default function App() {
                 }
               />
 
-
-              {/* 管理者で / や /login に来たら /admin へ */}
-              <Route path="/" element={<Navigate to="/admin" replace />} />
-              <Route path="/login" element={<Navigate to="/admin" replace />} />
-              <Route path="*" element={<Navigate to="/admin" replace />} />
+              <Route path="/" element={<Navigate to="/admin/attendance" replace />} />
+              <Route path="*" element={<Navigate to="/admin/attendance" replace />} />
             </>
           ) : (
             <>
-              {/* ===== スタッフ用ルート ===== */}
-              <Route path="/" element={<Home />} />
+              {/* ===== スタッフルート ===== */}
+              {/* 確定シフト(HOME)非表示 -> 出退勤へリダイレクト */}
+              <Route path="/" element={<Navigate to="/attendance" replace />} />
               <Route path="/request" element={<ShiftRequest />} />
               <Route
                 path="/mypage"
                 element={<MyPage onLogout={handleLogout} />}
               />
               <Route path="/shift/:date" element={<ShiftDetail />} />
-              <Route path="/login" element={<Navigate to="/" replace />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-
+              <Route path="/attendance" element={<Attendance />} />
+              <Route path="*" element={<Navigate to="/attendance" replace />} />
             </>
-
           )}
         </Routes>
       </div>
