@@ -116,6 +116,13 @@ export default function Login({ onLogin }) {
         localStorage.setItem("token", data.token);
       }
 
+      // 雇用形態
+      if (user.employmentType) {
+        localStorage.setItem("employmentType", user.employmentType);
+      } else {
+        localStorage.removeItem("employmentType");
+      }
+
       // ログインフラグ
       localStorage.setItem("isLoggedIn", "true");
 
@@ -135,72 +142,108 @@ export default function Login({ onLogin }) {
   return (
     <div
       style={{
-        maxWidth: 360,
-        margin: "80px auto",
-        padding: 24,
-        border: "1px solid #ddd",
-        borderRadius: 8,
-        background: "#fff",
+        minHeight: "100vh",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        backgroundColor: "#f5f7fa",
       }}
     >
-      <h2 style={{ textAlign: "center", marginBottom: 16 }}>ログイン</h2>
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 400,
+          padding: 32,
+          borderRadius: 12,
+          background: "#fff",
+          boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
+        }}
+      >
+        <h2 style={{ textAlign: "center", marginBottom: 8, fontSize: "1.5rem", color: "#1f2937" }}>勤怠管理システム</h2>
 
-      <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: 12 }}>
-          <label>
-            ログインID
+        <p style={{ textAlign: "center", marginBottom: 24, fontSize: "0.85rem", color: "#6b7280" }}>
+          ※管理者は管理者用IDでログインしてください
+        </p>
+
+        <form onSubmit={handleSubmit}>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: "block", marginBottom: 4, fontWeight: "500", fontSize: "0.9rem", color: "#374151" }}>
+              ログインID
+            </label>
             <input
               type="text"
               value={loginId}
               onChange={(e) => setLoginId(e.target.value)}
               required
-              style={{ width: "100%", padding: 8, marginTop: 4 }}
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                borderRadius: 6,
+                border: "1px solid #d1d5db",
+                fontSize: "1rem"
+              }}
             />
-          </label>
-        </div>
+          </div>
 
-        <div style={{ marginBottom: 16 }}>
-          <label>
-            パスワード
+          <div style={{ marginBottom: 24 }}>
+            <label style={{ display: "block", marginBottom: 4, fontWeight: "500", fontSize: "0.9rem", color: "#374151" }}>
+              パスワード
+            </label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              style={{ width: "100%", padding: 8, marginTop: 4 }}
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                borderRadius: 6,
+                border: "1px solid #d1d5db",
+                fontSize: "1rem"
+              }}
             />
-          </label>
-        </div>
+            <p style={{ marginTop: 4, fontSize: "0.75rem", color: "#9ca3af" }}>
+              （忘れた場合は井本までご連絡ください）
+            </p>
+          </div>
 
-        {message && (
-          <div
+          {message && (
+            <div
+              style={{
+                marginBottom: 16,
+                padding: "8px 12px",
+                borderRadius: 6,
+                background: message.startsWith("✅") ? "#ecfdf5" : "#fef2f2",
+                color: message.startsWith("✅") ? "#059669" : "#dc2626",
+                fontSize: "0.9rem",
+                textAlign: "center"
+              }}
+            >
+              {message}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
             style={{
-              marginBottom: 12,
-              color: message.startsWith("✅") ? "green" : "red",
+              width: "100%",
+              padding: "12px",
+              border: "none",
+              borderRadius: 6,
+              background: "#2563eb",
+              color: "#fff",
+              fontSize: "1rem",
+              fontWeight: "600",
+              cursor: "pointer",
+              opacity: loading ? 0.7 : 1,
+              transition: "background 0.2s"
             }}
           >
-            {message}
-          </div>
-        )}
-
-        <button
-          type="submit"
-          disabled={loading}
-          style={{
-            width: "100%",
-            padding: 10,
-            border: "none",
-            borderRadius: 4,
-            background: "#1976d2",
-            color: "#fff",
-            fontSize: 16,
-            cursor: "pointer",
-            opacity: loading ? 0.7 : 1,
-          }}
-        >
-          {loading ? "ログイン中..." : "ログイン"}
-        </button>
-      </form>
+            {loading ? "ログイン中..." : "ログイン"}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

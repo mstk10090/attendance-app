@@ -28,8 +28,40 @@ import Attendance from "./pages/Attendance";
 import "./ripple.css";
 import "./App.css";
 
+import { ALLOWED_IPS } from "./constants"; // IPリスト
+
+
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  // IP Restriction State
+  const [ipStatus, setIpStatus] = useState("loading"); // "loading" | "allowed" | "denied"
+  const [clientIp, setClientIp] = useState("");
+
+  useEffect(() => {
+    // Check IP
+    const checkIp = async () => {
+      try {
+        const res = await fetch("https://api.ipify.org?format=json");
+        const data = await res.json();
+        const ip = data.ip;
+        setClientIp(ip);
+
+        // Check against allowed list
+        if (ALLOWED_IPS.includes(ip)) {
+          setIpStatus("allowed");
+        } else {
+          setIpStatus("denied");
+        }
+      } catch (e) {
+        console.error("IP check failed", e);
+        // Fallback: If check fails, maybe deny or allow? 
+        // Strict security -> Deny. 
+        setIpStatus("denied");
+      }
+    };
+    checkIp();
+  }, []);
 
   useEffect(() => {
     const flag = localStorage.getItem("isLoggedIn");
@@ -37,6 +69,25 @@ export default function App() {
       setIsLoggedIn(true);
     }
   }, []);
+
+  // Show Loading
+  if (ipStatus === "loading") {
+    return (
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh", flexDirection: "column" }}>
+        <p>Checking Access Permission...</p>
+      </div>
+    );
+  }
+
+  // Show Denied
+  if (ipStatus === "denied") {
+    return (
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh", flexDirection: "column", color: "#d32f2f" }}>
+        <h1>Access Denied</h1>
+        <p>このIPアドレス({clientIp})からのアクセスは許可されていません。</p>
+      </div>
+    );
+  }
 
   const handleLoginSuccess = () => {
     setIsLoggedIn(true);

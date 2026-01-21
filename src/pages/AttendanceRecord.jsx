@@ -7,15 +7,27 @@ import {
   Pencil,
   Plus,
   Trash2,
+  Briefcase,
+  Info,
 } from "lucide-react";
-import { format } from "date-fns";
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSaturday, isSunday } from "date-fns";
 import { ja } from "date-fns/locale";
+import { HOLIDAYS } from "../constants";
 import "../App.css";
+
+const isHoliday = (d) => {
+  const s = format(d, "yyyy-MM-dd");
+  return HOLIDAYS.includes(s);
+};
+
+const isWeekendOrHoliday = (d) => {
+  return isSaturday(d) || isSunday(d) || isHoliday(d);
+};
 
 const API_BASE =
   "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com";
 
-const LOCATIONS = ["未記載", "呉羽", "山葉", "東洋", "細川"];
+const LOCATIONS = ["未記載", "呉羽", "山葉", "東洋", "細川", "出張"];
 const DEPARTMENTS = ["未記載", "即日", "買取", "広告", "CEO", "アビエス"];
 
 // 15分刻みの時刻オプション (00:00 - 23:45)
@@ -50,8 +62,10 @@ export default function AttendanceRecord() {
   const [location, setLocation] = useState("未記載");
   const [department, setDepartment] = useState("未記載");
   const [segments, setSegments] = useState([]); // 区間データ
+  const [editDate, setEditDate] = useState(""); // 出張申請用日付
   const [editIn, setEditIn] = useState(""); // 編集用
   const [editOut, setEditOut] = useState(""); // 編集用
+  const [reason, setReason] = useState(""); // 勤怠乖離理由
 
   /* =========================
      userId
@@ -125,6 +139,9 @@ export default function AttendanceRecord() {
     }
   };
 
+  // ユーザー属性
+  const isDispatch = localStorage.getItem("employmentType") === "派遣";
+
   useEffect(() => {
     if (userId) loadAttendances(userId);
   }, [userId]);
@@ -139,6 +156,51 @@ export default function AttendanceRecord() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userId, ...body }),
     });
+    await loadAttendances(userId);
+    setModalType(null);
+    setLoading(false);
+  };
+
+
+
+  /* =========================
+     出張申請
+  ========================= */
+  const handleBusinessTripApply = async () => {
+    if (!editIn || !editOut || !comment.trim()) {
+      alert("日付、時間、理由は必須です");
+      return;
+    }
+
+    const tripSegments = [{
+      start: editIn,
+      end: editOut,
+      location: "出張",
+      department: department
+    }];
+
+    const finalComment = JSON.stringify({
+      segments: tripSegments,
+      text: comment,
+      application: { type: "business_trip", status: "pending" }
+    });
+
+    setLoading(true);
+    await fetch(`${API_BASE}/attendance/apply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId,
+        workDate: editDate,
+        clockIn: editIn,
+        clockOut: editOut,
+        // originalIn, originalOut はAPI側で不要/未対応のため削除
+        comment: finalComment,
+        location: "出張",
+        department: department
+      }),
+    });
+
     await loadAttendances(userId);
     setModalType(null);
     setLoading(false);
@@ -228,13 +290,25 @@ export default function AttendanceRecord() {
     return Math.abs((h1 * 60 + m1) - (h2 * 60 + m2));
   };
 
-  const handleApply = async (targetItem, newIn, newOut, newSegs, newLoc, newDept, newComment) => {
+  const handleApply = async (targetItem, newIn, newOut, newSegs, newLoc, newDept, newComment, newReason) => {
     setLoading(true);
 
     // Calculate Deviation
     // Original (DB) vs Input
     const origIn = targetItem.clockIn;
     // const origOut = targetItem.clockOut; 
+
+    // Validation: Mandatory Fields
+    if (!newLoc || newLoc === "未記載") {
+      alert("勤務地を選択してください。");
+      setLoading(false);
+      return;
+    }
+    if (!newDept || newDept === "未記載") {
+      alert("部署を選択してください。");
+      setLoading(false);
+      return;
+    }
 
     // Validation: Require editIn and editOut
     if (!newIn || !newOut) {
@@ -243,13 +317,49 @@ export default function AttendanceRecord() {
       return;
     }
 
-    let deviation = 0;
-    if (origIn && newIn) {
-      deviation = calcMinDiff(origIn, newIn);
+    // Segment Validation: Start < End
+    if (newSegs.length > 0) {
+      for (const seg of newSegs) {
+        if (seg.start && seg.end && toMin(seg.start) >= toMin(seg.end)) {
+          alert("区間の開始時間は終了時間より前である必要があります");
+          setLoading(false);
+          return;
+        }
+      }
     }
 
-    if (deviation >= 15 && !newComment.trim()) {
-      alert(`打刻時間(${origIn})と入力時間(${newIn})に15分以上の乖離があります。理由をコメントに入力してください。`);
+    // Validation: Strict Deviation Logic
+    // actualIn: targetItem.clockIn (DB Value)
+    // originalIn: newIn (Input Value - "本来の出勤時間")
+
+    // 1. Mandatory Input Check
+    if (!newIn) {
+      alert("本来の出勤時間を入力してください。");
+      setLoading(false);
+      return;
+    }
+
+    const actualMin = toMin(targetItem.clockIn);
+    const originalMin = toMin(newIn);
+    const diff = actualMin - originalMin; // Positive if Late
+
+    // 2. Reason Mandatory Conditions
+    // - Late (Actual > Original)
+    // - Deviation >= 15 mins (abs(diff) >= 15)
+
+    // Note: User said "9:00 scheduled, pressed at 9:00 -> Deviation"? 
+    // Usually 9:00:00 vs 9:00 input is 0 diff.
+    // Assuming "Late" means actual > original.
+
+    const isLate = diff > 0;
+    const isBigDeviation = Math.abs(diff) >= 15;
+
+    if ((isLate || isBigDeviation) && !newReason.trim()) {
+      let msg = "乖離理由を入力してください。";
+      if (isLate) msg = `本来の出勤時間(${newIn})より遅れて打刻(${targetItem.clockIn})されています（遅刻）。理由を入力してください。`;
+      else if (isBigDeviation) msg = `打刻時間と本来の時間に15分以上の乖離があります。理由を入力してください。`;
+
+      alert(msg);
       setLoading(false);
       return;
     }
@@ -261,12 +371,12 @@ export default function AttendanceRecord() {
       originalOut: targetItem.clockOut,
       appliedIn: newIn,
       appliedOut: newOut,
-      reason: newComment
+      reason: newReason
     };
 
     const finalComment = JSON.stringify({
       segments: newSegs,
-      text: newComment,
+      text: "", // コメント欄廃止のため空文字
       application: appData
     });
 
@@ -300,11 +410,49 @@ export default function AttendanceRecord() {
     setLoading(false);
   };
 
+  const handleWithdraw = async (item) => {
+    if (!window.confirm("申請を取り下げますか？")) return;
+    setLoading(true);
+
+    try {
+      const p = parseComment(item.comment);
+
+      // Remove application object or set status null
+      const updatedComment = JSON.stringify({
+        segments: p.segments,
+        text: p.text,
+        application: null
+      });
+
+      await fetch(`${API_BASE}/attendance/update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId,
+          workDate: item.workDate,
+          clockIn: item.clockIn,
+          clockOut: item.clockOut,
+          comment: updatedComment
+        }),
+      });
+
+      await loadAttendances(userId);
+    } catch (e) {
+      alert("取り下げに失敗しました");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   /* =========================
      時間計算
   ========================= */
   const toMin = (t) => {
-    const [h, m, s] = t.split(":").map(Number);
+    if (!t) return 0;
+    const parts = t.split(":").map(Number);
+    const h = parts[0] || 0;
+    const m = parts[1] || 0;
+    const s = parts[2] || 0;
     return h * 60 + m + s / 60;
   };
 
@@ -318,8 +466,9 @@ export default function AttendanceRecord() {
 
   const calcWork = (e) => {
     if (!e.clockIn || !e.clockOut) return "-";
-    const work =
-      toMin(e.clockOut) - toMin(e.clockIn) - calcBreak(e);
+    const rawWork = toMin(e.clockOut) - toMin(e.clockIn) - calcBreak(e);
+    const work = Math.floor(rawWork / 30) * 30; // 30分単位で切り捨て
+
     return work > 0
       ? `${Math.floor(work / 60)}時間${Math.round(work % 60)}分`
       : "-";
@@ -341,12 +490,13 @@ export default function AttendanceRecord() {
         a.clockIn &&
         a.clockOut
       ) {
-        const work =
+        const rawWork =
           toMin(a.clockOut) -
           toMin(a.clockIn) -
           calcBreak(a);
 
-        if (work > 0) {
+        if (rawWork > 0) {
+          const work = Math.floor(rawWork / 30) * 30; // 30分単位で切り捨て
           total += work;
           days++;
         }
@@ -373,6 +523,47 @@ export default function AttendanceRecord() {
       <div className="card">
         <div className="card-title">
           <Clock size={20} /> 出退勤入力
+          {(() => {
+            const now = new Date();
+            const start = startOfMonth(now);
+            const end = endOfMonth(now);
+            const allDays = eachDayOfInterval({ start, end });
+            const scheduled = allDays.filter(d => !isWeekendOrHoliday(d)).length;
+            return (
+              <span style={{ marginLeft: "12px", fontSize: "0.85rem", color: "#666", fontWeight: "normal" }}>
+                ({format(now, "M")}月の規定日数: {scheduled}日)
+              </span>
+            );
+          })()}
+        </div>
+
+
+
+        <div className="button-row" style={{ marginBottom: "16px", justifyContent: "flex-end" }}>
+          <button
+            className="btn"
+            style={{
+              background: "#fff",
+              color: "#8b5cf6",
+              border: "1px solid #8b5cf6",
+              padding: "8px 16px",
+              fontSize: "0.9rem"
+            }}
+            onClick={() => {
+              const todayStr = format(new Date(), "yyyy-MM-dd");
+              setEditDate(todayStr);
+              setEditIn("09:00");
+              setEditOut("18:00");
+              setDepartment("未記載");
+              setComment("");
+              setModalType("business-trip");
+            }}
+          >
+            <Briefcase size={16} style={{ marginRight: "6px" }} /> 出張申請
+          </button>
+          <div style={{ position: "relative", display: "inline-flex", alignItems: "center", marginLeft: "8px" }} title="旅行など出勤はしていないけれども時給が発生する場合にご利用ください">
+            <Info size={16} color="#666" style={{ cursor: "default" }} />
+          </div>
         </div>
 
         <div className="button-row">
@@ -583,6 +774,10 @@ export default function AttendanceRecord() {
                                         const newSegs = [...segments];
                                         newSegs[idx].start = ev.target.value;
                                         setSegments(newSegs);
+                                        // Sync First Segment with Clock In
+                                        if (idx === 0) {
+                                          setEditIn(ev.target.value);
+                                        }
                                       }}
                                     />
                                     <span style={{ alignSelf: "center" }}>-</span>
@@ -603,7 +798,7 @@ export default function AttendanceRecord() {
                                       <div style={{ fontSize: "10px", color: "#6b7280", marginBottom: "2px" }}>勤務地</div>
                                       <select
                                         className="edit-select"
-                                        style={{ width: "100%" }}
+                                        style={{ width: "100%", color: seg.location === "未記載" ? "#9ca3af" : "inherit" }}
                                         value={seg.location}
                                         onChange={(ev) => {
                                           const newSegs = [...segments];
@@ -611,8 +806,9 @@ export default function AttendanceRecord() {
                                           setSegments(newSegs);
                                         }}
                                       >
-                                        {LOCATIONS.map((l) => (
-                                          <option key={l}>{l}</option>
+                                        <option value="未記載" style={{ color: "#9ca3af" }}>未記載</option>
+                                        {LOCATIONS.filter(l => l !== "未記載").map((l) => (
+                                          <option key={l} value={l} style={{ color: "#1f2937" }}>{l}</option>
                                         ))}
                                       </select>
                                     </div>
@@ -620,7 +816,7 @@ export default function AttendanceRecord() {
                                       <div style={{ fontSize: "10px", color: "#6b7280", marginBottom: "2px" }}>部署</div>
                                       <select
                                         className="edit-select"
-                                        style={{ width: "100%" }}
+                                        style={{ width: "100%", color: seg.department === "未記載" ? "#9ca3af" : "inherit" }}
                                         value={seg.department}
                                         onChange={(ev) => {
                                           const newSegs = [...segments];
@@ -628,11 +824,30 @@ export default function AttendanceRecord() {
                                           setSegments(newSegs);
                                         }}
                                       >
-                                        {DEPARTMENTS.map((d) => (
-                                          <option key={d}>{d}</option>
+                                        <option value="未記載" style={{ color: "#9ca3af" }}>未記載</option>
+                                        {DEPARTMENTS.filter(d => d !== "未記載").map((d) => (
+                                          <option key={d} value={d} style={{ color: "#1f2937" }}>{d}</option>
                                         ))}
                                       </select>
                                     </div>
+                                    {isDispatch && (
+                                      <div style={{ flex: 1 }}>
+                                        <div style={{ fontSize: "10px", color: "#6b7280", marginBottom: "2px" }}>区分</div>
+                                        <select
+                                          className="edit-select"
+                                          style={{ width: "100%" }}
+                                          value={seg.workType || "派遣"}
+                                          onChange={(ev) => {
+                                            const newSegs = [...segments];
+                                            newSegs[idx].workType = ev.target.value;
+                                            setSegments(newSegs);
+                                          }}
+                                        >
+                                          <option value="派遣">派遣</option>
+                                          <option value="バイト">バイト</option>
+                                        </select>
+                                      </div>
+                                    )}
                                     <div style={{ display: "flex", alignItems: "flex-end" }}>
                                       <button
                                         className="btn btn-red"
@@ -663,9 +878,12 @@ export default function AttendanceRecord() {
                                 justifyContent: "center"
                               }}
                               onClick={() => {
+                                const lastSeg = segments[segments.length - 1];
+                                const defaultStart = lastSeg && lastSeg.end ? lastSeg.end : "";
+                                const defaultEnd = editOut || "";
                                 setSegments([
                                   ...segments,
-                                  { start: "", end: "", location: "未記載", department: "未記載" }
+                                  { start: defaultStart, end: defaultEnd, location: "未記載", department: "未記載", workType: isDispatch ? "派遣" : undefined }
                                 ]);
                               }}
                             >
@@ -677,7 +895,20 @@ export default function AttendanceRecord() {
                           <div style={{ display: "flex", gap: "10px", marginBottom: "8px", background: "#fff", padding: "8px", borderRadius: "8px", border: "1px solid #eee" }}>
                             <div style={{ flex: 1 }}>
                               <label style={{ fontSize: "10px", color: "#666" }}>本来の出勤時間</label>
-                              <select className="edit-select" value={editIn} onChange={ev => setEditIn(ev.target.value)} style={{ width: "100%" }}>
+                              <select
+                                className="edit-select"
+                                value={editIn}
+                                onChange={ev => {
+                                  setEditIn(ev.target.value);
+                                  // Sync with First Segment Start
+                                  if (segments.length > 0) {
+                                    const n = [...segments];
+                                    n[0].start = ev.target.value;
+                                    setSegments(n);
+                                  }
+                                }}
+                                style={{ width: "100%" }}
+                              >
                                 <option value="">--:--</option>
                                 {TIME_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
                               </select>
@@ -694,10 +925,13 @@ export default function AttendanceRecord() {
                           <textarea
                             className="edit-textarea"
                             rows={2}
-                            value={comment}
-                            onChange={(ev) => setComment(ev.target.value)}
-                            placeholder="コメントを入力..."
+                            value={reason}
+                            onChange={(ev) => setReason(ev.target.value)}
+                            placeholder="勤怠乖離の理由を入力..."
+                            style={{ marginBottom: "8px" }}
                           />
+
+                          {/* General Comment Removed as requested */}
 
                           <div className="edit-actions">
                             <button
@@ -713,7 +947,7 @@ export default function AttendanceRecord() {
                             <button
                               className="btn btn-blue"
                               style={{ padding: "8px 16px", fontSize: "14px" }}
-                              onClick={() => handleApply(e, editIn, editOut, segments, location, department, comment)}
+                              onClick={() => handleApply(e, editIn, editOut, segments, location, department, comment, reason)}
                             >
                               {new Date(e.workDate) < new Date(format(new Date(), "yyyy-MM-dd")) ? "申請する" : "保存"}
                             </button>
@@ -738,10 +972,16 @@ export default function AttendanceRecord() {
                                 rowSegments = e.segments;
                                 const parsed = parseComment(e.comment);
                                 rowText = parsed.text;
+                                if (parsed.application?.reason) {
+                                  rowText += ` (理由: ${parsed.application.reason})`;
+                                }
                               } else {
                                 const parsed = parseComment(e.comment);
                                 rowSegments = parsed.segments;
                                 rowText = parsed.text;
+                                if (parsed.application?.reason) {
+                                  rowText += ` (理由: ${parsed.application.reason})`;
+                                }
                               }
 
                               const appStatus = parseComment(e.comment).application?.status;
@@ -772,6 +1012,11 @@ export default function AttendanceRecord() {
                                         <span className="status-badge left" style={{ padding: "2px 6px", fontSize: "11px" }}>
                                           {seg.department || "未記載"}
                                         </span>
+                                        {seg.workType && (
+                                          <span className="status-badge left" style={{ padding: "2px 6px", fontSize: "11px", background: seg.workType === "バイト" ? "#fbbf24" : "#e5e7eb", color: "#374151" }}>
+                                            {seg.workType}
+                                          </span>
+                                        )}
                                       </div>
                                     ))}
                                     {rowText && (
@@ -805,47 +1050,74 @@ export default function AttendanceRecord() {
                                       </span>
                                     </div>
                                     <div style={{ marginTop: "4px", color: "#4b5563", fontSize: "13px" }}>
-                                      {e.comment || "—"}
+                                      {rowText || "—"}
                                     </div>
                                   </>
                                 );
                               }
                             })()}
                           </div>
-                          <button
-                            className={
-                              new Date(e.workDate) < new Date(format(new Date(), "yyyy-MM-dd"))
-                                ? "btn btn-blue"
-                                : "icon-btn"
-                            }
-                            style={
-                              new Date(e.workDate) < new Date(format(new Date(), "yyyy-MM-dd"))
-                                ? { padding: "4px 12px", fontSize: "12px", height: "auto", borderRadius: "14px" }
-                                : {}
-                            }
-                            onClick={() => {
-                              setEditingDate(e.workDate);
-                              const { segments: parsedSegs, text: parsedText } = parseComment(e.comment);
+                          {(() => {
+                            const status = parseComment(e.comment).application?.status;
 
-                              setComment(parsedText || e.comment || ""); // テキスト部分のみ
+                            // 承認済みはボタンなし
+                            if (status === "approved") {
+                              return null;
+                            }
 
-                              // 区間があればそれをセット
-                              if (parsedSegs.length > 0) {
-                                setSegments(parsedSegs);
-                                setLocation("複数箇所");
-                                setDepartment("複数箇所");
-                              } else {
-                                setSegments([]);
-                                setLocation(e.location || "未記載");
-                                setDepartment(e.department || "未記載");
-                                setEditIn(e.clockIn || "");
-                                setEditOut(e.clockOut || "");
-                              }
-                            }}
-                          >
-                            {/* 過去日なら「申請」、当日なら「修正」 */}
-                            {new Date(e.workDate) < new Date(format(new Date(), "yyyy-MM-dd")) ? "申請" : <Pencil size={18} />}
-                          </button>
+                            // 承認待ちは「取り下げ」ボタン
+                            if (status === "pending") {
+                              return (
+                                <button
+                                  className="btn btn-red"
+                                  style={{ padding: "4px 12px", fontSize: "12px", height: "auto", borderRadius: "14px" }}
+                                  onClick={() => handleWithdraw(e)}
+                                >
+                                  取り下げ
+                                </button>
+                              );
+                            }
+
+                            // 未申請（またはその他）は「申請/修正」ボタン
+                            return (
+                              <button
+                                className={
+                                  new Date(e.workDate) < new Date(format(new Date(), "yyyy-MM-dd"))
+                                    ? "btn btn-blue"
+                                    : "icon-btn"
+                                }
+                                style={
+                                  new Date(e.workDate) < new Date(format(new Date(), "yyyy-MM-dd"))
+                                    ? { padding: "4px 12px", fontSize: "12px", height: "auto", borderRadius: "14px" }
+                                    : {}
+                                }
+                                onClick={() => {
+                                  setEditingDate(e.workDate);
+                                  const parsed = parseComment(e.comment);
+                                  const { segments: parsedSegs, text: parsedText } = parsed;
+
+                                  setComment(parsedText || e.comment || ""); // テキスト部分のみ
+                                  setReason(parsed.application?.reason || ""); // 理由をセット
+
+                                  // 区間があればそれをセット
+                                  if (parsedSegs.length > 0) {
+                                    setSegments(parsedSegs);
+                                    setLocation("複数箇所");
+                                    setDepartment("複数箇所");
+                                  } else {
+                                    setSegments([]);
+                                    setLocation(e.location || "未記載");
+                                    setDepartment(e.department || "未記載");
+                                    setEditIn(e.clockIn || "");
+                                    setEditOut(e.clockOut || "");
+                                  }
+                                }}
+                              >
+                                {/* 過去日なら「申請」、当日なら「修正」 */}
+                                {new Date(e.workDate) < new Date(format(new Date(), "yyyy-MM-dd")) ? "申請" : <Pencil size={18} />}
+                              </button>
+                            );
+                          })()}
                         </div>
                       )
                       }
@@ -925,6 +1197,69 @@ export default function AttendanceRecord() {
                   }
                 >
                   確定
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+      {/* Business Trip Modal */}
+      {
+        modalType === "business-trip" && (
+          <div className="modal-overlay">
+            <div className="modal">
+              <div className="modal-title"><Briefcase size={20} /> 出張申請</div>
+
+              <div style={{ marginBottom: "16px" }}>
+                <label style={{ fontSize: "12px", color: "#666" }}>日付</label>
+                <input
+                  type="date"
+                  className="edit-select"
+                  style={{ width: "100%", padding: "8px" }}
+                  value={editDate}
+                  onChange={e => setEditDate(e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: "flex", gap: "16px", marginBottom: "16px" }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: "12px", color: "#666" }}>開始時間 (予定)</label>
+                  <select className="edit-select" style={{ width: "100%" }} value={editIn} onChange={e => setEditIn(e.target.value)}>
+                    <option value="">--:--</option>
+                    {TIME_OPTIONS.map(t => <option key={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: "12px", color: "#666" }}>終了時間 (予定)</label>
+                  <select className="edit-select" style={{ width: "100%" }} value={editOut} onChange={e => setEditOut(e.target.value)}>
+                    <option value="">--:--</option>
+                    {TIME_OPTIONS.map(t => <option key={t}>{t}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: "16px" }}>
+                <label style={{ fontSize: "12px", color: "#666" }}>部署</label>
+                <select className="edit-select" style={{ width: "100%" }} value={department} onChange={e => setDepartment(e.target.value)}>
+                  {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
+                </select>
+              </div>
+
+              <div style={{ marginBottom: "16px" }}>
+                <label style={{ fontSize: "12px", color: "#666" }}>申請理由・備考 (必須)</label>
+                <textarea
+                  className="edit-textarea"
+                  rows={3}
+                  placeholder="例: アリア旅行のため"
+                  value={comment}
+                  onChange={e => setComment(e.target.value)}
+                />
+              </div>
+
+              <div className="modal-actions">
+                <button className="btn btn-gray" onClick={() => setModalType(null)}>キャンセル</button>
+                <button className="btn btn-blue" onClick={handleBusinessTripApply} disabled={loading}>
+                  {loading ? "送信中..." : "申請する"}
                 </button>
               </div>
             </div>

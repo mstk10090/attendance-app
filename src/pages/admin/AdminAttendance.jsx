@@ -6,7 +6,7 @@ import "../../App.css";
 
 const API_BASE = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com";
 
-const LOCATIONS = ["未記載", "呉羽", "山葉", "東洋", "細川"];
+const LOCATIONS = ["未記載", "呉羽", "山葉", "東洋", "細川", "出張"];
 const DEPARTMENTS = ["未記載", "即日", "買取", "広告", "CEO", "アビエス"];
 
 // --- Utilities ---
@@ -321,6 +321,12 @@ export default function AdminAttendance() {
   const handleEditInChange = (val) => {
     setEditIn(val);
     recalcOut(val, editDuration);
+    // Sync First Segment
+    if (editSegments.length > 0) {
+      const n = [...editSegments];
+      n[0].start = val;
+      setEditSegments(n);
+    }
   };
 
   const recalcDuration = (newIn, newOut) => {
@@ -696,7 +702,7 @@ export default function AdminAttendance() {
                   else if (rowAppStatus === "approved") rowClass = "row-green";
 
                   return (
-                    <tr key={item.userId + item.workDate} className={rowClass} style={{ background: (isError || isIncomplete) ? "#fef2f2" : undefined }}>
+                    <tr key={item.userId + item.workDate} className={rowClass} style={{ background: (isError || isIncomplete) ? "#fef2f2" : (rowAppStatus === "pending" ? "#fff7ed" : (!rowAppStatus && item.clockIn && item.clockOut ? "#f9fafb" : undefined)) }}>
                       <td style={{ fontSize: "14px", color: "#374151", padding: "12px" }}>
                         {format(new Date(item.workDate), "MM/dd(E)", { locale: ja })}
                       </td>
@@ -707,8 +713,9 @@ export default function AdminAttendance() {
                           {isWorking && <span className="status-badge green">出勤中</span>}
                           {isError && <span className="status-badge red">異常</span>}
                           {hasNight && <span className="status-badge blue">深夜</span>}
-                          {item._application?.status === "pending" && <span className="status-badge blue">承認待</span>}
+                          {item._application?.status === "pending" && <span className="status-badge orange">承認待</span>}
                           {item._application?.status === "approved" && <span className="status-badge green">済</span>}
+                          {!item._application?.status && item.clockIn && item.clockOut && !isError && <span className="status-badge gray">未申請</span>}
                           {/* 承認待ちの場合はコメント全文を表示、それ以外はメモバッジ */}
                           {item._application?.status === "pending" && item._parsedHtmlComment ? (
                             <div style={{ marginTop: "4px", fontSize: "11px", color: "#4b5563", background: "rgba(255,255,255,0.6)", padding: "2px 4px", borderRadius: "4px", whiteSpace: "pre-wrap" }}>
@@ -740,15 +747,19 @@ export default function AdminAttendance() {
                       </td>
                       <td style={{ padding: "12px" }}>
                         <div style={{ display: "flex", gap: "8px" }}>
-                          <button className="btn btn-gray" style={{ fontSize: "13px", padding: "6px 10px" }} onClick={() => openEdit(item)}>
-                            修正
-                          </button>
-                          {/* 未退勤の場合は承認ボタンを表示しない（承認不可） */}
-                          {item._application?.status === "pending" && item.clockOut && (
-                            <button className="btn btn-green" style={{ fontSize: "13px", padding: "6px 10px", display: "flex", alignItems: "center", gap: "4px" }} onClick={() => handleApprove(item)}>
-                              <CheckCircle size={14} /> 承認
-                            </button>
-                          )}
+                          {/* 承認待ちのみ修正・承認ボタンを表示 */
+                            item._application?.status === "pending" && (
+                              <>
+                                <button className="btn btn-gray" style={{ fontSize: "13px", padding: "6px 10px" }} onClick={() => openEdit(item)}>
+                                  修正
+                                </button>
+                                {item.clockOut && (
+                                  <button className="btn btn-green" style={{ fontSize: "13px", padding: "6px 10px", display: "flex", alignItems: "center", gap: "4px" }} onClick={() => handleApprove(item)}>
+                                    <CheckCircle size={14} /> 承認
+                                  </button>
+                                )}
+                              </>
+                            )}
                         </div>
                       </td>
                     </tr>
@@ -796,7 +807,14 @@ export default function AdminAttendance() {
                   {editSegments.map((seg, idx) => (
                     <div key={idx} style={{ display: "flex", gap: "8px", marginBottom: "8px" }}>
                       <input type="time" className="input" style={{ width: "80px" }} value={seg.start} onChange={e => {
-                        const n = [...editSegments]; n[idx].start = e.target.value; setEditSegments(n);
+                        const n = [...editSegments];
+                        n[idx].start = e.target.value;
+                        setEditSegments(n);
+                        // Sync First Segment with Clock In
+                        if (idx === 0) {
+                          setEditIn(e.target.value);
+                          recalcOut(e.target.value, editDuration);
+                        }
                       }} />
                       <select className="input" value={seg.location} onChange={e => {
                         const n = [...editSegments]; n[idx].location = e.target.value; setEditSegments(n);

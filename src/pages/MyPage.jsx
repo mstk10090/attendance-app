@@ -1,19 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { User, Wallet, Clock, Calendar, LogOut, Home, Gift, Award } from "lucide-react";
 import { format, getDaysInMonth, isSaturday, isSunday, parseISO, differenceInYears, startOfMonth, endOfMonth, eachDayOfInterval } from "date-fns";
+import { HOLIDAYS } from "../constants";
 import "../App.css";
 
 const API_BASE = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com";
 const API_USER_URL = "https://cma9brof8g.execute-api.ap-northeast-1.amazonaws.com/prod/users";
 
-// 簡易的な祝日リスト (2025-2026)
-const HOLIDAYS = [
-  "2025-01-01", "2025-01-13", "2025-02-11", "2025-02-23", "2025-02-24", "2025-03-20",
-  "2025-04-29", "2025-05-03", "2025-05-04", "2025-05-05", "2025-05-06", "2025-07-21",
-  "2025-08-11", "2025-09-15", "2025-09-23", "2025-10-13", "2025-11-03", "2025-11-23", "2025-11-24",
-  "2026-01-01", "2026-01-12", "2026-02-11", "2026-02-23", "2026-03-21",
-  // 必要に応じて追加
-];
+
 
 const isHoliday = (d) => {
   const s = format(d, "yyyy-MM-dd");
@@ -32,6 +26,8 @@ export default function MyPage({ onLogout }) {
 
   const [stats, setStats] = useState({
     totalHours: 0,
+    paidHours: 0, // バイト時間（派遣の場合）
+    dispatchHours: 0, // 派遣時間
     totalDays: 0,
     estimatedSalary: 0,
   });
@@ -39,12 +35,35 @@ export default function MyPage({ onLogout }) {
   const [loading, setLoading] = useState(true);
   const [bonuses, setBonuses] = useState([]);
   const [totalBonus, setTotalBonus] = useState(0);
+  const [scheduledDays, setScheduledDays] = useState(0);
 
   // --- Utility ---
   const toMin = (t) => {
     if (!t) return 0;
-    const [h, m] = t.split(":").map(Number);
+    const parts = t.split(":").map(Number);
+    const h = parts[0] || 0;
+    const m = parts[1] || 0;
     return h * 60 + m;
+  };
+
+  const safeJsonParse = (str) => {
+    try {
+      return JSON.parse(str);
+    } catch {
+      return null;
+    }
+  };
+
+  const parseComment = (comment) => {
+    const parsed = safeJsonParse(comment);
+    if (parsed && typeof parsed === "object") {
+      return {
+        segments: Array.isArray(parsed.segments) ? parsed.segments : [],
+        text: parsed.text || "",
+        application: parsed.application || null
+      };
+    }
+    return { segments: [], text: comment || "", application: null };
   };
 
   const calcBreakMin = (e) => {
@@ -137,16 +156,80 @@ export default function MyPage({ onLogout }) {
       );
 
       // 基本集計
-      let sumMin = 0;
+      let sumTotalMin = 0; // 全実働
+      let sumPaidMin = 0;  // 給与対象（派遣ならバイトのみ、他は全実働）
+      let sumDispatchMin = 0; // 派遣として働いた時間（派遣社員のみ）
+
       let days = 0;
       const attendedDates = new Set();
       let hasAnyNightWork = false;
       let weekendWorkCount = 0;
+      let firstDayBonusAmount = 0;
+      const savedType = localStorage.getItem("employmentType");
+      const currentType = fetchedUser?.employmentType || savedType;
+      const isDispatchUser = currentType === "派遣";
 
       currentItems.forEach(item => {
         const workMin = calcWorkMin(item);
         if (workMin > 0) {
-          sumMin += workMin;
+          // 1日ボーナス (全ユーザー対象: 働いた時間 * 1000)
+          const d = new Date(item.workDate);
+          if (d.getDate() === 1) {
+            firstDayBonusAmount += Math.floor((workMin / 60) * 1000);
+          }
+
+          // 給与対象時間 & 派遣時間計算
+          let paidMin = 0;
+          let dispatchMin = 0;
+
+          if (isDispatchUser) {
+            // 派遣の場合: バイト区間 = paidMin, 派遣区間 = dispatchMin
+            // workMin (全実働) の内訳を計算する
+            const p = parseComment(item.comment);
+
+            // セグメントごとの集計 (休憩未考慮の拘束時間ベース)
+            let rawPaidMin = 0;
+            let rawDispatchMin = 0;
+
+            p.segments.forEach(seg => {
+              if (seg.start && seg.end) {
+                let s = toMin(seg.start);
+                let e = toMin(seg.end);
+                if (e < s) e += 24 * 60;
+                let duration = e - s;
+
+                if (seg.workType === "バイト") {
+                  rawPaidMin += duration;
+                } else {
+                  // "派遣" または undefined
+                  rawDispatchMin += duration;
+                }
+              }
+            });
+
+            // 休憩時間の按分 (workMin = TotalRaw - Break)
+            const rawTotal = rawPaidMin + rawDispatchMin;
+            if (rawTotal > 0) {
+              const breakMin = Math.max(0, rawTotal - workMin);
+              if (breakMin > 0) {
+                // 比率で休憩を引く
+                const paidRatio = rawPaidMin / rawTotal;
+                paidMin = Math.max(0, rawPaidMin - (breakMin * paidRatio));
+                dispatchMin = Math.max(0, rawDispatchMin - (breakMin * (1 - paidRatio)));
+              } else {
+                paidMin = rawPaidMin;
+                dispatchMin = rawDispatchMin;
+              }
+            }
+          } else {
+            // 派遣以外は全時間が給与対象
+            paidMin = workMin;
+          }
+
+          sumTotalMin += workMin;
+          sumPaidMin += paidMin;
+          sumDispatchMin += dispatchMin;
+
           days++;
           attendedDates.add(item.workDate);
           if (hasNightWork(item)) hasAnyNightWork = true;
@@ -157,18 +240,30 @@ export default function MyPage({ onLogout }) {
         }
       });
 
-      const hours = sumMin / 60;
+      const totalHours = sumTotalMin / 60;
+      const paidHours = sumPaidMin / 60;
+      const dispatchHours = sumDispatchMin / 60;
+
       setStats({
-        totalHours: hours,
+        totalHours: totalHours,
+        paidHours: paidHours,
+        dispatchHours: dispatchHours,
         totalDays: days,
-        estimatedSalary: Math.floor(hours * hourlyWage)
+        estimatedSalary: Math.floor(paidHours * hourlyWage)
       });
 
-      // --- ボーナスロジック ---
-      // 計算用日数定義
+      // 規定出勤日数(平日数)計算
       const start = startOfMonth(now);
       const end = endOfMonth(now);
       const allDays = eachDayOfInterval({ start, end });
+      const workDays = allDays.filter(d => !isWeekendOrHoliday(d)).length;
+      setScheduledDays(workDays);
+
+      // --- ボーナスロジック ---
+      // 計算用日数定義
+      // const start = startOfMonth(now);
+      // const end = endOfMonth(now);
+      // const allDays = eachDayOfInterval({ start, end });
 
       let weekdayCount = 0;
       let weekendHolidayCount = 0;
@@ -182,12 +277,15 @@ export default function MyPage({ onLogout }) {
       let bTotal = 0;
 
       // 条件変数
-      const isDispatch = fetchedUser?.employmentType === "派遣";
-      const isRegular = fetchedUser?.employmentType === "正社員"; // 常勤扱い
+      const livingAlone = fetchedUser?.livingAlone === true;
+
+
+
+      const isDispatch = currentType === "派遣";
+      const isRegular = currentType === "正社員"; // 常勤扱い
       const yearsOfService = fetchedUser?.startDate
         ? differenceInYears(now, new Date(fetchedUser.startDate))
         : 0;
-      const livingAlone = fetchedUser?.livingAlone === true;
 
       // 1. 常勤判定 (派遣でも規定日数(平日数)出勤で常勤扱い)
       // 「平日分の日数（規定日数）を月に出社していたら常勤とします」
@@ -230,6 +328,12 @@ export default function MyPage({ onLogout }) {
         }
       }
 
+      // 1日出勤ボーナス
+      if (firstDayBonusAmount > 0) {
+        bonusList.push({ name: "1日出勤ボーナス", amount: firstDayBonusAmount });
+        bTotal += firstDayBonusAmount;
+      }
+
       setBonuses(bonusList);
       setTotalBonus(bTotal);
       setLoading(false);
@@ -238,6 +342,11 @@ export default function MyPage({ onLogout }) {
     fetchData();
   }, [userId, hourlyWage, loginId]);
 
+
+
+
+  const savedType = localStorage.getItem("employmentType");
+  const isDispatch = (userInfo?.employmentType || savedType) === "派遣";
 
   return (
     <div className="mypage-container">
@@ -255,6 +364,16 @@ export default function MyPage({ onLogout }) {
             <h1 className="user-name">{userName}</h1>
             <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
               <span className="user-role">STAFF / {loginId}</span>
+              {(() => {
+                const saved = localStorage.getItem("employmentType");
+                const type = userInfo?.employmentType || saved || "バイト";
+                const isDisp = type === "派遣";
+                return (
+                  <span className="badge-living" style={{ background: isDisp ? "#f3f4f6" : "#fffbeb", color: isDisp ? "#374151" : "#b45309", border: isDisp ? "1px solid #d1d5db" : "1px solid #fcd34d" }}>
+                    {type}
+                  </span>
+                );
+              })()}
               {userInfo && userInfo.livingAlone ? (
                 <span className="badge-living">
                   <Home size={12} style={{ marginRight: 3 }} /> 一人暮らし
@@ -286,7 +405,8 @@ export default function MyPage({ onLogout }) {
             基本 {stats.estimatedSalary.toLocaleString()} + ボーナス {totalBonus.toLocaleString()}
           </div>
           <div style={{ fontSize: "0.8rem", marginTop: "4px", opacity: 0.8 }}>
-            時給 {hourlyWage.toLocaleString()}円 × {stats.totalHours.toFixed(1)}時間 (出勤 {stats.totalDays}日)
+            時給 {hourlyWage.toLocaleString()}円 × {stats.paidHours.toFixed(1)}時間
+            {isDispatch && ` (全体 ${stats.totalHours.toFixed(1)}h のうちバイト分)`}
           </div>
         </div>
 
@@ -311,12 +431,17 @@ export default function MyPage({ onLogout }) {
             <div className="stat-icon i-blue"><Clock size={20} /></div>
             <div className="stat-val">{loading ? "-" : stats.totalHours.toFixed(1)}<span className="unit">h</span></div>
             <div className="stat-label">総勤務時間</div>
+            {isDispatch && (
+              <div style={{ fontSize: "10px", color: "#666", marginTop: "4px" }}>
+                (派遣: {stats.dispatchHours.toFixed(1)}h / バイト: {stats.paidHours.toFixed(1)}h)
+              </div>
+            )}
           </div>
 
           <div className="stat-box">
             <div className="stat-icon i-green"><Calendar size={20} /></div>
-            <div className="stat-val">{loading ? "-" : stats.totalDays}<span className="unit">日</span></div>
-            <div className="stat-label">出勤日数</div>
+            <div className="stat-val">{loading ? "-" : `${stats.totalDays} / ${scheduledDays}`}<span className="unit">日</span></div>
+            <div className="stat-label">出勤日数 (実績 / 規定)</div>
           </div>
         </div>
 

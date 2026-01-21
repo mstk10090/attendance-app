@@ -59,13 +59,24 @@ export default function AdminHistory() {
             const end = new Date(fetchRange.end);
             const days = eachDayOfInterval({ start, end });
 
-            const promises = days.map(day =>
-                fetch(`${API_BASE}/admin/attendance?date=${format(day, "yyyy-MM-dd")}`)
-                    .then(r => r.json())
-                    .then(d => (d.success ? d.items : []))
-            );
+            // Chunked fetching to avoid 503 Throttling
+            const results = [];
+            const chunkSize = 5; // Batch size
+            for (let i = 0; i < days.length; i += chunkSize) {
+                const chunk = days.slice(i, i + chunkSize);
+                const promises = chunk.map(day =>
+                    fetch(`${API_BASE}/admin/attendance?date=${format(day, "yyyy-MM-dd")}`)
+                        .then(r => r.json())
+                        .then(d => (d.success ? d.items : []))
+                );
+                const chunkResults = await Promise.all(promises);
+                results.push(...chunkResults);
 
-            const results = await Promise.all(promises);
+                // Small delay between chunks
+                if (i + chunkSize < days.length) {
+                    await new Promise(r => setTimeout(r, 500));
+                }
+            }
             const allItems = results.flat();
 
             // De-duplicate
