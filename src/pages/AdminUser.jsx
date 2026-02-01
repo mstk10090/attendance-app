@@ -1,39 +1,204 @@
-import React, { useState } from "react";
-import { UserPlus, User, Lock, Briefcase, Calendar, DollarSign, Home, Save, CheckCircle, AlertTriangle } from "lucide-react";
+import React, { useState, useEffect, useMemo } from "react";
+import {
+  UserPlus, User, Lock, Briefcase, Calendar, DollarSign, Home, Save,
+  CheckCircle, AlertTriangle, Search, Edit2, ArrowLeft, RefreshCw, Filter, ArrowUpDown, Eye, EyeOff
+} from "lucide-react";
 
-// ★ /users の URL
-const API_USER_URL =
-  "https://cma9brof8g.execute-api.ap-northeast-1.amazonaws.com/prod/users";
+const API_BASE = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com";
+const READ_USER_URL = `${API_BASE}/users`;
+const WRITE_USER_URL = "https://cma9brof8g.execute-api.ap-northeast-1.amazonaws.com/prod/users";
+
+import { LOCATIONS, DEPARTMENTS, EMPLOYMENT_TYPES } from "../constants";
 
 export default function AdminUser() {
+  const [mode, setMode] = useState("list");
+
+  // List State
+  const [users, setUsers] = useState([]);
+  const [loadingList, setLoadingList] = useState(false);
+
+  // Filter/Sort State
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortOrder, setSortOrder] = useState("asc"); // "asc" (oldest first) | "desc" (newest first)
+  const [filterType, setFilterType] = useState("");
+  const [filterDept, setFilterDept] = useState("");
+  const [filterLoc, setFilterLoc] = useState("");
+
+  // Form State
   const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
-  const [userId, setUserId] = useState(""); // 任意入力欄
-
-  const [lastName, setLastName] = useState("");   // 姓
-  const [firstName, setFirstName] = useState(""); // 名
-  const [startDate, setStartDate] = useState(""); // 勤務開始日
-
-  const [employmentType, setEmploymentType] = useState("派遣"); // 派遣 / バイト
-  const [livingAlone, setLivingAlone] = useState("no");        // yes / no
-
+  const [showPassword, setShowPassword] = useState(false);
+  const [userId, setUserId] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [employmentType, setEmploymentType] = useState(EMPLOYMENT_TYPES[0]); // Default to first
+  const [livingAlone, setLivingAlone] = useState("no");
+  const [defaultLocation, setDefaultLocation] = useState("未記載");
+  const [defaultDepartment, setDefaultDepartment] = useState("未記載");
   const [hourlyWage, setHourlyWage] = useState("2200");
+
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    fetchUsers();
+  }, []);
+
+  const fetchUsers = async () => {
+    setLoadingList(true);
+    try {
+      const res = await fetch(READ_USER_URL);
+      if (!res.ok) throw new Error("Failed to fetch users");
+
+      const text = await res.text();
+      let data = null;
+      try {
+        const outer = JSON.parse(text);
+        if (outer.body && typeof outer.body === "string") {
+          data = JSON.parse(outer.body);
+        } else {
+          data = outer;
+        }
+
+        let list = [];
+        if (Array.isArray(data)) list = data;
+        else if (data && Array.isArray(data.items)) list = data.items;
+        else if (data && Array.isArray(data.Items)) list = data.Items;
+        else if (data && data.success && Array.isArray(data.items)) list = data.items;
+
+        setUsers(list);
+      } catch (e) {
+        console.error("Parse error", e);
+        setUsers([]);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingList(false);
+    }
+  };
+
+  const filteredUsers = useMemo(() => {
+    let result = [...users];
+
+    // 1. Text Search
+    if (searchQuery) {
+      const lower = searchQuery.toLowerCase();
+      result = result.filter(u => {
+        const actualName = (u.lastName || u.firstName)
+          ? `${u.lastName || ""} ${u.firstName || ""}`
+          : "";
+        const login = u.loginId || "";
+        const uid = u.userId || "";
+        return (
+          actualName.toLowerCase().includes(lower) ||
+          login.toLowerCase().includes(lower) ||
+          uid.toLowerCase().includes(lower)
+        );
+      });
+    }
+
+    // 2. Filters
+    if (filterType) {
+      result = result.filter(u => (u.employmentType || "未設定") === filterType);
+    }
+    if (filterDept) {
+      result = result.filter(u => (u.defaultDepartment || "未記載") === filterDept);
+    }
+    if (filterLoc) {
+      result = result.filter(u => (u.defaultLocation || "未記載") === filterLoc);
+    }
+
+    // 3. Sort (Start Date)
+    result.sort((a, b) => {
+      const vA = a.startDate || "";
+      const vB = b.startDate || "";
+
+      if (sortOrder === "asc") {
+        if (vA === vB) return 0;
+        if (!vA) return 1;
+        if (!vB) return -1;
+        return vA.localeCompare(vB);
+      } else {
+        if (vA === vB) return 0;
+        if (!vA) return 1;
+        if (!vB) return -1;
+        return vB.localeCompare(vA);
+      }
+    });
+
+    return result;
+  }, [users, searchQuery, sortOrder, filterType, filterDept, filterLoc]);
+
+  // Form Handlers
+  const resetForm = () => {
+    setLoginId("");
+    setPassword("");
+    setUserId("");
+    setLastName("");
+    setFirstName("");
+    setStartDate("");
+    setEmploymentType(EMPLOYMENT_TYPES[0]);
+    setLivingAlone("no");
+    setDefaultLocation("未記載");
+    setDefaultDepartment("未記載");
+    setHourlyWage("2200");
+    setMessage("");
+  };
+
+  const handleCreateNew = () => {
+    resetForm();
+    setMode("create");
+  };
+
+  const handleEdit = (u) => {
+    resetForm();
+    setMode("edit");
+
+    setUserId(u.userId || "");
+    setLoginId(u.loginId || "");
+    // Pre-fill password if available in user object
+    setPassword(u.password || "");
+
+    setLastName(u.lastName || "");
+    setFirstName(u.firstName || "");
+    setStartDate(u.startDate || "");
+    // Ensure existing type is valid, or default
+    setEmploymentType(u.employmentType || EMPLOYMENT_TYPES[0]);
+
+    const isAlone = u.livingAlone === true || u.livingAlone === "true" || u.livingAlone === "yes";
+    setLivingAlone(isAlone ? "yes" : "no");
+    setDefaultLocation(u.defaultLocation || "未記載");
+    setDefaultDepartment(u.defaultDepartment || "未記載");
+    setHourlyWage(u.hourlyWage ? String(u.hourlyWage) : "2200");
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setMessage("");
     setLoading(true);
 
-    // いちおうフロント側でも必須チェック
-    if (!loginId.trim() || !password.trim()) {
-      setMessage("❌ loginId と password は必須です");
+    if (!loginId.trim()) {
+      setMessage("❌ loginId は必須です");
       setLoading(false);
       return;
     }
 
-    // userId が空なら自動採番
+    // Duplicate Check (Only on Create)
+    if (mode === "create" && users.some(u => u.loginId === loginId.trim())) {
+      setMessage("❌ このログインIDは既に使用されています");
+      setLoading(false);
+      return;
+    }
+
+    // Password is only required in create mode
+    if (mode === "create" && !password.trim()) {
+      setMessage("❌ パスワードを入力してください");
+      setLoading(false);
+      return;
+    }
+
     const trimmedUserId = userId.trim();
     const finalUserId =
       trimmedUserId !== ""
@@ -43,7 +208,6 @@ export default function AdminUser() {
     try {
       const payload = {
         loginId: loginId.trim(),
-        password: password,
         userId: finalUserId,
         lastName: lastName.trim() || null,
         firstName: firstName.trim() || null,
@@ -51,11 +215,17 @@ export default function AdminUser() {
         employmentType,
         livingAlone: livingAlone === "yes",
         hourlyWage: hourlyWage ? Number(hourlyWage) : null,
+        defaultLocation: defaultLocation || "未記載",
+        defaultDepartment: defaultDepartment || "未記載",
       };
 
-      console.log("Admin user payload:", payload);
+      // Only include password if we are creating a new user
+      if (mode === "create") {
+        payload.password = password;
+      }
 
-      const res = await fetch(API_USER_URL, {
+      // Use WRITE_USER_URL for updates
+      const res = await fetch(WRITE_USER_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -63,50 +233,19 @@ export default function AdminUser() {
 
       const text = await res.text();
       let outer = null;
-      let data = null;
+      try { outer = JSON.parse(text); } catch (e) { }
 
-      try {
-        outer = text ? JSON.parse(text) : null;
-      } catch (e) {
-        console.error("JSON parse error (outer):", e, text);
-      }
-
-      if (outer && typeof outer === "object" && outer.body) {
-        try {
-          data = JSON.parse(outer.body);
-        } catch (e) {
-          data = null;
-        }
-      } else {
-        data = outer;
-      }
-
-      const statusCode =
-        outer && typeof outer.statusCode === "number"
-          ? outer.statusCode
-          : res.status;
+      const statusCode = (outer && outer.statusCode) || res.status;
 
       if (statusCode !== 200) {
-        const msg = (data && data.message) || `エラーが発生しました (status ${statusCode})`;
+        const msg = (outer && outer.body && JSON.parse(outer.body).message) || `エラーが発生しました (${statusCode})`;
         setMessage(`❌ ${msg}`);
         return;
       }
 
-      setMessage(
-        `✅ 保存しました (userId: ${(data && data.user && data.user.userId) || finalUserId
-        })`
-      );
+      setMessage(`✅ 保存しました (userId: ${finalUserId})`);
+      fetchUsers();
 
-      // 入力リセット
-      setLoginId("");
-      setPassword("");
-      setUserId("");
-      setLastName("");
-      setFirstName("");
-      setStartDate("");
-      setEmploymentType("派遣");
-      setLivingAlone("no");
-      setHourlyWage("2200");
     } catch (err) {
       console.error("Admin user error:", err);
       setMessage("❌ 通信エラーが発生しました");
@@ -115,24 +254,231 @@ export default function AdminUser() {
     }
   };
 
+  /* --- Render List View --- */
+  if (mode === "list") {
+    return (
+      <div className="admin-container" style={{ height: "100vh", display: "flex", flexDirection: "column", boxSizing: "border-box", paddingBottom: "20px" }}>
+
+        {/* Header Section */}
+        <div style={{ flexShrink: 0, display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold", display: "flex", alignItems: "center", gap: "12px", color: "#1f2937" }}>
+            <div style={{ background: "#e0f2fe", padding: "10px", borderRadius: "12px", color: "#0284c7" }}>
+              <User size={28} />
+            </div>
+            スタッフ管理
+          </h2>
+          <div style={{ display: "flex", gap: "12px" }}>
+            <button className="btn btn-outline" onClick={fetchUsers} disabled={loadingList} style={{ gap: "6px" }}>
+              <RefreshCw size={18} className={loadingList ? "spin" : ""} /> リロード
+            </button>
+            <button className="btn btn-blue" onClick={handleCreateNew} style={{ gap: "6px", padding: "10px 20px" }}>
+              <UserPlus size={18} /> 新規スタッフ登録
+            </button>
+          </div>
+        </div>
+
+        <div className="card" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", padding: 0 }}>
+
+          {/* Controls Area (Search & Filters) - Fixed Top */}
+          <div style={{ padding: "16px", borderBottom: "1px solid #f3f4f6", background: "#fff", flexShrink: 0 }}>
+
+            {/* 1st Row: Search & Count */}
+            <div style={{ display: "flex", gap: "12px", alignItems: "center", marginBottom: "12px" }}>
+              <div style={{ position: "relative", width: "300px" }}>
+                <Search size={16} style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: "#9ca3af" }} />
+                <input
+                  type="text"
+                  className="input"
+                  placeholder="氏名・ID..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  style={{
+                    paddingLeft: "34px",
+                    width: "100%",
+                    height: "36px",
+                    fontSize: "14px",
+                    border: "1px solid #e5e7eb",
+                    borderRadius: "6px"
+                  }}
+                />
+              </div>
+              <div style={{ fontSize: "0.85rem", color: "#6b7280", fontWeight: "500", marginLeft: "auto" }}>
+                全 {filteredUsers.length} 名
+              </div>
+            </div>
+
+            {/* 2nd Row: Filters & Sort */}
+            <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+
+              {/* Sort Button */}
+              <button
+                className="btn btn-outline"
+                onClick={() => setSortOrder(prev => prev === "asc" ? "desc" : "asc")}
+                style={{ height: "36px", padding: "0 12px", fontSize: "0.85rem", gap: "6px" }}
+              >
+                <ArrowUpDown size={14} />
+                入社日: {sortOrder === "asc" ? "古い順" : "新しい順"}
+              </button>
+
+              <div style={{ width: "1px", height: "24px", background: "#e5e7eb", margin: "0 4px" }} />
+
+              {/* Filters */}
+              <select
+                className="input"
+                value={filterType}
+                onChange={e => setFilterType(e.target.value)}
+                style={{ height: "36px", width: "110px", fontSize: "0.85rem", padding: "0 8px" }}
+              >
+                <option value="">全ての形態</option>
+                {EMPLOYMENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+
+              <select
+                className="input"
+                value={filterDept}
+                onChange={e => setFilterDept(e.target.value)}
+                style={{ height: "36px", width: "110px", fontSize: "0.85rem", padding: "0 8px" }}
+              >
+                <option value="">全ての部署</option>
+                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+
+              <select
+                className="input"
+                value={filterLoc}
+                onChange={e => setFilterLoc(e.target.value)}
+                style={{ height: "36px", width: "110px", fontSize: "0.85rem", padding: "0 8px" }}
+              >
+                <option value="">全ての勤務地</option>
+                {LOCATIONS.map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+
+              {(filterType || filterDept || filterLoc) && (
+                <button
+                  onClick={() => { setFilterType(""); setFilterDept(""); setFilterLoc(""); }}
+                  style={{ fontSize: "0.8rem", color: "#ef4444", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}
+                >
+                  クリア
+                </button>
+              )}
+            </div>
+
+          </div>
+
+          {/* Table Container - Scrollable */}
+          <div className="table-wrap" style={{ flex: 1, overflowY: "auto", position: "relative" }}>
+            {loadingList ? (
+              <div style={{ textAlign: "center", padding: "60px", color: "#6b7280" }}>
+                <div className="spin" style={{ display: "inline-block", marginBottom: "8px" }}><RefreshCw size={24} /></div>
+                <div>データを読み込み中...</div>
+              </div>
+            ) : (
+              <table className="admin-table" style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
+                <thead style={{ position: "sticky", top: 0, zIndex: 10, background: "#f9fafb" }}>
+                  <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
+                    <th onClick={() => fetchUsers()} style={{ cursor: "pointer", padding: "12px 16px", textAlign: "left", fontSize: "0.85rem", color: "#6b7280", fontWeight: "600", borderBottom: "1px solid #e5e7eb" }}>氏名 / ID</th>
+                    <th style={{ padding: "12px 16px", textAlign: "left", fontSize: "0.85rem", color: "#6b7280", fontWeight: "600", borderBottom: "1px solid #e5e7eb" }}>入社日</th>
+                    <th style={{ padding: "12px 16px", textAlign: "left", fontSize: "0.85rem", color: "#6b7280", fontWeight: "600", borderBottom: "1px solid #e5e7eb" }}>雇用形態</th>
+                    <th style={{ padding: "12px 16px", textAlign: "left", fontSize: "0.85rem", color: "#6b7280", fontWeight: "600", borderBottom: "1px solid #e5e7eb" }}>部署 / 勤務地</th>
+                    <th style={{ padding: "12px 16px", textAlign: "right", fontSize: "0.85rem", color: "#6b7280", fontWeight: "600", borderBottom: "1px solid #e5e7eb" }}>アクション</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredUsers.length === 0 ? (
+                    <tr><td colSpan="5" style={{ textAlign: "center", padding: "40px", color: "#9ca3af" }}>条件に一致するスタッフが見つかりません</td></tr>
+                  ) : (
+                    filteredUsers.map(u => {
+                      // Display logic
+                      const hasName = u.lastName || u.firstName;
+                      const displayName = hasName
+                        ? `${u.lastName || ""} ${u.firstName || ""}`.trim()
+                        : "(氏名未登録)";
+
+                      // Location/Dept logic
+                      const dept = (!u.defaultDepartment || u.defaultDepartment === "未記載") ? "" : u.defaultDepartment;
+                      const loc = (!u.defaultLocation || u.defaultLocation === "未記載") ? "" : u.defaultLocation;
+                      const locStr = [dept, loc].filter(Boolean).join(" / ") || "-";
+
+                      return (
+                        <tr key={u.userId} className="hover-row" style={{ borderBottom: "1px solid #f3f4f6" }}>
+                          {/* Name Column */}
+                          <td style={{ padding: "12px 16px", background: "#fff" }}>
+                            <div style={{ fontWeight: hasName ? "bold" : "normal", color: hasName ? "#111827" : "#9ca3af", fontSize: "0.95rem" }}>
+                              {displayName}
+                            </div>
+                            <div style={{ fontSize: "0.75rem", color: "#9ca3af", marginTop: "2px" }}>
+                              {u.loginId} <span style={{ opacity: 0.6 }}>({u.userId})</span>
+                            </div>
+                          </td>
+
+                          {/* Start Date Column */}
+                          <td style={{ padding: "12px 16px", color: "#4b5563", fontSize: "0.9rem", background: "#fff" }}>
+                            {u.startDate || "-"}
+                          </td>
+
+                          {/* Type Column */}
+                          <td style={{ padding: "12px 16px", background: "#fff" }}>
+                            <span className={`status-badge ${u.employmentType === "派遣" ? "blue" : "orange"}`} style={{ padding: "2px 10px", borderRadius: "20px", fontSize: "0.8rem" }}>
+                              {u.employmentType || "未設定"}
+                            </span>
+                          </td>
+
+                          {/* Location Column */}
+                          <td style={{ padding: "12px 16px", color: "#4b5563", fontSize: "0.9rem", background: "#fff" }}>
+                            {locStr}
+                          </td>
+
+                          {/* Action Column */}
+                          <td style={{ padding: "12px 16px", textAlign: "right", background: "#fff" }}>
+                            <button className="btn btn-gray" style={{ padding: "6px 14px", fontSize: "0.85rem" }} onClick={() => handleEdit(u)}>
+                              <Edit2 size={14} style={{ marginRight: "6px" }} /> 編集
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+        <style>{`
+          .spin { animation: spin 1s linear infinite; }
+          @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+          .hover-row:hover { background: #fdfdfd; }
+          .hover-row:hover td { background: #fdfdfd !important; } 
+          .btn-outline { background: #fff; border: 1px solid #d1d5db; color: #374151; padding: 10px 16px; border-radius: 8px; font-weight: 500; cursor: pointer; display: flex; align-items: center; transition: all 0.2s; }
+          .btn-outline:hover { background: #f9fafb; border-color: #9ca3af; }
+        `}</style>
+      </div>
+    );
+  }
+
+  /* --- Render Form View (Create/Edit) --- */
   return (
     <div className="admin-container" style={{ maxWidth: "800px", margin: "0 auto", paddingBottom: "80px" }}>
-
       {/* Header */}
       <div style={{ marginBottom: "24px", display: "flex", alignItems: "center", gap: "12px" }}>
+        <button className="icon-btn" onClick={() => setMode("list")} style={{ marginRight: "8px" }}>
+          <ArrowLeft size={24} />
+        </button>
         <div style={{ background: "#eff6ff", padding: "12px", borderRadius: "12px", color: "#2563eb" }}>
           <UserPlus size={32} />
         </div>
         <div>
-          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#1f2937", margin: 0 }}>ユーザー登録・更新</h2>
-          <p style={{ color: "#6b7280", margin: "4px 0 0 0" }}>新規スタッフのアカウント作成や情報更新を行います。</p>
+          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#1f2937", margin: 0 }}>
+            {mode === "create" ? "スタッフ新規登録" : "スタッフ情報更新"}
+          </h2>
+          <p style={{ color: "#6b7280", margin: "4px 0 0 0" }}>
+            {mode === "create" ? "新しいスタッフアカウントを作成します" : "登録済みスタッフの情報を編集します"}
+          </p>
         </div>
       </div>
 
       <div className="card" style={{ padding: "32px" }}>
         <form onSubmit={handleSubmit}>
 
-          {/* Section: Account Info */}
           <div className="form-section">
             <h3 className="section-title"><Lock size={18} /> アカウント情報</h3>
 
@@ -148,35 +494,56 @@ export default function AdminUser() {
                   placeholder="例: Aria"
                 />
               </div>
-              <div className="form-group">
-                <label>パスワード （数字4桁）<span className="req">*</span></label>
-                <input
-                  type="password"
-                  className="input"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  placeholder="••••••••"
-                />
-              </div>
-            </div>
 
-            <div className="form-group" style={{ marginTop: "16px" }}>
-              <label>ユーザーID (任意)</label>
+              {mode === "create" && (
+                <div className="form-group">
+                  <label>パスワード <span className="req">*</span></label>
+                  <div className="input-icon-wrapper">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      className="input"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                      placeholder="パスワード"
+                      style={{ paddingRight: "40px" }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      style={{
+                        position: "absolute",
+                        right: "10px",
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        color: "#6b7280"
+                      }}
+                    >
+                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                  <p className="hint">※ 初期パスワードを設定してください</p>
+                </div>
+              )}
+
               <input
                 type="text"
                 className="input"
                 value={userId}
                 onChange={(e) => setUserId(e.target.value)}
-                placeholder="未入力の場合は自動生成されます (例: user-2025...)"
+                readOnly={mode === "edit"}
+                style={{ background: mode === "edit" ? "#f3f4f6" : "#fff", color: mode === "edit" ? "#888" : "inherit" }}
+                placeholder="未入力の場合は自動生成されます"
               />
-              <p className="hint">※ 既存ユーザーを更新する場合は、そのユーザーIDを入力してください。</p>
+              {mode === "edit" && <p className="hint">※ ユーザーIDは変更できません</p>}
             </div>
           </div>
 
           <hr className="divider" />
 
-          {/* Section: Personal Info */}
           <div className="form-section">
             <h3 className="section-title"><User size={18} /> 基本情報</h3>
 
@@ -221,11 +588,32 @@ export default function AdminUser() {
                     value={employmentType}
                     onChange={(e) => setEmploymentType(e.target.value)}
                   >
-                    <option value="派遣">派遣</option>
-                    <option value="バイト">バイト</option>
-                    <option value="正社員">正社員</option>
+                    {EMPLOYMENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
+              </div>
+            </div>
+
+            <div className="form-grid" style={{ marginTop: "16px" }}>
+              <div className="form-group">
+                <label>デフォルト勤務地</label>
+                <select
+                  className="input"
+                  value={defaultLocation}
+                  onChange={(e) => setDefaultLocation(e.target.value)}
+                >
+                  {LOCATIONS.map(l => <option key={l} value={l}>{l}</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>デフォルト部署</label>
+                <select
+                  className="input"
+                  value={defaultDepartment}
+                  onChange={(e) => setDefaultDepartment(e.target.value)}
+                >
+                  {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
               </div>
             </div>
 
@@ -260,7 +648,7 @@ export default function AdminUser() {
 
           {/* Section: Salary */}
           <div className="form-section">
-            <h3 className="section-title"><DollarSign size={18} /> 給与設定</h3>
+            <h3 className="section-title"><DollarSign size={18} /> 給与設定(任意)</h3>
             <div className="form-group">
               <label>時給</label>
               <div className="input-icon-wrapper">
@@ -284,7 +672,15 @@ export default function AdminUser() {
               disabled={loading}
               style={{ width: "100%", justifyContent: "center", gap: "8px" }}
             >
-              {loading ? "送信中..." : <><Save size={20} /> 登録 / 更新する</>}
+              {loading ? "送信中..." : <><Save size={20} /> 保存する</>}
+            </button>
+            <button
+              type="button"
+              className="btn btn-gray"
+              onClick={() => setMode("list")}
+              style={{ width: "100%", marginTop: "8px", justifyContent: "center" }}
+            >
+              キャンセル
             </button>
           </div>
 
@@ -324,7 +720,8 @@ export default function AdminUser() {
           font-weight: 500;
           color: #4b5563;
           margin-bottom: 6px;
-          display: flex; align-items: center;
+          display: flex;
+          align-items: center;
         }
         .req { color: #ef4444; margin-left: 4px; }
         .hint { font-size: 0.8rem; color: #9ca3af; margin-top: 4px; }
@@ -333,8 +730,6 @@ export default function AdminUser() {
           border-top: 1px solid #e5e7eb;
           margin: 24px 0;
         }
-        
-        /* Radio Cards */
         .radio-group { display: flex; gap: 12px; }
         .radio-card {
           flex: 1;
@@ -356,8 +751,6 @@ export default function AdminUser() {
           font-weight: 500;
         }
         .radio-card input { accent-color: #2563eb; }
-
-        /* Input Icon Wrapper */
         .input-icon-wrapper { position: relative; }
         .icon-prefix {
           position: absolute;
@@ -367,9 +760,7 @@ export default function AdminUser() {
           color: #6b7280;
           font-weight: bold;
         }
-
         .btn-lg { padding: 14px; font-size: 1.1rem; }
-        
         .message-box {
           margin-top: 24px;
           padding: 16px;
@@ -381,8 +772,6 @@ export default function AdminUser() {
         }
         .message-box.success { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
         .message-box.error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
-
-        /* Reusing global classes .card, .input, .btn from App.css effectively */
       `}</style>
     </div>
   );

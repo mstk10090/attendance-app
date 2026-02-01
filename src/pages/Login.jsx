@@ -187,7 +187,7 @@ export default function Login({ onLogin }) {
 
           <div style={{ marginBottom: 24 }}>
             <label style={{ display: "block", marginBottom: 4, fontWeight: "500", fontSize: "0.9rem", color: "#374151" }}>
-              パスワード
+              パスワード（数字4桁）
             </label>
             <input
               type="password"

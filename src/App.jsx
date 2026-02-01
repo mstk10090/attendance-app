@@ -22,6 +22,7 @@ import AdminShiftsDetail from "./pages/admin/AdminShiftsDetail";
 import AdminFixedShifts from "./pages/admin/AdminFixedShifts";
 import AdminAttendance from "./pages/admin/AdminAttendance";
 import AdminHistory from "./pages/admin/AdminHistory";
+import AdminManual from "./pages/admin/AdminManual";
 
 import Attendance from "./pages/Attendance";
 
@@ -39,8 +40,23 @@ export default function App() {
   const [clientIp, setClientIp] = useState("");
 
   useEffect(() => {
+    // Check if device is allowed via URL param
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("allow_device") === "true") {
+      localStorage.setItem("device_allowed", "true");
+      alert("このデバイスからのアクセスを許可しました。");
+      // Clean URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
     // Check IP
     const checkIp = async () => {
+      // 1. Check Device Bypass
+      if (localStorage.getItem("device_allowed") === "true") {
+        setIpStatus("allowed");
+        return;
+      }
+
       try {
         const res = await fetch("https://api.ipify.org?format=json");
         const data = await res.json();
@@ -148,11 +164,14 @@ export default function App() {
           {/* ===== 管理者ナビ ===== */}
           {isAdmin ? (
             <>
-              {/* <div className="tab">
-                <NavLink to="/admin" className={navLinkClass}>
-                  管理TOP
+              <div className="tab">
+                <NavLink
+                  to="/admin/manual"
+                  className={navLinkClass}
+                >
+                  操作マニュアル
                 </NavLink>
-              </div> */}
+              </div>
 
               <div className="tab">
                 <NavLink
@@ -286,6 +305,15 @@ export default function App() {
               />
 
               <Route
+                path="/admin/manual"
+                element={
+                  <RequireAdmin>
+                    <AdminManual />
+                  </RequireAdmin>
+                }
+              />
+
+              <Route
                 path="/admin/users"
                 element={
                   <RequireAdmin>
@@ -341,6 +369,7 @@ export default function App() {
           )}
         </Routes>
       </div>
-    </Router>
+
+    </Router >
   );
 }

@@ -1,11 +1,97 @@
 import React, { useEffect, useState } from "react";
-import { User, Wallet, Clock, Calendar, LogOut, Home, Gift, Award } from "lucide-react";
+import { User, Wallet, Clock, Calendar, LogOut, Home, Gift, Award, Pencil, Lock } from "lucide-react";
 import { format, getDaysInMonth, isSaturday, isSunday, parseISO, differenceInYears, startOfMonth, endOfMonth, eachDayOfInterval } from "date-fns";
-import { HOLIDAYS } from "../constants";
+import { ja } from "date-fns/locale";
+import { HOLIDAYS, LOCATIONS, DEPARTMENTS } from "../constants";
 import "../App.css";
 
+// Shift Component
+const ShiftSchedule = ({ userInfo }) => {
+  const [shiftMap, setShiftMap] = useState({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    import("../utils/shiftParser").then(mod => {
+      mod.fetchShiftData().then(data => {
+        setShiftMap(data);
+        setLoading(false);
+      });
+    });
+  }, []);
+
+  const now = new Date();
+  const daysInMonth = getDaysInMonth(now);
+  const monthDays = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+
+  const getShift = (day) => {
+    if (!shiftMap || !userInfo) return null;
+    const dateStr = format(new Date(now.getFullYear(), now.getMonth(), day), "yyyy-MM-dd");
+
+    const keysToTry = [];
+    // 1. userName
+    if (userInfo.userName) keysToTry.push(userInfo.userName);
+    // 2. Name combinations
+    if (userInfo.lastName || userInfo.firstName) {
+      const last = userInfo.lastName || "";
+      const first = userInfo.firstName || "";
+      keysToTry.push(`${last} ${first}`.trim());
+      keysToTry.push(`${first} ${last}`.trim());
+      keysToTry.push(`${last}　${first}`.trim()); // Full-width matched
+      keysToTry.push(`${first}　${last}`.trim());
+      keysToTry.push(`${last}${first}`.trim());
+    }
+
+    for (const k of keysToTry) {
+      if (k && shiftMap[k] && shiftMap[k][dateStr]) {
+        return shiftMap[k][dateStr];
+      }
+    }
+    return null;
+  };
+
+  if (loading) return null;
+
+  return (
+    <div className="bonus-section">
+      <h3 className="section-title"><Calendar size={16} /> 今月のシフト</h3>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(60px, 1fr))", gap: "8px" }}>
+        {monthDays.map(day => {
+          const date = new Date(now.getFullYear(), now.getMonth(), day);
+          const isSat = isSaturday(date);
+          const isSun = isSunday(date);
+          const isHol = isHoliday(date);
+          const shift = getShift(day);
+
+          let color = "#374151";
+          if (isSun || isHol) color = "#ef4444";
+          else if (isSat) color = "#3b82f6";
+
+          return (
+            <div key={day} style={{
+              background: shift ? "#eff6ff" : "#fff",
+              border: shift ? "1px solid #bfdbfe" : "1px solid #f3f4f6",
+              borderRadius: "8px",
+              padding: "8px 4px",
+              textAlign: "center",
+              opacity: shift ? 1 : 0.6
+            }}>
+              <div style={{ fontSize: "0.8rem", fontWeight: "bold", color, marginBottom: "4px" }}>
+                {day} ({format(date, "E", { locale: ja })})
+              </div>
+              <div style={{ fontSize: "0.75rem", color: shift ? "#2563eb" : "#9ca3af", fontWeight: shift ? "bold" : "normal" }}>
+                {shift ? `${shift.start}-${shift.end}` : "-"}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 const API_BASE = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com";
-const API_USER_URL = "https://cma9brof8g.execute-api.ap-northeast-1.amazonaws.com/prod/users";
+const READ_USER_URL = `${API_BASE}/users`;
+const WRITE_USER_URL = "https://cma9brof8g.execute-api.ap-northeast-1.amazonaws.com/prod/users";
 
 
 
@@ -31,7 +117,12 @@ export default function MyPage({ onLogout }) {
     totalDays: 0,
     estimatedSalary: 0,
   });
-  const [userInfo, setUserInfo] = useState(null);
+  const [userInfo, setUserInfo] = useState({
+    userId: userId,
+    userName: userName,
+    defaultLocation: localStorage.getItem("defaultLocation") || "",
+    defaultDepartment: localStorage.getItem("defaultDepartment") || "",
+  });
   const [loading, setLoading] = useState(true);
   const [bonuses, setBonuses] = useState([]);
   const [totalBonus, setTotalBonus] = useState(0);
@@ -115,7 +206,7 @@ export default function MyPage({ onLogout }) {
 
       // 1. ユーザー情報の取得 (ボーナス判定に必要なので先に確保したいがパラレルでも可)
       try {
-        const userRes = await fetch(`${API_USER_URL}?userId=${userId}`);
+        const userRes = await fetch(`${READ_USER_URL}?userId=${userId}`);
         if (userRes.ok) {
           const text = await userRes.text();
           let uData = null;
@@ -130,10 +221,30 @@ export default function MyPage({ onLogout }) {
             if (uData && (uData.userId === userId || uData.loginId === loginId)) fetchedUser = uData;
             else if (Array.isArray(outer)) fetchedUser = outer.find(u => u.userId === userId) || null;
 
-            setUserInfo(fetchedUser);
+            if (fetchedUser) {
+              // Admin -> User Sync: If API has valid values, update localStorage (Source of Truth = API/Admin)
+              // If API is empty/unspecified, fallback to localStorage (Source of Truth = Local)
+
+              if (fetchedUser.defaultLocation && fetchedUser.defaultLocation !== "未記載") {
+                localStorage.setItem("defaultLocation", fetchedUser.defaultLocation);
+              } else {
+                fetchedUser.defaultLocation = localStorage.getItem("defaultLocation") || "未記載";
+              }
+
+              if (fetchedUser.defaultDepartment && fetchedUser.defaultDepartment !== "未記載") {
+                localStorage.setItem("defaultDepartment", fetchedUser.defaultDepartment);
+              } else {
+                fetchedUser.defaultDepartment = localStorage.getItem("defaultDepartment") || "未記載";
+              }
+
+              setUserInfo(fetchedUser);
+            }
           } catch (e) { /* ignore */ }
         }
-      } catch (e) { console.warn("User fetch fail", e); }
+      } catch (e) {
+        console.warn("User fetch fail", e);
+        // On failure, keep existing state (which has localStorage values)
+      }
 
       // 2. 勤怠データの取得
       try {
@@ -392,23 +503,7 @@ export default function MyPage({ onLogout }) {
           </button>
         </header>
 
-        {/* Salary Card (Hero) */}
-        <div className="salary-hero-card">
-          <div className="card-label">
-            <Wallet size={18} /> 今月の概算給与
-          </div>
-          <div className="salary-amount">
-            <span className="scurrency">¥</span>
-            {loading ? "..." : (stats.estimatedSalary + totalBonus).toLocaleString()}
-          </div>
-          <div className="salary-sub">
-            基本 {stats.estimatedSalary.toLocaleString()} + ボーナス {totalBonus.toLocaleString()}
-          </div>
-          <div style={{ fontSize: "0.8rem", marginTop: "4px", opacity: 0.8 }}>
-            時給 {hourlyWage.toLocaleString()}円 × {stats.paidHours.toFixed(1)}時間
-            {isDispatch && ` (全体 ${stats.totalHours.toFixed(1)}h のうちバイト分)`}
-          </div>
-        </div>
+
 
         {/* Bonus Section */}
         {bonuses.length > 0 && (
@@ -442,6 +537,97 @@ export default function MyPage({ onLogout }) {
             <div className="stat-icon i-green"><Calendar size={20} /></div>
             <div className="stat-val">{loading ? "-" : `${stats.totalDays} / ${scheduledDays}`}<span className="unit">日</span></div>
             <div className="stat-label">出勤日数 (実績 / 規定)</div>
+          </div>
+        </div>
+
+        {/* --- Shift Schedule Section --- */}
+        <ShiftSchedule userInfo={userInfo} />
+
+        {/* --- Default Settings Section --- */}
+        <div className="bonus-section" style={{ background: "rgba(255,255,255,0.9)" }}>
+          <h3 className="section-title"><Pencil size={16} /> デフォルト設定</h3>
+          <div style={{ fontSize: "0.85rem", color: "#666", marginBottom: "12px" }}>
+            出勤時のデフォルト勤務地・部署を設定できます。
+          </div>
+
+          <div className="form-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+            <div>
+              <label style={{ fontSize: "0.8rem", color: "#444", marginBottom: "4px", display: "block" }}>勤務地</label>
+              <select
+                className="input"
+                style={{ width: "100%", padding: "8px", borderRadius: "8px", border: "1px solid #ddd" }}
+                value={userInfo?.defaultLocation || "未記載"}
+                onChange={async (e) => {
+                  const val = e.target.value;
+                  const newUser = { ...userInfo, defaultLocation: val };
+                  setUserInfo(newUser);
+
+                  // Update API with clean payload
+                  const payload = {
+                    userId: newUser.userId,
+                    loginId: newUser.loginId,
+                    lastName: newUser.lastName || null,
+                    firstName: newUser.firstName || null,
+                    startDate: newUser.startDate || null,
+                    employmentType: newUser.employmentType || "バイト",
+                    livingAlone: newUser.livingAlone === true,
+                    hourlyWage: newUser.hourlyWage ? Number(newUser.hourlyWage) : null,
+                    defaultLocation: val,
+                    defaultDepartment: newUser.defaultDepartment || "未記載"
+                    // password is NOT sent here to avoid overwriting or errors
+                  };
+
+                  try {
+                    await fetch(WRITE_USER_URL, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify(payload)
+                    });
+                    // Sync to localStorage
+                    localStorage.setItem("defaultLocation", val);
+                  } catch (err) { console.error(err); alert("保存に失敗しました"); }
+                }}
+              >
+                {LOCATIONS.map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: "0.8rem", color: "#444", marginBottom: "4px", display: "block" }}>部署</label>
+              <select
+                className="input"
+                style={{ width: "100%", padding: "8px", borderRadius: "8px", border: "1px solid #ddd" }}
+                value={userInfo?.defaultDepartment || "未記載"}
+                onChange={async (e) => {
+                  const val = e.target.value;
+                  const newUser = { ...userInfo, defaultDepartment: val };
+                  setUserInfo(newUser);
+
+                  const payload = {
+                    userId: newUser.userId,
+                    loginId: newUser.loginId,
+                    lastName: newUser.lastName || null,
+                    firstName: newUser.firstName || null,
+                    startDate: newUser.startDate || null,
+                    employmentType: newUser.employmentType || "バイト",
+                    livingAlone: newUser.livingAlone === true,
+                    hourlyWage: newUser.hourlyWage ? Number(newUser.hourlyWage) : null,
+                    defaultLocation: newUser.defaultLocation || "未記載",
+                    defaultDepartment: val
+                  };
+
+                  try {
+                    await fetch(WRITE_USER_URL, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify(payload)
+                    });
+                    localStorage.setItem("defaultDepartment", val);
+                  } catch (err) { console.error(err); alert("保存に失敗しました"); }
+                }}
+              >
+                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
           </div>
         </div>
 
