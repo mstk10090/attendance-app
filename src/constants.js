@@ -40,7 +40,7 @@ export const HOLIDAYS = [
 
 export const LOCATIONS = ["未記載", "呉羽", "山葉", "東洋", "細川", "出張"];
 export const DEPARTMENTS = ["未記載", "即日", "買取", "広告", "CEO", "アビエス"];
-export const REASON_OPTIONS = ["寝坊", "電車遅延", "体調不良", "その他"];
+export const REASON_OPTIONS = ["寝坊", "電車遅延", "体調不良", "出張", "その他"];
 
 // 雇用形態定数
 export const EMPLOYMENT_TYPES = ["派遣", "常駐", "学生バイト", "バイト"];

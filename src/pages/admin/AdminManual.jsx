@@ -43,7 +43,29 @@ export default function AdminManual() {
 
                 <div className="manual-section" style={{ marginBottom: "40px" }}>
                     <h3 style={{ fontSize: "1.2rem", fontWeight: "bold", borderLeft: "4px solid #10b981", paddingLeft: "10px", marginBottom: "16px", color: "#10b981" }}>
-                        2. 個人履歴
+                        2. シフト管理
+                    </h3>
+                    <p style={{ marginBottom: "16px", lineHeight: "1.6", color: "#374151" }}>
+                        シフトの予実管理を行う画面です。
+                    </p>
+                    <div style={{ background: "#f9fafb", padding: "16px", borderRadius: "8px" }}>
+                        <ul style={{ listStyleType: "disc", paddingLeft: "24px", color: "#4b5563", display: "flex", flexDirection: "column", gap: "8px" }}>
+                            <li>
+                                <strong>シフトvs実績:</strong> 取り込んだシフト情報と、実際の打刻状況を比較できます。未出勤や遅刻が一目で分かります。
+                            </li>
+                            <li>
+                                <strong>カスタムシート取込:</strong> スプレッドシートを追加して、即日・買取・派遣などの複数シートのシフトを取り込めます。
+                            </li>
+                            <li>
+                                <strong>統合表示:</strong> 同日に複数のシフト（例: 派遣 + バイト）がある場合、自動的に統合されて表示されます。
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div className="manual-section" style={{ marginBottom: "40px" }}>
+                    <h3 style={{ fontSize: "1.2rem", fontWeight: "bold", borderLeft: "4px solid #8b5cf6", paddingLeft: "10px", marginBottom: "16px", color: "#8b5cf6" }}>
+                        3. 個人履歴
                     </h3>
                     <p style={{ marginBottom: "16px", lineHeight: "1.6", color: "#374151" }}>
                         スタッフごとの月間の勤務履歴詳細を確認する画面です。
@@ -64,8 +86,8 @@ export default function AdminManual() {
                 </div>
 
                 <div className="manual-section">
-                    <h3 style={{ fontSize: "1.2rem", fontWeight: "bold", borderLeft: "4px solid #8b5cf6", paddingLeft: "10px", marginBottom: "16px", color: "#8b5cf6" }}>
-                        3. スタッフ管理
+                    <h3 style={{ fontSize: "1.2rem", fontWeight: "bold", borderLeft: "4px solid #f59e0b", paddingLeft: "10px", marginBottom: "16px", color: "#f59e0b" }}>
+                        4. スタッフ管理
                     </h3>
                     <p style={{ marginBottom: "16px", lineHeight: "1.6", color: "#374151" }}>
                         スタッフの登録情報を管理する画面です。

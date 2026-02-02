@@ -4,8 +4,7 @@ import { ja } from "date-fns/locale";
 import { Search, Filter, AlertTriangle, CheckCircle, Clock, MapPin, Download, Save, X, Briefcase, FileText, Send, PieChart, BarChart, ClipboardCheck } from "lucide-react";
 import "../../App.css";
 import { LOCATIONS, DEPARTMENTS, EMPLOYMENT_TYPES, HOLIDAYS } from "../../constants";
-import { fetchShiftData } from "../../utils/shiftParser";
-
+import { fetchShiftData, parseCsv, SPECIAL_SHIFTS } from "../../utils/shiftParser";
 
 const API_BASE = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com";
 const API_USER_URL = `${API_BASE}/users`;
@@ -164,12 +163,12 @@ const calcSplitDisplay = (item, shift) => {
 };
 
 
-export default function AdminAttendance() {
+export default function AdminShiftManagement() {
   /* State */
-  const [viewMode, setViewMode] = useState("daily"); // daily, weekly, monthly, report, current
+  /* State */
+  const [viewMode, setViewMode] = useState("shift_check"); // shift_check, shift_import, report
   const [baseDate, setBaseDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [items, setItems] = useState([]);
-  const [shiftMap, setShiftMap] = useState({}); // Stores shift data
   const [users, setUsers] = useState([]); // For report
   const [loading, setLoading] = useState(false);
 
@@ -179,15 +178,154 @@ export default function AdminAttendance() {
   const [filterLocation, setFilterLocation] = useState("all");
   const [filterDepartment, setFilterDepartment] = useState("all");
 
+  const [shiftMap, setShiftMap] = useState({});
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'desc' });
+
+  // Custom Sheets State (Persisted)
+  const [customSheets, setCustomSheets] = useState(() => {
+    try {
+      const saved = localStorage.getItem("admin_custom_sheets");
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+
+  // Initial Load
+  useEffect(() => {
+    loadShifts(false);
+  }, [customSheets]); // Reload if sheets change
+
+  const loadShifts = (force = false) => {
+    fetchShiftData(force, customSheets).then(data => {
+      setShiftMap(data);
+      if (force) alert("シフトデータを最新化しました");
+    });
+  };
+
+  const handleSyncShifts = () => {
+    setLoading(true);
+    loadShifts(true);
+    // Determine loading state end? fetchShiftData is async. 
+    // We should probably await it, but for now strict reload is fine.
+    setTimeout(() => setLoading(false), 1000);
+  };
+
+  const handleAddSheet = (e) => {
+    e.preventDefault();
+    const form = e.target;
+    // Expected inputs: monthLabel(YYYY-MM), sheetId, sheetGid
+    const monthLabel = form.monthLabel.value;
+    const year = parseInt(monthLabel.split("-")[0]);
+    const month = parseInt(monthLabel.split("-")[1]);
+    const sheetId = form.sheetId.value;
+    const sheetGid = form.sheetGid.value;
+    const sheetName = form.sheetName.value || "sokujitsu"; // Default to sokujitsu if not provided, or custom
+
+    if (!monthLabel || !sheetId || !sheetGid) {
+      alert("必須項目を入力してください");
+      return;
+    }
+
+    const newSource = {
+      monthLabel, year, month, id: sheetId,
+      sheets: [{
+        name: sheetName,
+        gid: sheetGid,
+        nameColIndex: 0,
+        dateRowIndex: 1,
+        dataStartRowIndex: 3
+      }],
+      isCustom: true,
+      timestamp: Date.now()
+    };
+
+    // Add to state and persist
+    const newSheets = [...customSheets, newSource];
+    setCustomSheets(newSheets);
+    localStorage.setItem("admin_custom_sheets", JSON.stringify(newSheets));
+    form.reset();
+    alert("追加しました。シフトを再読み込みします。");
+  };
+
+  const handleRemoveSheet = (ts) => {
+    if (!window.confirm("削除しますか？")) return;
+    const newSheets = customSheets.filter(s => s.timestamp !== ts);
+    setCustomSheets(newSheets);
+    localStorage.setItem("admin_custom_sheets", JSON.stringify(newSheets));
+  };
+
+  // Edit/Action Modal State
   const [editingItem, setEditingItem] = useState(null);
   const [resubmitReason, setResubmitReason] = useState("");
 
+  // Drag & Drop State
+  const [dragActive, setDragActive] = useState(false);
 
+  const handleDrag = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
 
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const file = e.dataTransfer.files[0];
+      if (file.type !== "text/csv" && !file.name.endsWith(".csv")) {
+        alert("CSVファイルのみアップロード可能です");
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = function (event) {
+        const text = event.target.result;
+        try {
+          // Parse CSV
+          const config = { nameColIndex: 0, dateRowIndex: 1, dataStartRowIndex: 3 }; // Assuming standard format
+          // Need year/month. Try to guess from filename or ask? 
+          // For simplicity, we parse and see if it populates the current view or baseDate month.
+          // Or we can parse dates from the file content if possible (row 1 normally has dates).
+
+          // We will use the current monthLabel logic or just parse into the existing shiftMap.
+          // Note: parseCsv requires 'year' and 'month'. We might need to extract from the file content or user input.
+          // For this "Simple" version, let's assume it matches the currently viewed month or prompt?
+          // Actually, parseCsv uses year/month to construct date strings "YYYY-MM-DD".
+          // If we pass incorrect year/month, keys will be wrong.
+
+          // Let's try to extract YYYY-MM from the file data if possible (row 1 dates usually "2/1").
+          // If the CSV has "2/1", and we pass year=2026, it becomes "2026-02-01".
+
+          // For now, use the year/month from the "Shift Import" input if filled, or default to current baseDate?
+          // Let's use baseDate year/month.
+          const d = new Date(baseDate);
+          const year = d.getFullYear();
+          const month = d.getMonth() + 1;
+
+          const newShifts = { ...shiftMap };
+          // parseCsv modifies 'newShifts' in place
+          // We need to pass a config object that matches the standard format
+          const sheetConfig = { nameColIndex: 0, dateRowIndex: 1, dataStartRowIndex: 3 };
+
+          parseCsv(text, sheetConfig, year, month, newShifts, "取込データ", SPECIAL_SHIFTS);
+          setShiftMap(newShifts);
+          alert(`${file.name} を読み込みました (対象: ${year}年${month}月)`);
+        } catch (err) {
+          console.error(err);
+          alert("読み込みに失敗しました");
+        }
+      };
+      reader.readAsText(file);
+    }
+  };
 
   useEffect(() => {
     fetchUsers();
-    fetchShiftData().then(setShiftMap);
   }, []);
 
   const fetchUsers = async () => {
@@ -206,7 +344,20 @@ export default function AdminAttendance() {
   /* Data Fetching */
   const fetchRange = useMemo(() => {
     const d = new Date(baseDate);
-    if (viewMode === "current") return { start: baseDate, end: baseDate };
+    if (viewMode === "report") {
+      return {
+        start: format(startOfMonth(d), "yyyy-MM-dd"),
+        end: format(endOfMonth(d), "yyyy-MM-dd"),
+      };
+    }
+    if (viewMode === "current") {
+      // Fetch today
+      return { start: format(new Date(), "yyyy-MM-dd"), end: format(new Date(), "yyyy-MM-dd") };
+    }
+
+    if (viewMode === "shift_check") {
+      return { start: baseDate, end: baseDate };
+    }
 
     if (viewMode === "daily") {
       return { start: baseDate, end: baseDate };
@@ -369,7 +520,98 @@ export default function AdminAttendance() {
   }, [items, filterName, filterStatus, filterLocation, filterDepartment]);
 
 
+  /* Report Generation */
+  const reportData = useMemo(() => {
+    if (viewMode !== "report" || users.length === 0) return [];
 
+    // Calculate Stats per User for the fetched range
+    // 1. Identify Business Days in Range
+    const start = new Date(fetchRange.start);
+    const end = new Date(fetchRange.end);
+    const allDays = eachDayOfInterval({ start, end });
+    const businessDays = allDays.filter(d => {
+      const s = format(d, "yyyy-MM-dd");
+      return isWorkDay(s) && d <= new Date(); // Only past/today
+    });
+    const businessDates = new Set(businessDays.map(d => format(d, "yyyy-MM-dd")));
+
+    // 2. Map Users
+    return users.map(u => {
+      const uItems = items.filter(i => i.userId === u.userId);
+      const attendedDates = new Set(uItems.filter(i => i.clockIn).map(i => i.workDate));
+
+      let absent = 0;
+      let late = 0;
+      let early = 0;
+      let missingOut = 0;
+
+      uItems.forEach(i => {
+        const app = i._application || {};
+        if (app.reason && app.reason.includes("遅刻")) late++;
+        if (app.reason && app.reason.includes("早退")) early++;
+        if (i.clockIn && !i.clockOut) missingOut++;
+        // Check for explicit "absent" status
+        if (app.status === "absent") absent++;
+      });
+
+      // Prescribed Days
+      const m = new Date(baseDate);
+      const pKey = `prescribed_${m.getFullYear()}_${m.getMonth() + 1}`;
+      const fullName = (u.lastName || "") + (u.firstName || "");
+      const fullNameSpace = (u.lastName || "") + " " + (u.firstName || "");
+      const sData = shiftMap[fullName] || shiftMap[fullNameSpace] || {};
+      let prescribed = sData[pKey];
+
+      // Temporary Hardcode per user request
+      if (!prescribed && pKey === "prescribed_2026_2") {
+        prescribed = "18";
+      }
+      prescribed = prescribed || "-";
+
+      return {
+        user: u,
+        absent,
+        late,
+        early,
+        missingOut,
+        prescribed
+      };
+    });
+  }, [items, users, viewMode, fetchRange, shiftMap]);
+
+  // Sorted Report Data
+  const sortedReportData = useMemo(() => {
+    let sortableItems = [...reportData];
+    if (sortConfig.key !== null) {
+      sortableItems.sort((a, b) => {
+        let aVal = a[sortConfig.key];
+        let bVal = b[sortConfig.key];
+
+        // Handle User Name sorting specially
+        if (sortConfig.key === 'name') {
+          aVal = (a.user.lastName || "") + (a.user.firstName || "");
+          bVal = (b.user.lastName || "") + (b.user.firstName || "");
+        }
+
+        if (aVal < bVal) {
+          return sortConfig.direction === 'asc' ? -1 : 1;
+        }
+        if (aVal > bVal) {
+          return sortConfig.direction === 'asc' ? 1 : -1;
+        }
+        return 0;
+      });
+    }
+    return sortableItems;
+  }, [reportData, sortConfig]);
+
+  const requestSort = (key) => {
+    let direction = 'desc';
+    if (sortConfig.key === key && sortConfig.direction === 'desc') {
+      direction = 'asc';
+    }
+    setSortConfig({ key, direction });
+  };
 
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -510,13 +752,11 @@ export default function AdminAttendance() {
           </h2>
           <div>
             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "10px" }}>
-              {/* Attendance Tabs */}
               <div style={{ display: "flex", background: "#f3f4f6", padding: "4px", borderRadius: "8px" }}>
                 {[
-                  { id: "current", icon: <CheckCircle size={14} />, label: "現在" },
-                  { id: "daily", icon: null, label: "日次" },
-                  { id: "weekly", icon: null, label: "週次" },
-                  { id: "monthly", icon: null, label: "月次" }
+                  { id: "shift_check", icon: <ClipboardCheck size={14} />, label: "シフト確認" },
+                  { id: "shift_import", icon: <FileText size={14} />, label: "シフト取込" },
+                  { id: "report", icon: <BarChart size={14} />, label: "レポート" }
                 ].map(mode => (
                   <button
                     key={mode.id}
@@ -548,19 +788,19 @@ export default function AdminAttendance() {
           <div style={{ display: "flex", gap: "16px", marginBottom: "16px", alignItems: "center" }}>
             <button className="icon-btn" onClick={() => {
               const d = new Date(baseDate);
-              if (viewMode === "daily") setBaseDate(format(addDays(d, -1), "yyyy-MM-dd"));
+              if (viewMode === "shift_check" || viewMode === "daily") setBaseDate(format(addDays(d, -1), "yyyy-MM-dd"));
               if (viewMode === "weekly") setBaseDate(format(addDays(d, -7), "yyyy-MM-dd"));
               if (viewMode === "monthly" || viewMode === "report") setBaseDate(format(addDays(d, -30), "yyyy-MM-dd"));
             }}>{"<"}</button>
 
             <span style={{ fontWeight: "bold", fontSize: "1.1rem" }}>
-              {viewMode === "daily" && format(new Date(baseDate), "yyyy年M月d日 (E)", { locale: ja })}
-              {viewMode !== "daily" && `${fetchRange.start} 〜 ${fetchRange.end}`}
+              {viewMode === "shift_check" && format(new Date(baseDate), "yyyy年M月d日 (E)", { locale: ja })}
+              {viewMode !== "shift_check" && `${fetchRange.start} 〜 ${fetchRange.end}`}
             </span>
 
             <button className="icon-btn" onClick={() => {
               const d = new Date(baseDate);
-              if (viewMode === "daily") setBaseDate(format(addDays(d, 1), "yyyy-MM-dd"));
+              if (viewMode === "shift_check" || viewMode === "daily") setBaseDate(format(addDays(d, 1), "yyyy-MM-dd"));
               if (viewMode === "weekly") setBaseDate(format(addDays(d, 7), "yyyy-MM-dd"));
               if (viewMode === "monthly" || viewMode === "report") setBaseDate(format(addDays(d, 30), "yyyy-MM-dd"));
             }}>{">"}</button>
@@ -568,7 +808,7 @@ export default function AdminAttendance() {
         )}
 
         {/* Filters */}
-        {viewMode !== "report" && viewMode !== "current" && viewMode !== "shift_check" && (
+        {viewMode !== "report" && viewMode !== "current" && (
           <div className="filter-bar">
             {/* Same Filters ... */}
             <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
@@ -616,7 +856,93 @@ export default function AdminAttendance() {
         )}
       </div>
 
-      {viewMode === "current" ? (
+      {/* --- REPORT VIEW --- */}
+      {viewMode === "report" ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+          {/* Summary Cards */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "16px" }}>
+            <div className="card" style={{ textAlign: "center", padding: "20px" }}>
+              <div style={{ fontSize: "0.9rem", color: "#6b7280", marginBottom: "4px" }}>対象スタッフ</div>
+              <div style={{ fontSize: "1.8rem", fontWeight: "bold", color: "#111827" }}>{users.length}<span style={{ fontSize: "1rem", fontWeight: "normal" }}>名</span></div>
+            </div>
+            <div className="card" style={{ textAlign: "center", padding: "20px" }}>
+              <div style={{ fontSize: "0.9rem", color: "#6b7280", marginBottom: "4px" }}>総遅刻数</div>
+              <div style={{ fontSize: "1.8rem", fontWeight: "bold", color: "#f59e0b" }}>
+                {reportData.reduce((acc, curr) => acc + curr.late, 0)}<span style={{ fontSize: "1rem", fontWeight: "normal" }}>件</span>
+              </div>
+            </div>
+            <div className="card" style={{ textAlign: "center", padding: "20px" }}>
+              <div style={{ fontSize: "0.9rem", color: "#6b7280", marginBottom: "4px" }}>総早退数</div>
+              <div style={{ fontSize: "1.8rem", fontWeight: "bold", color: "#f59e0b" }}>
+                {reportData.reduce((acc, curr) => acc + curr.early, 0)}<span style={{ fontSize: "1rem", fontWeight: "normal" }}>件</span>
+              </div>
+            </div>
+
+          </div>
+
+          <div className="card" style={{ overflow: "hidden" }}>
+            <h3 style={{ fontSize: "1.1rem", fontWeight: "bold", marginBottom: "16px", color: "#4b5563", padding: "16px 16px 0" }}>
+              詳細レポート
+            </h3>
+            {loading ? (
+              <div style={{ padding: "40px", textAlign: "center" }}>集計中...</div>
+            ) : (
+              <div className="table-wrap" style={{ maxHeight: "600px", overflowY: "auto" }}>
+                <table className="admin-table" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
+                  <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
+                    <tr>
+                      <th onClick={() => requestSort('name')} style={{ cursor: "pointer", background: "#f9fafb", padding: "12px 16px", borderBottom: "2px solid #e5e7eb" }}>
+                        氏名 {sortConfig.key === 'name' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                      </th>
+                      <th style={{ background: "#f9fafb", padding: "12px 16px", borderBottom: "2px solid #e5e7eb" }}>雇用形態</th>
+                      <th style={{ background: "#f9fafb", padding: "12px 16px", borderBottom: "2px solid #e5e7eb" }}>部署/拠点</th>
+                      <th style={{ background: "#f9fafb", padding: "12px 16px", borderBottom: "2px solid #e5e7eb", textAlign: "center" }}>規定日数</th>
+                      <th onClick={() => requestSort('absent')} style={{ cursor: "pointer", background: "#f9fafb", padding: "12px 16px", borderBottom: "2px solid #e5e7eb", textAlign: "center" }}>
+                        欠勤 {sortConfig.key === 'absent' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                      </th>
+                      <th onClick={() => requestSort('late')} style={{ cursor: "pointer", background: "#f9fafb", padding: "12px 16px", borderBottom: "2px solid #e5e7eb", textAlign: "center" }}>
+                        遅刻 {sortConfig.key === 'late' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                      </th>
+                      <th onClick={() => requestSort('early')} style={{ cursor: "pointer", background: "#f9fafb", padding: "12px 16px", borderBottom: "2px solid #e5e7eb", textAlign: "center" }}>
+                        早退 {sortConfig.key === 'early' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                      </th>
+                      <th onClick={() => requestSort('missingOut')} style={{ cursor: "pointer", background: "#f9fafb", padding: "12px 16px", borderBottom: "2px solid #e5e7eb", textAlign: "center" }}>
+                        打刻漏れ {sortConfig.key === 'missingOut' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedReportData.map((r, idx) => (
+                      <tr key={r.user.userId} style={{ background: idx % 2 === 0 ? "#fff" : "#fbfbfb" }}>
+                        <td style={{ fontWeight: "bold", padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>
+                          {r.user.lastName} {r.user.firstName}
+                        </td>
+                        <td style={{ padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>{r.user.employmentType || "-"}</td>
+                        <td style={{ padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>{r.user.defaultDepartment}/{r.user.defaultLocation}</td>
+                        <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", fontWeight: "bold", color: "#374151" }}>
+                          {r.prescribed || "-"}
+                        </td>
+                        <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>
+                          {r.absent > 0 ? <span className="status-badge red" style={{ minWidth: "30px", display: "inline-block" }}>{r.absent}</span> : <span style={{ color: "#d1d5db" }}>-</span>}
+                        </td>
+                        <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>
+                          {r.late > 0 ? <span className="status-badge orange" style={{ minWidth: "30px", display: "inline-block" }}>{r.late}</span> : <span style={{ color: "#d1d5db" }}>-</span>}
+                        </td>
+                        <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>
+                          {r.early > 0 ? <span className="status-badge orange" style={{ minWidth: "30px", display: "inline-block" }}>{r.early}</span> : <span style={{ color: "#d1d5db" }}>-</span>}
+                        </td>
+                        <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>
+                          {r.missingOut > 0 ? <span className="status-badge red" style={{ minWidth: "30px", display: "inline-block" }}>{r.missingOut}</span> : <span style={{ color: "#d1d5db" }}>-</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : viewMode === "current" ? (
         /* --- CURRENTLY WORKING VIEW --- */
         <div className="card" style={{ background: "#f8fafc" }}>
           <h3 style={{ fontSize: "1.1rem", fontWeight: "bold", marginBottom: "16px", color: "#4b5563", display: "flex", alignItems: "center", gap: "8px" }}>
@@ -675,217 +1001,130 @@ export default function AdminAttendance() {
             </div>
           )}
         </div>
-      ) : (
-        /* --- DASHBOARD VIEW (Daily/Weekly/Monthly) --- */
+      ) : viewMode === "shift_check" ? (
+        /* --- SHIFT CHECK VIEW --- */
         <div className="card">
-          {loading ? (
-            <div style={{ padding: "20px", textAlign: "center" }}>読み込み中...</div>
-          ) : filteredItems.length === 0 ? (
-            <div className="empty-text">該当するデータがありません</div>
-
-          ) : viewMode === "monthly" ? (
-            /* Calendar View */
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "1px", background: "#ddd", border: "1px solid #ddd" }}>
-              {["月", "火", "水", "木", "金", "土", "日"].map(d => (
-                <div key={d} style={{ background: "#f3f4f6", padding: "8px", textAlign: "center", fontWeight: "bold", fontSize: "14px" }}>{d}</div>
-              ))}
-              {(() => {
-                const start = new Date(fetchRange.start);
-                const end = new Date(fetchRange.end);
-                const gridStart = startOfWeek(start, { weekStartsOn: 1 });
-                const gridEnd = endOfWeek(end, { weekStartsOn: 1 });
-                const days = eachDayOfInterval({ start: gridStart, end: gridEnd });
-
-                return days.map(d => {
-                  const dayStr = format(d, "yyyy-MM-dd");
-                  const dayItems = filteredItems.filter(i => i.workDate === dayStr);
-                  const isCurrentMonth = format(d, "yyyy-MM") === format(start, "yyyy-MM");
-
-                  const hasError = dayItems.some(i => (i.clockIn && i.clockOut && calcWorkMin(i) <= 0));
-                  const pendingCount = dayItems.filter(i => i._application?.status === "pending").length;
-                  const resubmitCount = dayItems.filter(i => i._application?.status === "resubmission_requested").length;
-
-                  let bg = isCurrentMonth ? "#fff" : "#f9fafb";
-                  if (hasError) bg = "#fef2f2";
-                  else if (pendingCount > 0) bg = "#fff7ed";
-                  else if (resubmitCount > 0) bg = "#f3e8ff"; // Purpleish for resubmit
-
-                  return (
-                    <div
-                      key={dayStr}
-                      onClick={() => { setBaseDate(dayStr); setViewMode("daily"); }}
-                      style={{ background: bg, minHeight: "100px", padding: "8px", display: "flex", flexDirection: "column", cursor: "pointer" }}
-                      className="calendar-cell"
-                    >
-                      <div style={{ fontSize: "14px", fontWeight: "bold", color: !isCurrentMonth ? "#aaa" : "#333" }}>
-                        {format(d, "d")}
-                      </div>
-                      {dayItems.length > 0 && (
-                        <div style={{ marginTop: "auto", fontSize: "11px" }}>
-                          <div>{dayItems.length}名</div>
-                          {pendingCount > 0 && <div style={{ color: "#ea580c" }}>待: {pendingCount}</div>}
-                          {resubmitCount > 0 && <div style={{ color: "#7c3aed" }}>戻: {resubmitCount}</div>}
-                        </div>
-                      )}
-                    </div>
-                  );
-                });
-              })()}
+          <div style={{ marginBottom: "20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <h3 style={{ fontSize: "1.1rem", fontWeight: "bold", color: "#4b5563" }}>
+              シフト vs 出勤状況確認 ({baseDate})
+            </h3>
+            <div style={{ display: "flex", gap: "10px" }}>
+              <input
+                type="text"
+                placeholder="氏名検索..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                style={{ padding: "6px 10px", borderRadius: "4px", border: "1px solid #d1d5db", fontSize: "0.9rem" }}
+              />
             </div>
+          </div>
+          {loading ? (
+            <div style={{ padding: "40px", textAlign: "center" }}>読み込み中...</div>
           ) : (
-            /* Table View */
             <div className="table-wrap">
               <table className="admin-table">
                 <thead>
                   <tr>
-                    <th style={{ padding: "12px", fontSize: "14px" }}>日付</th>
-                    <th style={{ padding: "12px", fontSize: "14px" }}>氏名</th>
-                    <th style={{ padding: "12px", fontSize: "14px" }}>状態</th>
-                    <th style={{ padding: "12px", fontSize: "14px" }}>実働 / 申請時間</th>
-                    <th style={{ padding: "12px", fontSize: "14px" }}>操作</th>
+                    <th style={{ padding: "12px", width: "150px" }}>氏名</th>
+                    <th style={{ padding: "12px", width: "150px" }}>シフト予定</th>
+                    <th style={{ padding: "12px", width: "100px" }}>予定地</th>
+                    <th style={{ padding: "12px", width: "100px" }}>状態</th>
+                    <th style={{ padding: "12px", width: "150px" }}>実績 (出-退)</th>
+                    <th style={{ padding: "12px" }}>補足</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredItems.map(item => {
-                    const rowAppStatus = item._application?.status;
-                    const isToday = isSameDay(new Date(item.workDate), new Date());
-                    const isWorking = item.clockIn && !item.clockOut && isToday;
-                    const isUnapplied = item.clockIn && item.clockOut && !rowAppStatus;
-                    const isIncomplete = item.clockIn && !item.clockOut && !isToday;
+                  {filteredShiftCheckUsers.map(u => {
+                    const userName = `${u.lastName} ${u.firstName}`;
+                    // Get Shift
+                    const userShifts = shiftMap[userName];
+                    const shift = userShifts ? userShifts[baseDate] : null;
 
-                    let bg = "#fff";
-                    if (rowAppStatus === "approved") bg = "#ecfdf5"; // Green
-                    else if (rowAppStatus === "pending") bg = "#fff7ed"; // Orange
-                    else if (rowAppStatus === "resubmission_requested") bg = "#fcf4ff"; // Purple
-                    else if (isIncomplete) bg = "#fee2e2"; // Red (Forgot Clockout)
-                    else if (isUnapplied) bg = "#fef2f2"; // Red (Unapplied)
-                    else if (isWorking) bg = "#ffffff"; // White (Working)
+                    // Get Attendance
+                    const item = items.find(i => i.userId === u.userId && i.workDate === baseDate);
+
+                    if (!shift && !item) return null; // Skip users with neither shift nor attendance
+
+                    // Status Logic
+                    let statusBadge = null;
+                    let rowBg = "#fff";
+
+                    if (shift) {
+                      if (item && item.clockIn) {
+                        // Working or Finished
+                        if (item.clockOut) {
+                          statusBadge = <span className="status-badge green">退勤済</span>;
+                        } else {
+                          // Check Late
+                          const shiftStart = toMin(shift.start);
+                          const actualIn = toMin(item.clockIn);
+                          if (actualIn > shiftStart) {
+                            statusBadge = <span className="status-badge orange">遅刻/出勤</span>;
+                            rowBg = "#fff7ed";
+                          } else {
+                            statusBadge = <span className="status-badge green">出勤中</span>;
+                            rowBg = "#f0fdf4";
+                          }
+                        }
+                      } else {
+                        // No clock in yet
+                        const now = new Date();
+                        const targetDate = new Date(baseDate);
+                        // If past date, Absent. If today, check time.
+                        const isPast = targetDate < new Date(format(now, "yyyy-MM-dd"));
+                        if (isPast) {
+                          statusBadge = <span className="status-badge red">欠勤</span>;
+                          rowBg = "#fef2f2";
+                        } else {
+                          // Today: check if current time > shift start
+                          const nowMin = now.getHours() * 60 + now.getMinutes();
+                          const shiftStart = toMin(shift.start);
+                          if (nowMin > shiftStart) {
+                            statusBadge = <span className="status-badge red">遅刻(未出勤)</span>;
+                            rowBg = "#fef2f2";
+                          } else {
+                            statusBadge = <span className="status-badge gray">出勤前</span>;
+                          }
+                        }
+                      }
+                    } else {
+                      // No shift but attendance exists
+                      statusBadge = <span className="status-badge orange" style={{ background: "#ffedd5", color: "#c2410c" }}>シフト外</span>;
+                    }
 
                     return (
-                      <tr key={item.userId + item.workDate} style={{ background: bg, borderBottom: "1px solid #f3f4f6" }}>
-                        <td style={{ fontSize: "14px", color: "#374151", padding: "12px" }}>
-                          {format(new Date(item.workDate), "MM/dd(E)", { locale: ja })}
+                      <tr key={u.userId} style={{ background: rowBg }}>
+                        <td style={{ padding: "12px", fontWeight: "bold" }}>{userName}</td>
+                        <td style={{ padding: "12px", display: "flex", flexDirection: "column" }}>
+                          {shift ? (
+                            <>
+                              <span style={{ fontWeight: shift.isOff ? "bold" : "normal", color: shift.isOff ? "#ef4444" : "inherit" }}>
+                                {shift.isOff ? "休み" : `${shift.start} - ${shift.end}`}
+                              </span>
+                              {shift.location && !shift.isOff && <span style={{ fontSize: "0.8rem", color: "#6b7280" }}>{shift.location}</span>}
+                            </>
+                          ) : (
+                            <span style={{ color: "#aaa" }}>-</span>
+                          )}
                         </td>
-                        <td style={{ fontWeight: "bold", fontSize: "15px", padding: "12px" }}>
-                          {item.userName}
-                          <div style={{ fontSize: "10px", color: "#aaa" }}>{item.employmentType || "未設定"}</div>
-                        </td>
+                        <td style={{ padding: "12px" }}>{(shift && !shift.isOff) ? shift.location : "-"}</td>
+                        <td style={{ padding: "12px" }}>{statusBadge}</td>
                         <td style={{ padding: "12px" }}>
-                          <div style={{ display: "flex", flexDirection: "column", gap: "2px", alignItems: "flex-start" }}>
-                            {/* 1. Working (Today & In & !Out) */}
-                            {(() => {
-                              const isToday = item.workDate === format(new Date(), "yyyy-MM-dd");
-                              if (isToday && item.clockIn && !item.clockOut) {
-                                return <span className="status-badge green" style={{ background: "#dcfce7", color: "#166534", border: "1px solid #bbf7d0" }}>出勤中</span>;
-                              }
-                              return null;
-                            })()}
-
-                            {/* 2. No Clock Out (Past & In & !Out) */}
-                            {(() => {
-                              const isToday = item.workDate === format(new Date(), "yyyy-MM-dd");
-                              if (!isToday && item.clockIn && !item.clockOut) {
-                                return <span className="status-badge red" style={{ background: "#fee2e2", color: "#991b1b", border: "1px solid #fecaca" }}>未退勤</span>;
-                              }
-                              return null;
-                            })()}
-
-                            {/* 3. Application Status */}
-                            {(() => {
-                              if (!rowAppStatus && item.clockIn && item.clockOut) {
-                                return <span className="status-badge gray" style={{ background: "#f3f4f6", color: "#4b5563", border: "1px solid #e5e7eb" }}>未申請</span>;
-                              }
-                              if (rowAppStatus === "pending") return <span className="status-badge orange">承認待</span>;
-                              if (rowAppStatus === "resubmission_requested") return <span className="status-badge purple">再提出依頼</span>;
-                              if (rowAppStatus === "approved") return <span className="status-badge green">承認済</span>;
-                              return null;
-                            })()}
-
-                            {/* 4. Time Discrepancy / Reason */}
-                            {(() => {
-                              const app = item._application || {};
-                              let isDiscrepancy = false;
-                              if (app.reason && (app.reason === "寝坊" || app.reason.includes("早退"))) isDiscrepancy = true;
-                              if (toMin(item.clockIn) > toMin(app.appliedIn)) isDiscrepancy = true;
-                              if (toMin(item.clockOut) < toMin(app.appliedOut)) isDiscrepancy = true;
-
-                              if (isDiscrepancy || app.reason) {
-                                return (
-                                  <span style={{ fontSize: "11px", color: isDiscrepancy ? "#ef4444" : "#6b7280", marginTop: 2 }}>
-                                    {isDiscrepancy && "⚠️ "}
-                                    {app.reason || (isDiscrepancy ? "時間乖離" : "")}
-                                  </span>
-                                );
-                              }
-                              return null;
-                            })()}
-                          </div>
-                        </td>
-                        <td style={{ fontSize: "14px", padding: "12px" }}>
-                          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "8px 12px", alignItems: "center" }}>
-                            {/* Actual Time */}
-                            <div style={{ color: "#6b7280", fontSize: "0.8rem" }}>実績:</div>
-                            <div style={{ fontFamily: "monospace", fontWeight: "bold" }}>
-                              {(() => {
-                                const min = calcRoundedWorkMin(item);
-                                const h = Math.floor(min / 60);
-                                const m = (min % 60) === 30 ? 5 : 0;
-                                return `${h}.${m}H`;
-                              })()}
+                          {item ? (
+                            <div>
+                              {calcSplitDisplay(item, shift)}
                             </div>
-
-                            {/* Applied Time (if pending/approved/resubmit) */}
-                            {(rowAppStatus || item._application?.appliedIn) && (
-                              <>
-                                <div style={{ color: "#2563eb", fontSize: "0.8rem" }}>申請:</div>
-                                <div style={{ fontFamily: "monospace", fontWeight: "bold", color: "#2563eb" }}>
-                                  {(() => {
-                                    const app = item._application;
-                                    // Use same logic: 30 min truncate
-                                    // Construct temp object mimicking item structure for calc logic
-                                    // NOTE: Applied logic typically assumes NO breaks unless specified?
-                                    // Or should we subtract break time from applied duration too?
-                                    // Usually "Original Intended" includes break logic.
-                                    // If break is not in application, fallback to item.breaks?
-                                    // Let's assume applied duration = (Out - In) - Breaks.
-
-                                    if (!app?.appliedIn || !app?.appliedOut) return "-";
-                                    const dummyWithAppTimes = {
-                                      ...item,
-                                      clockIn: app.appliedIn,
-                                      clockOut: app.appliedOut
-                                    };
-
-                                    const min = calcRoundedWorkMin(dummyWithAppTimes);
-                                    const h = Math.floor(min / 60);
-                                    const m = (min % 60) === 30 ? 5 : 0;
-                                    return `${h}.${m}H`;
-                                  })()}
-                                </div>
-                              </>
-                            )}
-                          </div>
+                          ) : "-"}
                         </td>
-
-                        <td style={{ fontSize: "14px", padding: "12px" }}>
-                          <div style={{ display: "flex", gap: "8px" }}>
-                            {rowAppStatus === "pending" && (
-                              <button
-                                className="btn"
-                                onClick={() => handleApprove(item)}
-                                style={{
-                                  fontSize: "12px", padding: "4px 8px",
-                                  background: "#10b981", color: "#fff", border: "none", borderRadius: "4px",
-                                  cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", gap: "4px"
-                                }}
-                              >
-                                <CheckCircle size={14} /> 承認
-                              </button>
-                            )}
-                            <button className="btn btn-outline" onClick={() => openEdit(item)} style={{ fontSize: "12px", padding: "4px 8px" }}>
-                              詳細
-                            </button>
-                          </div>
+                        <td style={{ padding: "12px", fontSize: "0.85rem", color: "#6b7280", textAlign: "center" }}>
+                          {item && item._application?.status === "pending" && <div style={{ color: "#ea580c", marginBottom: "4px" }}>申請承認待ち</div>}
+                          <button
+                            className="action-btn"
+                            style={{ background: "#ef4444", color: "#fff", border: "none", padding: "4px 8px", borderRadius: "4px", fontSize: "0.75rem", cursor: "pointer" }}
+                            onClick={() => handleMarkAbsent(u.userId, userName, baseDate)}
+                          >
+                            欠勤
+                          </button>
                         </td>
                       </tr>
                     );
@@ -895,8 +1134,110 @@ export default function AdminAttendance() {
             </div>
           )}
         </div>
+
+      ) : null}
+
+      {/* --- SHIFT IMPORT TAB --- */}
+      {viewMode === "shift_import" && (
+        <div className="card">
+          <h3 style={{ fontSize: "1.1rem", fontWeight: "bold", marginBottom: "16px", color: "#4b5563" }}>
+            シフトデータの管理
+          </h3>
+
+          <div style={{ marginBottom: "24px", padding: "16px", background: "#f3f4f6", borderRadius: "8px" }}>
+            <h4 style={{ marginBottom: "12px", fontSize: "0.9rem" }}>1. 手動更新 (Manual Sync)</h4>
+            <div style={{ fontSize: "0.85rem", color: "#666", marginBottom: "8px" }}>
+              通常はキャッシュされます。スプレッドシートを更新した直後など、最新データを強制的に取得する場合はこちらを押してください。
+            </div>
+            <button
+              onClick={handleSyncShifts}
+              disabled={loading}
+              className="btn-blue"
+              style={{ padding: "8px 16px", fontSize: "0.9rem", borderRadius: "4px", border: "none", cursor: "pointer" }}
+            >
+              {loading ? "更新中..." : "最新のシフトを取得 (Sync Now)"}
+            </button>
+          </div>
+
+          {/* DROP ZONE */}
+          <div
+            style={{
+              marginBottom: "24px", padding: "24px",
+              background: dragActive ? "#eff6ff" : "#fff",
+              border: dragActive ? "2px dashed #2563eb" : "2px dashed #ccc",
+              borderRadius: "8px", textAlign: "center",
+              transition: "all 0.2s"
+            }}
+            onDragEnter={handleDrag}
+            onDragLeave={handleDrag}
+            onDragOver={handleDrag}
+            onDrop={handleDrop}
+          >
+            <FileText size={48} color={dragActive ? "#2563eb" : "#9ca3af"} style={{ marginBottom: "8px" }} />
+            <div style={{ fontSize: "1rem", fontWeight: "bold", color: dragActive ? "#2563eb" : "#4b5563" }}>
+              {dragActive ? "ドロップして読み込み" : "CSVファイルをドラッグ＆ドロップ"}
+            </div>
+            <div style={{ fontSize: "0.8rem", color: "#6b7280", marginTop: "4px" }}>
+              一時的にシフトを表示します (ページをリロードすると消えます)<br />
+              対象年月は現在の表示 ({new Date(baseDate).getFullYear()}年{new Date(baseDate).getMonth() + 1}月) として読み込まれます
+            </div>
+          </div>
+
+          <div style={{ marginBottom: "24px", padding: "16px", background: "#fff", border: "1px solid #e5e7eb", borderRadius: "8px" }}>
+            <h4 style={{ marginBottom: "12px", fontSize: "0.9rem" }}>2. 新しいシートの追加</h4>
+            <form onSubmit={handleAddSheet} style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "flex-end" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", marginBottom: "4px" }}>年月 (YYYY-MM)</label>
+                <input type="month" name="monthLabel" required style={{ padding: "6px", border: "1px solid #ccc", borderRadius: "4px" }} />
+              </div>
+              <div style={{ flex: 1, minWidth: "200px" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", marginBottom: "4px" }}>スプレッドシートID</label>
+                <input type="text" name="sheetId" placeholder="docs.google.com/spreadsheets/d/THIS_ID/..." required style={{ width: "100%", padding: "6px", border: "1px solid #ccc", borderRadius: "4px" }} />
+              </div>
+              <div style={{ width: "120px" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", marginBottom: "4px" }}>GID (シートID)</label>
+                <input type="text" name="sheetGid" placeholder="0" required style={{ width: "100%", padding: "6px", border: "1px solid #ccc", borderRadius: "4px" }} />
+              </div>
+              <div style={{ width: "100px" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", marginBottom: "4px" }}>シート種類</label>
+                <select name="sheetName" style={{ padding: "6px", border: "1px solid #ccc", borderRadius: "4px", width: "100%" }}>
+                  <option value="sokujitsu">即日</option>
+                  <option value="kaitori">買取</option>
+                  <option value="haken">派遣</option>
+                  <option value="koukoku">広告</option>
+                  <option value="ceo">CEO</option>
+                </select>
+              </div>
+              <button type="submit" className="btn-green" style={{ padding: "8px 16px", fontSize: "0.9rem", borderRadius: "4px", border: "none", cursor: "pointer", height: "34px" }}>
+                追加
+              </button>
+            </form>
+          </div>
+
+          <div>
+            <h4 style={{ marginBottom: "12px", fontSize: "0.9rem" }}>登録済みカスタムシート</h4>
+            {customSheets.length === 0 && <div style={{ color: "#888", fontSize: "0.85rem" }}>追加されたシートはありません</div>}
+            <ul style={{ listStyle: "none", padding: 0 }}>
+              {customSheets.map((s, idx) => (
+                <li key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px", borderBottom: "1px solid #eee", fontSize: "0.9rem" }}>
+                  <div>
+                    <strong>{s.monthLabel}</strong> - {s.sheets[0]?.name} (GID: {s.sheets[0]?.gid})<br />
+                    <span style={{ fontSize: "0.75rem", color: "#999" }}>ID: {s.id}</span>
+                  </div>
+                  <button
+                    onClick={() => handleRemoveSheet(s.timestamp)}
+                    style={{ color: "#ef4444", background: "none", border: "none", cursor: "pointer", fontSize: "0.8rem", textDecoration: "underline" }}
+                  >
+                    削除
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
       )}
 
+      {/* Action Modal */}
       {
         editingItem && (
           <div className="modal-overlay">
@@ -916,30 +1257,10 @@ export default function AdminAttendance() {
                     <div style={{ fontSize: "12px", color: "#6b7280", fontWeight: "bold", textAlign: "center" }}>打刻時間</div>
                     <div style={{ fontSize: "12px", color: "#6b7280", fontWeight: "bold", textAlign: "center" }}>実働時間(30分単位)</div>
 
-                    {/* Shift Row */}
-                    <div style={{ fontWeight: "bold", fontSize: "14px", color: "#059669" }}>シフト予定</div>
-                    <div style={{ fontFamily: "monospace", textAlign: "center", fontSize: "15px", color: "#059669" }}>
-                      {(() => {
-                        const s = (shiftMap && editingItem) ? shiftMap[editingItem.userName]?.[editingItem.workDate] : null;
-                        if (!s) return <span style={{ color: "#9ca3af" }}>未登録</span>;
-                        if (s.isOff) return "休み";
-                        return `${s.start} - ${s.end}`;
-                      })()}
-                    </div>
-                    <div style={{ textAlign: "center", fontSize: "12px", color: "#6b7280" }}>
-                      {(() => {
-                        const s = (shiftMap && editingItem) ? shiftMap[editingItem.userName]?.[editingItem.workDate] : null;
-                        return s ? s.location : "-";
-                      })()}
-                    </div>
-
                     {/* Actual Row */}
                     <div style={{ fontWeight: "bold", fontSize: "14px", color: "#374151" }}>実績</div>
                     <div style={{ fontFamily: "monospace", textAlign: "center", fontSize: "15px" }}>
-                      {(() => {
-                        const s = (shiftMap && editingItem) ? shiftMap[editingItem.userName]?.[editingItem.workDate] : null;
-                        return calcSplitDisplay(editingItem, s);
-                      })()}
+                      {editingItem.clockIn || "-"} ~ {editingItem.clockOut || "-"}
                     </div>
                     <div style={{ fontFamily: "monospace", textAlign: "center", fontSize: "15px", fontWeight: "bold" }}>
                       {(() => {

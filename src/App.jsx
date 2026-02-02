@@ -23,6 +23,9 @@ import AdminFixedShifts from "./pages/admin/AdminFixedShifts";
 import AdminAttendance from "./pages/admin/AdminAttendance";
 import AdminHistory from "./pages/admin/AdminHistory";
 import AdminManual from "./pages/admin/AdminManual";
+import StaffManual from "./pages/StaffManual";
+
+import AdminShiftManagement from "./pages/admin/AdminShiftManagement"; // New Component
 
 import Attendance from "./pages/Attendance";
 
@@ -184,6 +187,15 @@ export default function App() {
 
               <div className="tab">
                 <NavLink
+                  to="/admin/shift"
+                  className={navLinkClass}
+                >
+                  シフト管理
+                </NavLink>
+              </div>
+
+              <div className="tab">
+                <NavLink
                   to="/admin/history"
                   className={navLinkClass}
                 >
@@ -229,6 +241,15 @@ export default function App() {
             <>
               <div className="tab">
                 <NavLink
+                  to="/manual"
+                  className={navLinkClass}
+                >
+                  操作マニュアル
+                </NavLink>
+              </div>
+
+              <div className="tab">
+                <NavLink
                   to="/attendance"
                   className={navLinkClass}
                 >
@@ -253,6 +274,21 @@ export default function App() {
                   マイページ
                 </NavLink>
               </div>
+
+              <button
+                onClick={handleLogout}
+                style={{
+                  marginLeft: "auto",
+                  padding: "8px 16px",
+                  border: "none",
+                  borderRadius: "6px",
+                  background: "#d32f2f",
+                  color: "#fff",
+                  cursor: "pointer",
+                }}
+              >
+                ログアウト
+              </button>
             </>
           )}
         </nav>
@@ -300,6 +336,15 @@ export default function App() {
                 element={
                   <RequireAdmin>
                     <AdminHistory />
+                  </RequireAdmin>
+                }
+              />
+
+              <Route
+                path="/admin/shift"
+                element={
+                  <RequireAdmin>
+                    <AdminShiftManagement />
                   </RequireAdmin>
                 }
               />
@@ -364,6 +409,7 @@ export default function App() {
               />
               <Route path="/shift/:date" element={<ShiftDetail />} />
               <Route path="/attendance" element={<Attendance />} />
+              <Route path="/manual" element={<StaffManual />} />
               <Route path="*" element={<Navigate to="/attendance" replace />} />
             </>
           )}

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import { format, parseISO, startOfYear, endOfYear, eachDayOfInterval, isSaturday, isSunday } from "date-fns";
 import { ja } from "date-fns/locale";
 import {
@@ -98,6 +98,39 @@ export default function AdminHistory() {
     const [loadingHistory, setLoadingHistory] = useState(false);
     const [shiftMap, setShiftMap] = useState({});
 
+    // Lazy Load State
+    const [displayedLimit, setDisplayedLimit] = useState(20);
+    const observerTarget = useRef(null);
+
+    useEffect(() => {
+        setDisplayedLimit(20);
+    }, [searchQuery, filterType, filterDept, filterLoc]); // Reset on filter change
+
+    useEffect(() => {
+        const observer = new IntersectionObserver(
+            entries => {
+                if (entries[0].isIntersecting) {
+                    setDisplayedLimit(prev => prev + 20);
+                }
+            },
+            { threshold: 0.1 }
+        );
+        if (observerTarget.current) {
+            observer.observe(observerTarget.current);
+        }
+        return () => {
+            if (observerTarget.current) observer.unobserve(observerTarget.current);
+        };
+    }, [users]); // Re-attach if users list completely reloads (rare) or just mount.
+    // Actually, we want to observe the sentinel. 
+    // Effect needs to run when sentinel might be rendered/unrendered? 
+    // Simply having it with empty deps or appropriate filteredUsers might be enough, 
+    // but React refs are stable. We might need a callback ref or just rely on 'observerTarget.current' being available.
+
+    // Better pattern:
+    // We will render <div ref={observerTarget} /> at the bottom.
+
+
     // 1. Fetch Users on Mount
     useEffect(() => {
         fetchUsers();
@@ -167,12 +200,23 @@ export default function AdminHistory() {
                     targetPrefix = baseDate.slice(0, 4); // "yyyy"
                 }
 
-                const filtered = data.items.filter(item =>
-                    item.workDate && item.workDate.startsWith(targetPrefix)
+                // Normalize Items
+                const normalized = data.items.map(item => {
+                    let displayDate = item.workDate;
+                    if (/^\d{6}-\d{2}-\d{2}$/.test(item.workDate)) {
+                        const yyyymm = item.workDate.substring(0, 6);
+                        const dd = item.workDate.substring(10, 12);
+                        displayDate = `${yyyymm.substring(0, 4)}-${yyyymm.substring(4, 6)}-${dd}`;
+                    }
+                    return { ...item, displayDate };
+                });
+
+                const filtered = normalized.filter(item =>
+                    item.displayDate && item.displayDate.startsWith(targetPrefix)
                 );
 
                 // Sort by date
-                filtered.sort((a, b) => a.workDate.localeCompare(b.workDate));
+                filtered.sort((a, b) => a.displayDate.localeCompare(b.displayDate));
                 setUserItems(filtered);
             } else {
                 setUserItems([]);
@@ -263,7 +307,7 @@ export default function AdminHistory() {
             }
         });
         */
-        const attendedDates = new Set(userItems.filter(i => i.clockIn).map(i => i.workDate)); // Keep needed for 'days' count
+        const attendedDates = new Set(userItems.filter(i => i.clockIn).map(i => i.displayDate || i.workDate)); // Keep needed for 'days' count
 
         const totalMin = userItems.reduce((acc, i) => acc + (i.clockIn && i.clockOut ? calcRoundedWorkMin(i) : 0), 0);
         // Late Count: Needs "Original Time". If not available, we can't count.
@@ -358,48 +402,46 @@ export default function AdminHistory() {
                 /* --- User Selection Mode --- */
                 <div className="card" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", padding: 0 }}>
                     {/* Search & Filter Header - Fixed */}
-                    <div style={{ padding: "16px", borderBottom: "1px solid #f3f4f6", background: "#fff", flexShrink: 0 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
-                            <h3 style={{ fontSize: "1rem", fontWeight: "bold", color: "#374151", margin: 0 }}>
-                                対象スタッフを選択してください
+                    {/* Search & Filter Header (Refined) */}
+                    <div style={{ padding: "16px", borderBottom: "1px solid #e5e7eb", background: "#f9fafb", flexShrink: 0 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                            <h3 style={{ fontSize: "1rem", fontWeight: "bold", color: "#374151" }}>
+                                スタッフ選択
                             </h3>
-                            <span style={{ fontSize: "0.85rem", color: "#6b7280", background: "#f3f4f6", padding: "2px 8px", borderRadius: "12px" }}>
-                                全 {filteredUsers.length} 名
+                            <span style={{ fontSize: "0.8rem", color: "#6b7280", background: "#fff", padding: "2px 8px", borderRadius: "12px", border: "1px solid #e5e7eb" }}>
+                                {filteredUsers.length} 名 表示中
                             </span>
                         </div>
 
-                        {/* Controls Row */}
-                        <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-                            {/* Compact Search Bar */}
-                            <div style={{ position: "relative", width: "240px" }}>
-                                <Search size={16} style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: "#9ca3af", pointerEvents: "none" }} />
-                                <input
-                                    type="text"
-                                    className="input"
-                                    placeholder="氏名・ID..."
-                                    value={searchQuery}
-                                    onChange={e => setSearchQuery(e.target.value)}
-                                    style={{
-                                        paddingLeft: "32px",
-                                        width: "100%",
-                                        height: "36px",
-                                        fontSize: "14px",
-                                        border: "1px solid #e5e7eb",
-                                        borderRadius: "6px"
-                                    }}
-                                />
-                            </div>
+                        {/* Search Bar */}
+                        <div style={{ marginBottom: "12px", position: "relative" }}>
+                            <Search size={18} style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", color: "#9ca3af" }} />
+                            <input
+                                type="text"
+                                className="input"
+                                placeholder="名前、IDで検索..."
+                                value={searchQuery}
+                                onChange={e => setSearchQuery(e.target.value)}
+                                style={{
+                                    width: "100%",
+                                    padding: "10px 10px 10px 40px",
+                                    fontSize: "0.95rem",
+                                    border: "1px solid #d1d5db",
+                                    borderRadius: "8px",
+                                    boxShadow: "0 1px 2px rgba(0,0,0,0.05)"
+                                }}
+                            />
+                        </div>
 
-                            <div style={{ width: "1px", height: "24px", background: "#e5e7eb", margin: "0 4px" }} />
-
-                            {/* Filters */}
+                        {/* Filters Row */}
+                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                             <select
                                 className="input"
                                 value={filterType}
                                 onChange={e => setFilterType(e.target.value)}
-                                style={{ height: "36px", width: "110px", fontSize: "0.85rem", padding: "0 8px" }}
+                                style={{ flex: 1, minWidth: "90px", fontSize: "0.85rem", padding: "6px", borderRadius: "6px" }}
                             >
-                                <option value="">全ての形態</option>
+                                <option value="">形態: 全て</option>
                                 {EMPLOYMENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                             </select>
 
@@ -407,9 +449,9 @@ export default function AdminHistory() {
                                 className="input"
                                 value={filterDept}
                                 onChange={e => setFilterDept(e.target.value)}
-                                style={{ height: "36px", width: "110px", fontSize: "0.85rem", padding: "0 8px" }}
+                                style={{ flex: 1, minWidth: "90px", fontSize: "0.85rem", padding: "6px", borderRadius: "6px" }}
                             >
-                                <option value="">全ての部署</option>
+                                <option value="">部署: 全て</option>
                                 {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
                             </select>
 
@@ -417,21 +459,23 @@ export default function AdminHistory() {
                                 className="input"
                                 value={filterLoc}
                                 onChange={e => setFilterLoc(e.target.value)}
-                                style={{ height: "36px", width: "110px", fontSize: "0.85rem", padding: "0 8px" }}
+                                style={{ flex: 1, minWidth: "90px", fontSize: "0.85rem", padding: "6px", borderRadius: "6px" }}
                             >
-                                <option value="">全ての勤務地</option>
+                                <option value="">勤務地: 全て</option>
                                 {LOCATIONS.map(l => <option key={l} value={l}>{l}</option>)}
                             </select>
+                        </div>
 
-                            {(filterType || filterDept || filterLoc) && (
+                        {(filterType || filterDept || filterLoc) && (
+                            <div style={{ marginTop: "8px", textAlign: "right" }}>
                                 <button
                                     onClick={() => { setFilterType(""); setFilterDept(""); setFilterLoc(""); }}
                                     style={{ fontSize: "0.8rem", color: "#ef4444", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}
                                 >
-                                    クリア
+                                    絞り込みをクリア
                                 </button>
-                            )}
-                        </div>
+                            </div>
+                        )}
                     </div>
 
                     {/* Scrollable Content */}
@@ -445,7 +489,7 @@ export default function AdminHistory() {
                             <div style={{ padding: "40px", textAlign: "center", color: "#9ca3af" }}>データがありません (API接続を確認してください)</div>
                         ) : (
                             <div className="user-grid">
-                                {filteredUsers.map(u => (
+                                {filteredUsers.slice(0, displayedLimit).map(u => (
                                     <button
                                         key={u.userId}
                                         className="user-card-btn"
@@ -460,6 +504,8 @@ export default function AdminHistory() {
                                         </div>
                                     </button>
                                 ))}
+                                {/* Sentinel */}
+                                <div ref={observerTarget} style={{ height: "20px", width: "100%", gridColumn: "1 / -1" }}></div>
                                 {filteredUsers.length === 0 && (
                                     <div style={{ gridColumn: "1 / -1", textAlign: "center", color: "#9ca3af", padding: "20px" }}>
                                         条件に一致するスタッフがいません
@@ -580,7 +626,7 @@ export default function AdminHistory() {
 
                                                 // Create Map for quick lookup
                                                 const attendanceMap = {};
-                                                userItems.forEach(i => attendanceMap[i.workDate] = i);
+                                                userItems.forEach(i => attendanceMap[i.displayDate || i.workDate] = i);
 
                                                 return daysToRender.map(dateObj => {
                                                     const dateStr = format(dateObj, "yyyy-MM-dd");

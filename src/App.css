@@ -978,3 +978,10 @@
   border-style: solid;
   border-color: #333 transparent transparent transparent;
 }
+
+/* Fallback for backdrop-filter */
+@supports not ((-webkit-backdrop-filter: blur(10px)) or (backdrop-filter: blur(10px))) {
+  .bonus-section, .stat-box, .mypage-container .bonus-section {
+    background: rgba(255, 255, 255, 0.95) !important;
+  }
+}

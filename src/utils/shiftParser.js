@@ -23,8 +23,8 @@ const SOURCES = [
                 name: "haken",
                 gid: "841582142",
                 nameColIndex: 0,
-                dateRowIndex: 1,
-                dataStartRowIndex: 3
+                dateRowIndex: 0,
+                dataStartRowIndex: 2
             }
         ]
     },
@@ -45,7 +45,14 @@ const SOURCES = [
     }
 ];
 
-export async function fetchShiftData() {
+export const SPECIAL_SHIFTS = {
+    "朝": { start: "07:00", end: "17:00" },
+    "早": { start: "09:00", end: "19:00" },
+    "中": { start: "10:00", end: "19:00" },
+    "遅": { start: "12:00", end: "22:00" }
+};
+
+export async function fetchShiftData(forceRefresh = false, additionalSources = []) {
     const shifts = {};
 
     const SHEET_TO_LOCATION = {
@@ -56,32 +63,61 @@ export async function fetchShiftData() {
         "haken": "派遣"
     };
 
-    const SPECIAL_SHIFTS = {
-        "朝": { start: "07:00", end: "17:00" },
-        "早": { start: "09:00", end: "19:00" },
-        "中": { start: "10:00", end: "19:00" },
-        "遅": { start: "12:00", end: "22:00" }
-    };
+    // Combine hardcoded sources with any dynamic ones provided
+    const allSources = [...SOURCES, ...additionalSources];
 
-    for (const source of SOURCES) {
+    const tasks = [];
+
+    // Create fetch tasks preserving order
+    for (const source of allSources) {
+        // Validation: If dynamic source lacks structure, skip safely
+        if (!source || !source.sheets) continue;
+
         for (const sheet of source.sheets) {
-            try {
-                const url = `https://docs.google.com/spreadsheets/d/${source.id}/export?format=csv&gid=${sheet.gid}`;
-                const response = await fetch(url);
-                if (!response.ok) continue;
-                const text = await response.text();
-                // Map sheet name to Location/Department (Default to sheet name if not found)
-                const locationName = SHEET_TO_LOCATION[sheet.name] || sheet.name;
-                parseCsv(text, sheet, source.year, source.month, shifts, locationName, SPECIAL_SHIFTS);
-            } catch (e) {
-                console.error(`Shift fetch error (${source.monthLabel} - ${sheet.name}):`, e);
-            }
+            tasks.push(async () => {
+                try {
+                    let url = `https://docs.google.com/spreadsheets/d/${source.id}/export?format=csv&gid=${sheet.gid}`;
+                    if (forceRefresh) {
+                        url += `&t=${Date.now()}`;
+                    }
+
+                    // 10s Timeout
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+                    const response = await fetch(url, { signal: controller.signal });
+                    clearTimeout(timeoutId);
+
+                    if (!response.ok) {
+                        console.warn(`Shift fetch failed: ${response.status} for ${source.monthLabel} - ${sheet.name}`);
+                        return null;
+                    }
+                    const text = await response.text();
+                    return { text, source, sheet };
+                } catch (e) {
+                    console.error(`Shift fetch error (${source.monthLabel} - ${sheet.name}):`, e);
+                    return null;
+                }
+            });
         }
     }
+
+    // Execute in parallel
+    const results = await Promise.all(tasks.map(t => t()));
+
+    // Process sequentially to maintain merge order
+    for (const res of results) {
+        if (!res) continue;
+        const { text, source, sheet } = res;
+        const locationName = SHEET_TO_LOCATION[sheet.name] || sheet.name;
+        // parseCsv mutates 'shifts'
+        parseCsv(text, sheet, source.year, source.month, shifts, locationName, SPECIAL_SHIFTS);
+    }
+
     return shifts;
 }
 
-function parseCsv(csvText, config, year, month, shifts, locationName, specialShifts) {
+export function parseCsv(csvText, config, year, month, shifts, locationName, specialShifts) {
     const lines = csvText.split(/\r?\n/).map(line => line.split(","));
 
     if (lines.length < config.dataStartRowIndex) return;
@@ -90,12 +126,16 @@ function parseCsv(csvText, config, year, month, shifts, locationName, specialShi
     if (!dateRow) return;
 
     const dayMap = {};
+    let prescribedDaysColIndex = -1;
+
     for (let i = 0; i < dateRow.length; i++) {
         const cell = dateRow[i].trim();
         // Match "1日" or just "1"
         const match = cell.match(/^(\d+)日?$/);
         if (match) {
             dayMap[parseInt(match[1])] = i;
+        } else if (cell === "規定出勤日数" || cell === "規定日数") {
+            prescribedDaysColIndex = i;
         }
     }
 
@@ -116,6 +156,14 @@ function parseCsv(csvText, config, year, month, shifts, locationName, specialShi
         if (!name) continue;
 
         if (!shifts[name]) shifts[name] = {};
+
+        // Parse Prescribed Days
+        if (prescribedDaysColIndex !== -1) {
+            const val = row[prescribedDaysColIndex]?.trim();
+            if (val) {
+                shifts[name][`prescribed_${year}_${month}`] = val;
+            }
+        }
 
         Object.keys(dayMap).forEach(day => {
             const colIdx = dayMap[day];
@@ -159,7 +207,7 @@ function parseCsv(csvText, config, year, month, shifts, locationName, specialShi
                 // Determine if Dispatch based on special code match or location
                 const isDispatch = (locationName === "派遣") || (!!(specialShifts && val1 && specialShifts[val1]));
 
-                shifts[name][dateKey] = {
+                const newShift = {
                     start: isOff ? "" : normalizeTime(start),
                     end: isOff ? "" : normalizeTime(end),
                     original: isSplit ? `${val1} ${row[colIdx + 1] || ""}` : val1,
@@ -167,6 +215,34 @@ function parseCsv(csvText, config, year, month, shifts, locationName, specialShi
                     isOff: isOff,
                     isDispatch: isDispatch
                 };
+
+                const existing = shifts[name][dateKey];
+                if (existing) {
+                    // MERGE LOGIC
+                    if (existing.isOff && !newShift.isOff) {
+                        // Work overrides Off
+                        shifts[name][dateKey] = newShift;
+                    } else if (!existing.isOff && newShift.isOff) {
+                        // Keep Work (ignore Off)
+                    } else if (!existing.isOff && !newShift.isOff) {
+                        // Both Work: Extend Range
+                        const mergedStart = (existing.start < newShift.start) ? existing.start : newShift.start;
+                        const mergedEnd = (existing.end > newShift.end) ? existing.end : newShift.end;
+                        const mergedLoc = existing.location === newShift.location ? existing.location : `${existing.location}・${newShift.location}`;
+
+                        shifts[name][dateKey] = {
+                            ...existing,
+                            start: mergedStart,
+                            end: mergedEnd,
+                            location: mergedLoc,
+                            isDispatch: existing.isDispatch || newShift.isDispatch,
+                            // Append original text for debug/detail
+                            original: `${existing.original} / ${newShift.original}`
+                        };
+                    }
+                } else {
+                    shifts[name][dateKey] = newShift;
+                }
             }
         });
     }

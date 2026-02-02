@@ -126,6 +126,13 @@ export default function AttendanceRecord({ user: propUser }) {
   // Resubmission Context
   const [adminFeedback, setAdminFeedback] = useState("");
 
+  // --- TRIP MODAL STATE ---
+  const [tripModalOpen, setTripModalOpen] = useState(false);
+  const [tripDate, setTripDate] = useState("");
+  const [tripStart, setTripStart] = useState("09:00");
+  const [tripEnd, setTripEnd] = useState("18:00");
+  const [tripComment, setTripComment] = useState("");
+
   const handlePrevMonth = () => {
     setCurrentDate(prev => subMonths(prev, 1));
   };
@@ -169,6 +176,76 @@ export default function AttendanceRecord({ user: propUser }) {
     const last = displayItem.breaks[displayItem.breaks.length - 1];
     return (last.start && !last.end);
   }, [displayItem]);
+
+  const handleTripSubmit = async () => {
+    if (!tripDate || !tripStart || !tripEnd || !tripComment) {
+      alert("日付、時間、コメントは必須です");
+      return;
+    }
+    // Time Validation
+    if (toMin(tripStart) >= toMin(tripEnd)) {
+      alert("終了時間は開始時間より後である必要があります");
+      return;
+    }
+
+    // Duplicate Check
+    const existingNum = items.filter(i => i.workDate === tripDate).length;
+    if (existingNum > 0) {
+      alert("同日にすでに申請が行われています。重複して申請することはできません。");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const application = {
+        status: "pending",
+        type: "business_trip",
+        appliedAt: new Date().toISOString(),
+        appliedIn: tripStart,
+        appliedOut: tripEnd,
+        reason: "出張",
+        adminComment: null
+      };
+
+      const commentObj = {
+        segments: [{ location: "出張", department: user.defaultDepartment || "未記載", hours: "" }],
+        text: tripComment,
+        application: application
+      };
+
+      const payload = {
+        userId: user.userId,
+        workDate: tripDate, // YYYY-MM-DD
+        clockIn: tripStart,
+        clockOut: tripEnd,
+        breaks: [],
+        comment: JSON.stringify(commentObj),
+        location: (user && user.defaultLocation) || "出張",
+        department: (user && user.defaultDepartment) || "未記載"
+      };
+
+      // Use apply endpoint
+      const res = await fetch(`${API_BASE}/attendance/apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const resData = await res.json();
+      if (!res.ok || !resData.success) {
+        throw new Error(resData.message || "申請に失敗しました (Server Error)");
+      }
+
+      setTripModalOpen(false);
+      alert("出張申請を完了しました");
+      fetchData();
+    } catch (e) {
+      console.error(e);
+      alert("保存に失敗しました");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   /* --- API ENDPOINTS --- */
   const ENDPOINTS = {
@@ -360,7 +437,19 @@ export default function AttendanceRecord({ user: propUser }) {
       const res = await fetch(`${API_BASE}/attendance?userId=${user.userId}`);
       const data = await res.json();
       if (data.success) {
-        setItems(data.items);
+        // Normalize Items (Fix for mangled IDs: 202602-02-02 -> 2026-02-02)
+        const normalized = (data.items || []).map(item => {
+          let displayDate = item.workDate;
+          // Pattern: YYYYMM-MM-DD (Length 12, start with 6 digits then dash)
+          // e.g. 202602-02-02
+          if (/^\d{6}-\d{2}-\d{2}$/.test(item.workDate)) {
+            const yyyymm = item.workDate.substring(0, 6);
+            const dd = item.workDate.substring(10, 12);
+            displayDate = `${yyyymm.substring(0, 4)}-${yyyymm.substring(4, 6)}-${dd}`;
+          }
+          return { ...item, displayDate };
+        });
+        setItems(normalized);
       }
     } catch (e) {
       console.error(e);
@@ -390,19 +479,22 @@ export default function AttendanceRecord({ user: propUser }) {
       setExpandedDate(null);
       return;
     }
-    setExpandedDate(dayStr);
+    setExpandedDate(dayStr); // dayStr is the Key (workDate), potentially mangled
 
     // Check if there is an admin feedback
     const p = parseComment(item?.comment);
     const app = p.application || {};
     setAdminFeedback(app.adminComment || "");
 
-    const shift = getShift(user?.userName, dayStr);
+    // Use displayDate for shift lookup
+    const lookupDate = item?.displayDate || item?.workDate || dayStr;
+    const shift = getShift(user?.userName, lookupDate);
 
     if (item) {
       // Use existing values or defaults
       setFormIn(item.clockIn || shift?.start || "");
-      setFormOut(item.clockOut || shift?.end || "");
+      // If clockOut is missing, user MUST input it (do not auto-fill from shift)
+      setFormOut(item.clockOut || "");
       setFormBreaks(item.breaks || []);
 
       if (item.segments && item.segments.length > 0) {
@@ -465,7 +557,9 @@ export default function AttendanceRecord({ user: propUser }) {
       if (!expandedDate) return;
 
       const originalItem = items.find(i => i.workDate === expandedDate);
-      const shift = getShift(user.userName, expandedDate);
+      // Use displayDate for shift lookup
+      const lookupDate = originalItem?.displayDate || expandedDate;
+      const shift = getShift(user.userName, lookupDate);
 
       // --- VALIDATION START ---
       // 1. Reason Check for "Other"
@@ -519,7 +613,7 @@ export default function AttendanceRecord({ user: propUser }) {
 
       const payload = {
         userId: user.userId,
-        workDate: expandedDate,
+        workDate: expandedDate, // KEEP MANGLED ID
         clockIn: formIn,
         clockOut: formOut,
         breaks: formBreaks.filter(b => b.start && b.end),
@@ -551,13 +645,15 @@ export default function AttendanceRecord({ user: propUser }) {
     let partTimeMin = 0;
 
     items.forEach(item => {
-      if (item.workDate.startsWith(format(currentDate, "yyyy-MM"))) {
+      // Use displayDate for stats
+      const dDate = item.displayDate || item.workDate;
+      if (dDate.startsWith(format(currentDate, "yyyy-MM"))) {
         if (item.clockIn) {
           days++;
           const wm = calcRoundedWorkMin(item);
 
-          // Get Shift to check Dispatch status
-          const s = getShift(user.userName, item.workDate);
+          // Get Shift to check Dispatch status. Use displayDate.
+          const s = getShift(user.userName, dDate);
           if (s && s.isDispatch) {
             // Dispatch Logic: First 8h is Dispatch, Rest is PartTime
             const disp = Math.min(wm, 8 * 60);
@@ -620,7 +716,7 @@ export default function AttendanceRecord({ user: propUser }) {
             <Clock size={24} />
             出退勤入力
             <span style={{ fontSize: "0.9rem", color: "#6b7280", fontWeight: "normal", marginLeft: "12px" }}>
-              ({format(currentDate, "M")}月の規定日数: {19}日)
+              ({format(currentDate, "M")}月の規定日数: {(currentDate.getFullYear() === 2026 && currentDate.getMonth() === 1) ? 18 : 19}日)
               {todayShift && (
                 <span style={{ marginLeft: "12px", color: "#2563eb", fontWeight: "bold" }}>
                   本日のシフト: {todayShift.isOff ? "休み" : `${todayShift.start} - ${todayShift.end}`}
@@ -631,7 +727,13 @@ export default function AttendanceRecord({ user: propUser }) {
 
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <button
-              onClick={() => alert("出張申請機能は開発中です")}
+              onClick={() => {
+                setTripDate(format(addDays(new Date(), 1), "yyyy-MM-dd")); // Default tomorrow
+                setTripStart("09:00");
+                setTripEnd("18:00");
+                setTripComment("");
+                setTripModalOpen(true);
+              }}
               style={{
                 display: "flex", alignItems: "center", gap: "6px",
                 background: "#fff", border: "1px solid #a855f7", color: "#a855f7",
@@ -640,7 +742,13 @@ export default function AttendanceRecord({ user: propUser }) {
             >
               <Briefcase size={16} /> 出張申請
             </button>
-            <Info size={16} color="#9ca3af" />
+            <div className="tooltip-container">
+              <Info size={16} color="#9ca3af" style={{ cursor: "help" }} />
+              <div className="tooltip-text">
+                勤怠の修正や申請に関するお問い合わせは<br />
+                管理者までご連絡ください。
+              </div>
+            </div>
           </div>
         </div>
 
@@ -743,10 +851,19 @@ export default function AttendanceRecord({ user: propUser }) {
         </div>
         <div className="card" style={{ padding: "24px" }}>
           <div style={{ fontSize: "0.85rem", color: "#6b7280", marginBottom: "8px" }}>今月の勤務時間</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-            <div style={{ fontSize: "1.1rem", fontWeight: "bold", color: "#2563eb" }}>派遣: {stats.dispH}h {stats.dispM}m</div>
-            <div style={{ fontSize: "1.1rem", fontWeight: "bold", color: "#16a34a" }}>バイト: {stats.partH}h {stats.partM}m</div>
-          </div>
+          {user?.employmentType === "派遣" ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+              <div style={{ fontSize: "1.1rem", fontWeight: "bold", color: "#2563eb" }}>派遣: {stats.dispH}h {stats.dispM}m</div>
+              <div style={{ fontSize: "1.1rem", fontWeight: "bold", color: "#16a34a" }}>バイト: {stats.partH}h {stats.partM}m</div>
+            </div>
+          ) : (
+            <div style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#374151" }}>
+              {Math.floor(((stats.dispH * 60 + stats.dispM) + (stats.partH * 60 + stats.partM)) / 60)}
+              <span style={{ fontSize: "1rem", fontWeight: "normal" }}> 時間 </span>
+              {((stats.dispH * 60 + stats.dispM) + (stats.partH * 60 + stats.partM)) % 60}
+              <span style={{ fontSize: "1rem", fontWeight: "normal" }}> 分 </span>
+            </div>
+          )}
         </div>
         <div className="card" style={{ padding: "24px" }}>
           <div style={{ fontSize: "0.85rem", color: "#6b7280", marginBottom: "8px" }}>平均勤務時間</div>
@@ -791,12 +908,20 @@ export default function AttendanceRecord({ user: propUser }) {
           </div>
 
           {items
-            .filter(item => item.workDate.startsWith(format(currentDate, "yyyy-MM")))
-            .sort((a, b) => b.workDate.localeCompare(a.workDate))
+            .filter(item => {
+              const dDate = item.displayDate || item.workDate;
+              return dDate.startsWith(format(currentDate, "yyyy-MM"));
+            })
+            .sort((a, b) => {
+              const dA = a.displayDate || a.workDate;
+              const dB = b.displayDate || b.workDate;
+              return dB.localeCompare(dA);
+            })
             .map(item => {
               // Multi-shift safe parsing
-              const baseDateStr = item.workDate.split("_")[0];
-              const shiftNum = item.workDate.split("_")[1] ? parseInt(item.workDate.split("_")[1]) : 1;
+              const dDate = item.displayDate || item.workDate;
+              const baseDateStr = dDate.split("_")[0];
+              const shiftNum = dDate.includes("_") ? parseInt(dDate.split("_")[1]) : 1;
               const day = new Date(baseDateStr);
               const isSat = isSaturday(day);
               const isSun = isSunday(day);
@@ -1149,92 +1274,117 @@ export default function AttendanceRecord({ user: propUser }) {
       </div>
 
 
+      {/* TRI MODAL */}
+      {/* TRIP MODAL */}
+      {tripModalOpen && (
+        <div className="modal-overlay">
+          <div className="modal" style={{ width: "420px", maxWidth: "90vw" }}>
+            <div className="modal-title" style={{ display: "flex", alignItems: "center", gap: "10px", color: "#4b5563" }}>
+              <Briefcase size={24} style={{ color: "#a855f7" }} />
+              <span>出張申請</span>
+            </div>
+
+            <div style={{ marginBottom: "24px" }}>
+              <p style={{ fontSize: "0.9rem", color: "#6b7280", margin: 0, lineHeight: "1.5" }}>
+                出張の日時と目的を入力してください。<br />
+                <span style={{ fontSize: "0.8rem", color: "#9ca3af" }}>※承認待ちとして申請されます。</span>
+              </p>
+            </div>
+
+            {/* Inputs */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+              {/* Date */}
+              <div>
+                <label style={{ display: "block", fontWeight: "bold", fontSize: "0.85rem", marginBottom: "6px", color: "#374151" }}>
+                  日付 <span style={{ color: "#ef4444", fontSize: "0.75rem", marginLeft: "4px" }}>(必須)</span>
+                </label>
+                <input
+                  type="date"
+                  value={tripDate}
+                  onChange={(e) => setTripDate(e.target.value)}
+                  style={{
+                    width: "100%", padding: "10px 12px", borderRadius: "8px",
+                    border: "1px solid #d1d5db", fontSize: "0.95rem",
+                    boxSizing: "border-box"
+                  }}
+                />
+              </div>
+
+              {/* Time Range */}
+              <div>
+                <label style={{ display: "block", fontWeight: "bold", fontSize: "0.85rem", marginBottom: "6px", color: "#374151" }}>
+                  時間 <span style={{ color: "#ef4444", fontSize: "0.75rem", marginLeft: "4px" }}>(必須)</span>
+                </label>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <select
+                    value={tripStart}
+                    onChange={(e) => setTripStart(e.target.value)}
+                    style={{
+                      flex: 1, padding: "10px", borderRadius: "8px",
+                      border: "1px solid #d1d5db", fontSize: "0.95rem",
+                      background: "#fff", cursor: "pointer"
+                    }}
+                  >
+                    {TIME_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                  <span style={{ color: "#9ca3af", fontWeight: "bold" }}>～</span>
+                  <select
+                    value={tripEnd}
+                    onChange={(e) => setTripEnd(e.target.value)}
+                    style={{
+                      flex: 1, padding: "10px", borderRadius: "8px",
+                      border: "1px solid #d1d5db", fontSize: "0.95rem",
+                      background: "#fff", cursor: "pointer"
+                    }}
+                  >
+                    {TIME_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Comment */}
+              <div>
+                <label style={{ display: "block", fontWeight: "bold", fontSize: "0.85rem", marginBottom: "6px", color: "#374151" }}>
+                  詳細・目的 <span style={{ color: "#ef4444", fontSize: "0.75rem", marginLeft: "4px" }}>(必須)</span>
+                </label>
+                <textarea
+                  value={tripComment}
+                  onChange={(e) => setTripComment(e.target.value)}
+                  placeholder="例: クライアント訪問のため (○○株式会社)"
+                  style={{
+                    width: "100%", padding: "10px 12px", borderRadius: "8px",
+                    border: "1px solid #d1d5db", fontSize: "0.95rem",
+                    minHeight: "100px", resize: "vertical",
+                    boxSizing: "border-box", fontFamily: "inherit"
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="modal-actions" style={{ marginTop: "32px" }}>
+              <button
+                className="modal-btn modal-cancel"
+                onClick={() => setTripModalOpen(false)}
+              >
+                キャンセル
+              </button>
+              <button
+                className="modal-btn"
+                style={{ background: "#a855f7", color: "#fff" }} // Purple to match the button that opens it
+                onClick={handleTripSubmit}
+                disabled={loading}
+              >
+                {loading ? "送信中..." : "申請する"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal Removed */}
 
-      <style>{`
-        .modal-overlay {
-            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.5);
-            display: flex; align-items: center; justify-content: center;
-            z-index: 1000;
-        }
-        .modal-content {
-            background: white;
-            padding: 32px;
-            border-radius: 12px;
-            width: 90%;
-            max-width: 500px;
-            max-height: 90vh;
-            overflow-y: auto;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-        }
-        .form-group { margin-bottom: 20px; }
-        .form-group label { display: block; font-weight: bold; margin-bottom: 8px; color: #374151; }
-        .input { width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 1rem; }
-        .time-inputs { display: flex; gap: 20px; }
-        .break-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-        .modal-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
-        .btn-cancel { background: #f3f4f6; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; color: #4b5563; font-weight: bold; }
-        .btn-save { background: #2563eb; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; color: white; font-weight: bold; }
-        .btn-save:disabled { background: #93c5fd; cursor: wait; }
-        .req { color: #ef4444; font-size: 0.8rem; margin-left: 4px; }
-        .btn-small { background: #eff6ff; color: #2563eb; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 0.9rem; }
-        .icon-btn-del { background: none; border: none; color: #ef4444; cursor: pointer; }
 
-        .alert-box {
-            background: #fef2f2;
-            border: 1px solid #fee2e2;
-            color: #991b1b;
-            padding: 16px;
-            border-radius: 8px;
-            margin-bottom: 24px;
-        }
-        .alert-list {
-            margin: 0; padding: 0; list-style: none;
-        }
-        .alert-item {
-            display: flex;
-            align-items: center;
-            padding: 8px 0;
-            border-bottom: 1px solid #fee2e2;
-        }
-        .alert-item:last-child { border-bottom: none; }
-        .btn-tiny {
-            margin-left: auto;
-            background: #fff;
-            border: 1px solid #f87171;
-            color: #ef4444;
-            padding: 4px 12px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 0.8rem;
-        }
-        .btn-tiny:hover { background: #fee2e2; }
-        
-        .feedback-box {
-            background: #fef2f2;
-            border: 1px solid #fca5a5;
-            padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 16px;
-            font-size: 0.9rem;
-        }
-        .segment-box {
-            background: #f9fafb;
-            padding: 8px;
-            border-radius: 6px;
-            margin-bottom: 8px;
-        }
-        .segment-row {
-            display: flex; gap: 8px; margin-bottom: 4px;
-        }
-        .segment-row select {
-            flex: 1; padding: 6px; border: 1px solid #d1d5db; border-radius: 4px;
-        }
-        .btn-text-del {
-            background: none; border: none; color: #ef4444; font-size: 0.8rem; cursor: pointer; text-decoration: underline;
-        }
-      `}</style>
     </div>
   );
 }

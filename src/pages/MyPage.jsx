@@ -528,7 +528,7 @@ export default function MyPage({ onLogout }) {
             <div className="stat-label">総勤務時間</div>
             {isDispatch && (
               <div style={{ fontSize: "10px", color: "#666", marginTop: "4px" }}>
-                (派遣: {stats.dispatchHours.toFixed(1)}h / バイト: {stats.paidHours.toFixed(1)}h)
+                (派遣: {stats.dispatchHours.toFixed(1)}h / {stats.paidHours.toFixed(1)}h)
               </div>
             )}
           </div>
