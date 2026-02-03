@@ -4,9 +4,8 @@ import {
   CheckCircle, AlertTriangle, Search, Edit2, ArrowLeft, RefreshCw, Filter, ArrowUpDown, Eye, EyeOff
 } from "lucide-react";
 
-const API_BASE = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com";
-const READ_USER_URL = `${API_BASE}/users`;
-const WRITE_USER_URL = "https://cma9brof8g.execute-api.ap-northeast-1.amazonaws.com/prod/users";
+const READ_USER_URL = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com/users";
+const WRITE_USER_URL = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com/users";
 
 import { LOCATIONS, DEPARTMENTS, EMPLOYMENT_TYPES } from "../constants";
 
@@ -15,14 +14,16 @@ export default function AdminUser() {
 
   // List State
   const [users, setUsers] = useState([]);
-  const [loadingList, setLoadingList] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [editUser, setEditUser] = useState(null);
+  const [formData, setFormData] = useState({});
 
   // Filter/Sort State
-  const [searchQuery, setSearchQuery] = useState("");
-  const [sortOrder, setSortOrder] = useState("asc"); // "asc" (oldest first) | "desc" (newest first)
-  const [filterType, setFilterType] = useState("");
-  const [filterDept, setFilterDept] = useState("");
-  const [filterLoc, setFilterLoc] = useState("");
+  const [filterName, setFilterName] = useState("");
+  const [filterDateSort, setFilterDateSort] = useState("asc"); // asc | desc
+  const [filterEmpType, setFilterEmpType] = useState("all");
+  const [filterDept, setFilterDept] = useState("all");
+  const [filterLoc, setFilterLoc] = useState("all");
 
   // Form State
   const [loginId, setLoginId] = useState("");
@@ -39,16 +40,29 @@ export default function AdminUser() {
   const [hourlyWage, setHourlyWage] = useState("2200");
 
   const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     fetchUsers();
   }, []);
 
   const fetchUsers = async () => {
-    setLoadingList(true);
+    setLoading(true);
     try {
-      const res = await fetch(READ_USER_URL);
+      const token = localStorage.getItem("token");
+      const headers = {};
+
+      // ✅ Add Authorization header if token exists
+      if (token) headers["Authorization"] = token;
+
+      const res = await fetch(READ_USER_URL, { headers });
+
+      // ✅ Handle 403 Forbidden (Token expired/missing) safely
+      if (res.status === 403) {
+        setMessage("❌ 認証エラー: セッションが切れました。再ログインしてください。");
+        setUsers([]); // Clear users list on error
+        return; // Stop processing
+      }
+
       if (!res.ok) throw new Error("Failed to fetch users");
 
       const text = await res.text();
@@ -74,8 +88,9 @@ export default function AdminUser() {
       }
     } catch (e) {
       console.error(e);
+      setMessage("❌ スタッフ情報の取得に失敗しました");
     } finally {
-      setLoadingList(false);
+      setLoading(false);
     }
   };
 
@@ -83,8 +98,8 @@ export default function AdminUser() {
     let result = [...users];
 
     // 1. Text Search
-    if (searchQuery) {
-      const lower = searchQuery.toLowerCase();
+    if (filterName) {
+      const lower = filterName.toLowerCase();
       result = result.filter(u => {
         const actualName = (u.lastName || u.firstName)
           ? `${u.lastName || ""} ${u.firstName || ""}`
@@ -100,13 +115,13 @@ export default function AdminUser() {
     }
 
     // 2. Filters
-    if (filterType) {
-      result = result.filter(u => (u.employmentType || "未設定") === filterType);
+    if (filterEmpType && filterEmpType !== "all") {
+      result = result.filter(u => (u.employmentType || "未設定") === filterEmpType);
     }
-    if (filterDept) {
+    if (filterDept && filterDept !== "all") {
       result = result.filter(u => (u.defaultDepartment || "未記載") === filterDept);
     }
-    if (filterLoc) {
+    if (filterLoc && filterLoc !== "all") {
       result = result.filter(u => (u.defaultLocation || "未記載") === filterLoc);
     }
 
@@ -115,7 +130,7 @@ export default function AdminUser() {
       const vA = a.startDate || "";
       const vB = b.startDate || "";
 
-      if (sortOrder === "asc") {
+      if (filterDateSort === "asc") {
         if (vA === vB) return 0;
         if (!vA) return 1;
         if (!vB) return -1;
@@ -129,7 +144,7 @@ export default function AdminUser() {
     });
 
     return result;
-  }, [users, searchQuery, sortOrder, filterType, filterDept, filterLoc]);
+  }, [users, filterName, filterDateSort, filterEmpType, filterDept, filterLoc]);
 
   // Form Handlers
   const resetForm = () => {
@@ -158,7 +173,7 @@ export default function AdminUser() {
 
     setUserId(u.userId || "");
     setLoginId(u.loginId || "");
-    // Pre-fill password if available in user object
+    // Pre-fill password for display (per user request)
     setPassword(u.password || "");
 
     setLastName(u.lastName || "");
@@ -219,15 +234,20 @@ export default function AdminUser() {
         defaultDepartment: defaultDepartment || "未記載",
       };
 
-      // Only include password if we are creating a new user
-      if (mode === "create") {
+      // Only include password if we are creating A NEW USER
+      // OR if we are EDITING and a new password was entered
+      if (mode === "create" || (mode === "edit" && password.trim())) {
         payload.password = password;
       }
 
       // Use WRITE_USER_URL for updates
+      const token = localStorage.getItem("token");
+      const headers = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = token;
+
       const res = await fetch(WRITE_USER_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: headers,
         body: JSON.stringify(payload),
       });
 
@@ -268,8 +288,8 @@ export default function AdminUser() {
             スタッフ管理
           </h2>
           <div style={{ display: "flex", gap: "12px" }}>
-            <button className="btn btn-outline" onClick={fetchUsers} disabled={loadingList} style={{ gap: "6px" }}>
-              <RefreshCw size={18} className={loadingList ? "spin" : ""} /> リロード
+            <button className="btn btn-outline" onClick={fetchUsers} disabled={loading} style={{ gap: "6px" }}>
+              <RefreshCw size={18} className={loading ? "spin" : ""} /> リロード
             </button>
             <button className="btn btn-blue" onClick={handleCreateNew} style={{ gap: "6px", padding: "10px 20px" }}>
               <UserPlus size={18} /> 新規スタッフ登録
@@ -278,6 +298,25 @@ export default function AdminUser() {
         </div>
 
         <div className="card" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", padding: 0 }}>
+
+          {/* Error Message Display in List Mode */}
+          {message && (
+            <div style={{
+              padding: "12px 16px",
+              background: message.includes("❌") ? "#fef2f2" : "#ecfdf5",
+              color: message.includes("❌") ? "#991b1b" : "#065f46",
+              borderBottom: "1px solid",
+              borderColor: message.includes("❌") ? "#fecaca" : "#a7f3d0",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              fontSize: "0.9rem",
+              fontWeight: "bold"
+            }}>
+              {message.includes("❌") ? <AlertTriangle size={18} /> : <CheckCircle size={18} />}
+              {message.replace("✅ ", "").replace("❌ ", "")}
+            </div>
+          )}
 
           {/* Controls Area (Search & Filters) - Fixed Top */}
           <div style={{ padding: "16px", borderBottom: "1px solid #f3f4f6", background: "#fff", flexShrink: 0 }}>
@@ -290,8 +329,8 @@ export default function AdminUser() {
                   type="text"
                   className="input"
                   placeholder="氏名・ID..."
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
+                  value={filterName}
+                  onChange={e => setFilterName(e.target.value)}
                   style={{
                     paddingLeft: "34px",
                     width: "100%",
@@ -313,11 +352,11 @@ export default function AdminUser() {
               {/* Sort Button */}
               <button
                 className="btn btn-outline"
-                onClick={() => setSortOrder(prev => prev === "asc" ? "desc" : "asc")}
+                onClick={() => setFilterDateSort(prev => prev === "asc" ? "desc" : "asc")}
                 style={{ height: "36px", padding: "0 12px", fontSize: "0.85rem", gap: "6px" }}
               >
                 <ArrowUpDown size={14} />
-                入社日: {sortOrder === "asc" ? "古い順" : "新しい順"}
+                入社日: {filterDateSort === "asc" ? "古い順" : "新しい順"}
               </button>
 
               <div style={{ width: "1px", height: "24px", background: "#e5e7eb", margin: "0 4px" }} />
@@ -325,11 +364,11 @@ export default function AdminUser() {
               {/* Filters */}
               <select
                 className="input"
-                value={filterType}
-                onChange={e => setFilterType(e.target.value)}
+                value={filterEmpType}
+                onChange={e => setFilterEmpType(e.target.value)}
                 style={{ height: "36px", width: "110px", fontSize: "0.85rem", padding: "0 8px" }}
               >
-                <option value="">全ての形態</option>
+                <option value="all">全ての形態</option>
                 {EMPLOYMENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
 
@@ -339,7 +378,7 @@ export default function AdminUser() {
                 onChange={e => setFilterDept(e.target.value)}
                 style={{ height: "36px", width: "110px", fontSize: "0.85rem", padding: "0 8px" }}
               >
-                <option value="">全ての部署</option>
+                <option value="all">全ての部署</option>
                 {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
               </select>
 
@@ -349,13 +388,13 @@ export default function AdminUser() {
                 onChange={e => setFilterLoc(e.target.value)}
                 style={{ height: "36px", width: "110px", fontSize: "0.85rem", padding: "0 8px" }}
               >
-                <option value="">全ての勤務地</option>
+                <option value="all">全ての勤務地</option>
                 {LOCATIONS.map(l => <option key={l} value={l}>{l}</option>)}
               </select>
 
-              {(filterType || filterDept || filterLoc) && (
+              {(filterEmpType !== "all" || filterDept !== "all" || filterLoc !== "all") && (
                 <button
-                  onClick={() => { setFilterType(""); setFilterDept(""); setFilterLoc(""); }}
+                  onClick={() => { setFilterEmpType("all"); setFilterDept("all"); setFilterLoc("all"); }}
                   style={{ fontSize: "0.8rem", color: "#ef4444", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}
                 >
                   クリア
@@ -367,7 +406,7 @@ export default function AdminUser() {
 
           {/* Table Container - Scrollable */}
           <div className="table-wrap" style={{ flex: 1, overflowY: "auto", position: "relative" }}>
-            {loadingList ? (
+            {loading ? (
               <div style={{ textAlign: "center", padding: "60px", color: "#6b7280" }}>
                 <div className="spin" style={{ display: "inline-block", marginBottom: "8px" }}><RefreshCw size={24} /></div>
                 <div>データを読み込み中...</div>
@@ -495,39 +534,50 @@ export default function AdminUser() {
                 />
               </div>
 
-              {mode === "create" && (
-                <div className="form-group">
-                  <label>パスワード <span className="req">*</span></label>
-                  <div className="input-icon-wrapper">
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      className="input"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
-                      placeholder="パスワード"
-                      style={{ paddingRight: "40px" }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      style={{
-                        position: "absolute",
-                        right: "10px",
-                        top: "50%",
-                        transform: "translateY(-50%)",
-                        background: "none",
-                        border: "none",
-                        cursor: "pointer",
-                        color: "#6b7280"
-                      }}
-                    >
-                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                    </button>
-                  </div>
-                  <p className="hint">※ 初期パスワードを設定してください</p>
+              {/* Password Field: Required for Create, ReadOnly for Edit */}
+              <div className="form-group">
+                <label>
+                  パスワード
+                  {mode === "create" && <span className="req">*</span>}
+                </label>
+                <div className="input-icon-wrapper">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    className="input"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required={mode === "create"}
+                    readOnly={mode === "edit"}
+                    placeholder={mode === "create" ? "パスワードを入力" : ""}
+                    style={{
+                      paddingRight: "40px",
+                      background: mode === "edit" ? "#f3f4f6" : "#fff",
+                      color: mode === "edit" ? "#888" : "inherit"
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    style={{
+                      position: "absolute",
+                      right: "10px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      color: "#6b7280"
+                    }}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
                 </div>
-              )}
+                {mode === "create" ? (
+                  <p className="hint">※ 初期パスワードを設定してください</p>
+                ) : (
+                  <p className="hint">※ パスワードは変更できません（表示のみ）</p>
+                )}
+              </div>
 
               <input
                 type="text"

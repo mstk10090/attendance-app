@@ -1,97 +1,16 @@
-import React, { useEffect, useState } from "react";
-import { User, Wallet, Clock, Calendar, LogOut, Home, Gift, Award, Pencil, Lock } from "lucide-react";
-import { format, getDaysInMonth, isSaturday, isSunday, parseISO, differenceInYears, startOfMonth, endOfMonth, eachDayOfInterval } from "date-fns";
+import React, { useEffect, useState, useMemo } from "react";
+import { User, Wallet, Clock, Calendar, LogOut, Home, Gift, Award, Pencil, Lock, ChevronLeft, ChevronRight, PieChart, CheckCircle } from "lucide-react";
+import { format, getDaysInMonth, isSaturday, isSunday, parseISO, differenceInYears, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths } from "date-fns";
 import { ja } from "date-fns/locale";
 import { HOLIDAYS, LOCATIONS, DEPARTMENTS } from "../constants";
+
 import "../App.css";
 
-// Shift Component
-const ShiftSchedule = ({ userInfo }) => {
-  const [shiftMap, setShiftMap] = useState({});
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    import("../utils/shiftParser").then(mod => {
-      mod.fetchShiftData().then(data => {
-        setShiftMap(data);
-        setLoading(false);
-      });
-    });
-  }, []);
-
-  const now = new Date();
-  const daysInMonth = getDaysInMonth(now);
-  const monthDays = Array.from({ length: daysInMonth }, (_, i) => i + 1);
-
-  const getShift = (day) => {
-    if (!shiftMap || !userInfo) return null;
-    const dateStr = format(new Date(now.getFullYear(), now.getMonth(), day), "yyyy-MM-dd");
-
-    const keysToTry = [];
-    // 1. userName
-    if (userInfo.userName) keysToTry.push(userInfo.userName);
-    // 2. Name combinations
-    if (userInfo.lastName || userInfo.firstName) {
-      const last = userInfo.lastName || "";
-      const first = userInfo.firstName || "";
-      keysToTry.push(`${last} ${first}`.trim());
-      keysToTry.push(`${first} ${last}`.trim());
-      keysToTry.push(`${last}　${first}`.trim()); // Full-width matched
-      keysToTry.push(`${first}　${last}`.trim());
-      keysToTry.push(`${last}${first}`.trim());
-    }
-
-    for (const k of keysToTry) {
-      if (k && shiftMap[k] && shiftMap[k][dateStr]) {
-        return shiftMap[k][dateStr];
-      }
-    }
-    return null;
-  };
-
-  if (loading) return null;
-
-  return (
-    <div className="bonus-section">
-      <h3 className="section-title"><Calendar size={16} /> 今月のシフト</h3>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(60px, 1fr))", gap: "8px" }}>
-        {monthDays.map(day => {
-          const date = new Date(now.getFullYear(), now.getMonth(), day);
-          const isSat = isSaturday(date);
-          const isSun = isSunday(date);
-          const isHol = isHoliday(date);
-          const shift = getShift(day);
-
-          let color = "#374151";
-          if (isSun || isHol) color = "#ef4444";
-          else if (isSat) color = "#3b82f6";
-
-          return (
-            <div key={day} style={{
-              background: shift ? "#eff6ff" : "#fff",
-              border: shift ? "1px solid #bfdbfe" : "1px solid #f3f4f6",
-              borderRadius: "8px",
-              padding: "8px 4px",
-              textAlign: "center",
-              opacity: shift ? 1 : 0.6
-            }}>
-              <div style={{ fontSize: "0.8rem", fontWeight: "bold", color, marginBottom: "4px" }}>
-                {day} ({format(date, "E", { locale: ja })})
-              </div>
-              <div style={{ fontSize: "0.75rem", color: shift ? "#2563eb" : "#9ca3af", fontWeight: shift ? "bold" : "normal" }}>
-                {shift ? `${shift.start}-${shift.end}` : "-"}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-};
 
 const API_BASE = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com";
-const READ_USER_URL = `${API_BASE}/users`;
-const WRITE_USER_URL = "https://cma9brof8g.execute-api.ap-northeast-1.amazonaws.com/prod/users";
+const READ_USER_URL = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com/users";
+const WRITE_USER_URL = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com/users";
 
 
 
@@ -127,6 +46,12 @@ export default function MyPage({ onLogout }) {
   const [bonuses, setBonuses] = useState([]);
   const [totalBonus, setTotalBonus] = useState(0);
   const [scheduledDays, setScheduledDays] = useState(0);
+
+  // New States
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentItems, setCurrentItems] = useState([]); // Filtered by currentDate
+  const [allItems, setAllItems] = useState([]); // All fetched items for yearly stats
+  const [lateViewMode, setLateViewMode] = useState("month"); // "month" or "year"
 
   // --- Utility ---
   const toMin = (t) => {
@@ -258,16 +183,20 @@ export default function MyPage({ onLogout }) {
       } catch (e) { console.error("Attendance fetch error", e); }
 
       // --- 集計 & ボーナス計算 ---
-      const now = new Date();
-      const currentMonthPrefix = format(now, "yyyy-MM");
+      // const now = new Date(); // REMOVED: Use currentDate
+      const currentMonthPrefix = format(currentDate, "yyyy-MM");
 
-      // 今月のレコード抽出
-      const currentItems = fetchedItems.filter(item =>
+      // 今月のレコード抽出 (From all fetched items)
+      const sourceItems = fetchedItems;
+
+      const currentItems = sourceItems.filter(item =>
         item.workDate && item.workDate.startsWith(currentMonthPrefix)
       );
+      setCurrentItems(currentItems);
+      setAllItems(sourceItems); // 年間統計用に全データを保存
 
       // 基本集計
-      let sumTotalMin = 0; // 全実働
+      let sumTotalMin = 0; // 全働
       let sumPaidMin = 0;  // 給与対象（派遣ならバイトのみ、他は全実働）
       let sumDispatchMin = 0; // 派遣として働いた時間（派遣社員のみ）
 
@@ -364,8 +293,8 @@ export default function MyPage({ onLogout }) {
       });
 
       // 規定出勤日数(平日数)計算
-      const start = startOfMonth(now);
-      const end = endOfMonth(now);
+      const start = startOfMonth(currentDate);
+      const end = endOfMonth(currentDate);
       const allDays = eachDayOfInterval({ start, end });
       const workDays = allDays.filter(d => !isWeekendOrHoliday(d)).length;
       setScheduledDays(workDays);
@@ -395,7 +324,7 @@ export default function MyPage({ onLogout }) {
       const isDispatch = currentType === "派遣";
       const isRegular = currentType === "正社員"; // 常勤扱い
       const yearsOfService = fetchedUser?.startDate
-        ? differenceInYears(now, new Date(fetchedUser.startDate))
+        ? differenceInYears(currentDate, new Date(fetchedUser.startDate))
         : 0;
 
       // 1. 常勤判定 (派遣でも規定日数(平日数)出勤で常勤扱い)
@@ -451,13 +380,47 @@ export default function MyPage({ onLogout }) {
     };
 
     fetchData();
-  }, [userId, hourlyWage, loginId]);
+    fetchData();
+  }, [userId, hourlyWage, loginId, currentDate]); // Added currentDate dependency
 
 
 
 
   const savedType = localStorage.getItem("employmentType");
   const isDispatch = (userInfo?.employmentType || savedType) === "派遣";
+
+  const handleSaveSettings = async () => {
+    if (!userInfo) return;
+
+    const payload = {
+      userId: userInfo.userId,
+      loginId: userInfo.loginId,
+      lastName: userInfo.lastName || null,
+      firstName: userInfo.firstName || null,
+      startDate: userInfo.startDate || null,
+      employmentType: userInfo.employmentType || "バイト",
+      livingAlone: (userInfo.livingAlone === true || userInfo.livingAlone === "true"),
+      hourlyWage: userInfo.hourlyWage ? Number(userInfo.hourlyWage) : null,
+      defaultLocation: userInfo.defaultLocation || "未記載",
+      defaultDepartment: userInfo.defaultDepartment || "未記載"
+    };
+
+    try {
+      const token = localStorage.getItem("token");
+      const headers = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = token;
+
+      await fetch(WRITE_USER_URL, {
+        method: "POST",
+        headers: headers,
+        body: JSON.stringify(payload)
+      });
+      // Sync to localStorage
+      localStorage.setItem("defaultLocation", payload.defaultLocation);
+      localStorage.setItem("defaultDepartment", payload.defaultDepartment);
+      alert("設定を保存しました");
+    } catch (err) { console.error(err); alert("保存に失敗しました"); }
+  };
 
   return (
     <div className="mypage-container">
@@ -492,15 +455,30 @@ export default function MyPage({ onLogout }) {
               ) : null}
             </div>
           </div>
-          <button className="logout-btn-icon" onClick={() => {
-            if (onLogout) onLogout();
-            else {
-              localStorage.clear();
-              window.location.href = "/login";
-            }
-          }}>
-            <LogOut size={20} />
-          </button>
+          <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+            {/* Month Nav */}
+            <div style={{ display: "flex", alignItems: "center", background: "#f3f4f6", padding: "4px 8px", borderRadius: "8px" }}>
+              <button onClick={() => setCurrentDate(subMonths(currentDate, 1))} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", padding: "4px" }}>
+                <ChevronLeft size={20} color="#4b5563" />
+              </button>
+              <span style={{ margin: "0 8px", fontSize: "1rem", fontWeight: "bold", color: "#374151" }}>
+                {format(currentDate, "yyyy年 M月")}
+              </span>
+              <button onClick={() => setCurrentDate(addMonths(currentDate, 1))} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", padding: "4px" }}>
+                <ChevronRight size={20} color="#4b5563" />
+              </button>
+            </div>
+
+            <button className="logout-btn-icon" onClick={() => {
+              if (onLogout) onLogout();
+              else {
+                localStorage.clear();
+                window.location.href = "/login";
+              }
+            }}>
+              <LogOut size={20} />
+            </button>
+          </div>
         </header>
 
 
@@ -540,8 +518,93 @@ export default function MyPage({ onLogout }) {
           </div>
         </div>
 
-        {/* --- Shift Schedule Section --- */}
-        <ShiftSchedule userInfo={userInfo} />
+        {/* --- 遅刻件数セクション --- */}
+        <div className="bonus-section" style={{ background: "rgba(255,255,255,0.9)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+            <h3 className="section-title" style={{ margin: 0 }}>
+              <Clock size={16} /> 遅刻件数
+            </h3>
+            <div style={{ display: "flex", gap: "4px" }}>
+              <button
+                onClick={() => setLateViewMode("month")}
+                style={{
+                  padding: "4px 12px",
+                  borderRadius: "6px",
+                  border: "none",
+                  background: lateViewMode === "month" ? "#2563eb" : "#f3f4f6",
+                  color: lateViewMode === "month" ? "#fff" : "#374151",
+                  fontSize: "0.8rem",
+                  fontWeight: "bold",
+                  cursor: "pointer"
+                }}
+              >
+                今月
+              </button>
+              <button
+                onClick={() => setLateViewMode("year")}
+                style={{
+                  padding: "4px 12px",
+                  borderRadius: "6px",
+                  border: "none",
+                  background: lateViewMode === "year" ? "#2563eb" : "#f3f4f6",
+                  color: lateViewMode === "year" ? "#fff" : "#374151",
+                  fontSize: "0.8rem",
+                  fontWeight: "bold",
+                  cursor: "pointer"
+                }}
+              >
+                今年
+              </button>
+            </div>
+          </div>
+          {(() => {
+            // 遅刻件数の計算
+            const currentYearPrefix = format(currentDate, "yyyy");
+            const targetItems = lateViewMode === "month" ? currentItems : allItems.filter(item =>
+              item.workDate && item.workDate.startsWith(currentYearPrefix)
+            );
+
+            const lateCount = targetItems.filter(item => {
+              if (!item.comment) return false;
+              try {
+                const p = JSON.parse(item.comment);
+                const reason = p?.application?.reason || "";
+                return reason.includes("遅刻");
+              } catch {
+                return false;
+              }
+            }).length;
+
+            return (
+              <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+                <div style={{
+                  width: "60px",
+                  height: "60px",
+                  borderRadius: "50%",
+                  background: lateCount > 0 ? "#fef2f2" : "#f0fdf4",
+                  border: lateCount > 0 ? "2px solid #fecaca" : "2px solid #bbf7d0",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "1.5rem",
+                  fontWeight: "bold",
+                  color: lateCount > 0 ? "#ef4444" : "#16a34a"
+                }}>
+                  {lateCount}
+                </div>
+                <div>
+                  <div style={{ fontSize: "0.9rem", fontWeight: "bold", color: "#374151" }}>
+                    {lateViewMode === "month" ? format(currentDate, "M月") : format(currentDate, "yyyy年")}の遅刻
+                  </div>
+                  <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>
+                    {lateCount === 0 ? "遅刻なし！素晴らしいです" : `${lateCount}件の遅刻があります`}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+
 
         {/* --- Default Settings Section --- */}
         <div className="bonus-section" style={{ background: "rgba(255,255,255,0.9)" }}>
@@ -557,35 +620,9 @@ export default function MyPage({ onLogout }) {
                 className="input"
                 style={{ width: "100%", padding: "8px", borderRadius: "8px", border: "1px solid #ddd" }}
                 value={userInfo?.defaultLocation || "未記載"}
-                onChange={async (e) => {
+                onChange={(e) => {
                   const val = e.target.value;
-                  const newUser = { ...userInfo, defaultLocation: val };
-                  setUserInfo(newUser);
-
-                  // Update API with clean payload
-                  const payload = {
-                    userId: newUser.userId,
-                    loginId: newUser.loginId,
-                    lastName: newUser.lastName || null,
-                    firstName: newUser.firstName || null,
-                    startDate: newUser.startDate || null,
-                    employmentType: newUser.employmentType || "バイト",
-                    livingAlone: newUser.livingAlone === true,
-                    hourlyWage: newUser.hourlyWage ? Number(newUser.hourlyWage) : null,
-                    defaultLocation: val,
-                    defaultDepartment: newUser.defaultDepartment || "未記載"
-                    // password is NOT sent here to avoid overwriting or errors
-                  };
-
-                  try {
-                    await fetch(WRITE_USER_URL, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify(payload)
-                    });
-                    // Sync to localStorage
-                    localStorage.setItem("defaultLocation", val);
-                  } catch (err) { console.error(err); alert("保存に失敗しました"); }
+                  setUserInfo({ ...userInfo, defaultLocation: val });
                 }}
               >
                 {LOCATIONS.map(l => <option key={l} value={l}>{l}</option>)}
@@ -597,37 +634,32 @@ export default function MyPage({ onLogout }) {
                 className="input"
                 style={{ width: "100%", padding: "8px", borderRadius: "8px", border: "1px solid #ddd" }}
                 value={userInfo?.defaultDepartment || "未記載"}
-                onChange={async (e) => {
+                onChange={(e) => {
                   const val = e.target.value;
-                  const newUser = { ...userInfo, defaultDepartment: val };
-                  setUserInfo(newUser);
-
-                  const payload = {
-                    userId: newUser.userId,
-                    loginId: newUser.loginId,
-                    lastName: newUser.lastName || null,
-                    firstName: newUser.firstName || null,
-                    startDate: newUser.startDate || null,
-                    employmentType: newUser.employmentType || "バイト",
-                    livingAlone: newUser.livingAlone === true,
-                    hourlyWage: newUser.hourlyWage ? Number(newUser.hourlyWage) : null,
-                    defaultLocation: newUser.defaultLocation || "未記載",
-                    defaultDepartment: val
-                  };
-
-                  try {
-                    await fetch(WRITE_USER_URL, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify(payload)
-                    });
-                    localStorage.setItem("defaultDepartment", val);
-                  } catch (err) { console.error(err); alert("保存に失敗しました"); }
+                  setUserInfo({ ...userInfo, defaultDepartment: val });
                 }}
               >
                 {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
               </select>
             </div>
+          </div>
+          <div style={{ marginTop: "16px", textAlign: "right" }}>
+            <button
+              onClick={handleSaveSettings}
+              className="save-settings-btn"
+              style={{
+                background: "#2563eb",
+                color: "#fff",
+                border: "none",
+                padding: "10px 20px",
+                borderRadius: "8px",
+                fontWeight: "bold",
+                cursor: "pointer",
+                boxShadow: "0 2px 5px rgba(37,99,235,0.3)"
+              }}
+            >
+              設定を保存
+            </button>
           </div>
         </div>
 

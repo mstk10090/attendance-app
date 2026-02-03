@@ -8,7 +8,7 @@ import { fetchShiftData } from "../../utils/shiftParser";
 
 
 const API_BASE = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com";
-const API_USER_URL = `${API_BASE}/users`;
+const API_USER_URL = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com/users";
 
 // --- Utilities ---
 const parseComment = (raw) => {
@@ -192,7 +192,11 @@ export default function AdminAttendance() {
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch(API_USER_URL);
+      const token = localStorage.getItem("token");
+      const headers = {};
+      if (token) headers["Authorization"] = token;
+
+      const res = await fetch(API_USER_URL, { headers });
       if (res.ok) {
         const text = await res.text();
         const outer = JSON.parse(text);
@@ -498,6 +502,33 @@ export default function AdminAttendance() {
     }
   };
 
+  const handleCancelAbsent = async (item) => {
+    if (!window.confirm("欠勤を取り消しますか？\n(未申請状態に戻ります)")) return;
+    setLoading(true);
+    try {
+      const payload = {
+        userId: item.userId,
+        workDate: item.workDate,
+        clockIn: "",
+        clockOut: "",
+        breaks: [],
+        comment: ""
+      };
+      await fetch(`${API_BASE}/attendance/update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      alert("欠勤を取り消しました");
+      setEditingItem(null);
+      fetchAttendances();
+    } catch (e) {
+      alert("エラーが発生しました");
+    } finally {
+      setLoading(false);
+    }
+  };
+
 
   /* JSX */
   return (
@@ -734,15 +765,19 @@ export default function AdminAttendance() {
             </div>
           ) : (
             /* Table View */
-            <div className="table-wrap">
-              <table className="admin-table">
+            <div className="table-wrap" style={{ width: "100%" }}>
+              <table className="admin-table" style={{ width: "100%", tableLayout: "fixed" }}>
                 <thead>
                   <tr>
-                    <th style={{ padding: "12px", fontSize: "14px" }}>日付</th>
-                    <th style={{ padding: "12px", fontSize: "14px" }}>氏名</th>
-                    <th style={{ padding: "12px", fontSize: "14px" }}>状態</th>
-                    <th style={{ padding: "12px", fontSize: "14px" }}>実働 / 申請時間</th>
-                    <th style={{ padding: "12px", fontSize: "14px" }}>操作</th>
+                    <th style={{ padding: "12px", fontSize: "14px", width: "90px" }}>日付</th>
+                    <th style={{ padding: "12px", fontSize: "14px", width: "110px" }}>氏名</th>
+                    <th style={{ padding: "12px", fontSize: "14px", width: "100px" }}>シフト</th>
+                    <th style={{ padding: "12px", fontSize: "14px", width: "120px" }}>実績</th>
+                    <th style={{ padding: "12px", fontSize: "14px", width: "100px" }}>申請時間</th>
+                    <th style={{ padding: "12px", fontSize: "14px", width: "80px" }}>状態</th>
+                    <th style={{ padding: "12px", fontSize: "14px", width: "70px" }}>実働</th>
+                    <th style={{ padding: "12px", fontSize: "14px", width: "100px" }}>判定</th>
+                    <th style={{ padding: "12px", fontSize: "14px", width: "180px" }}>操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -753,136 +788,168 @@ export default function AdminAttendance() {
                     const isUnapplied = item.clockIn && item.clockOut && !rowAppStatus;
                     const isIncomplete = item.clockIn && !item.clockOut && !isToday;
 
+                    // シフト情報を取得（複数の名前パターンで検索）
+                    let shift = shiftMap?.[item.userName]?.[item.workDate] || null;
+
+                    // 見つからない場合は、姓名を分けて検索
+                    if (!shift) {
+                      const user = users.find(u => u.userId === item.userId);
+                      if (user) {
+                        const nameVariants = [
+                          user.lastName + user.firstName,           // 姓名連結
+                          user.lastName + " " + user.firstName,     // 姓 名（スペース）
+                          user.firstName + user.lastName,           // 名姓連結
+                          user.lastName,                            // 姓のみ
+                          user.firstName,                           // 名のみ
+                        ].filter(Boolean);
+
+                        for (const variant of nameVariants) {
+                          if (shiftMap?.[variant]?.[item.workDate]) {
+                            shift = shiftMap[variant][item.workDate];
+                            break;
+                          }
+                        }
+                      }
+                    }
+
+                    // シフトとの比較判定
+                    let shiftCheck = null; // null=判定不可, "ok"=問題なし, "late"=遅刻, "early"=早退, "both"=両方
+                    if (shift && !shift.isOff && item.clockIn && item.clockOut) {
+                      const shiftStartMin = toMin(shift.start);
+                      const shiftEndMin = toMin(shift.end);
+                      const actualInMin = toMin(item.clockIn);
+                      const actualOutMin = toMin(item.clockOut);
+
+                      const isLate = actualInMin > shiftStartMin + 5; // 5分の余裕
+                      const isEarly = actualOutMin < shiftEndMin - 5; // 5分の余裕
+
+                      if (!isLate && !isEarly) shiftCheck = "ok";
+                      else if (isLate && isEarly) shiftCheck = "both";
+                      else if (isLate) shiftCheck = "late";
+                      else if (isEarly) shiftCheck = "early";
+                    }
+
                     let bg = "#fff";
                     if (rowAppStatus === "approved") bg = "#ecfdf5"; // Green
                     else if (rowAppStatus === "pending") bg = "#fff7ed"; // Orange
                     else if (rowAppStatus === "resubmission_requested") bg = "#fcf4ff"; // Purple
                     else if (isIncomplete) bg = "#fee2e2"; // Red (Forgot Clockout)
+                    else if (shiftCheck === "ok" && isUnapplied) bg = "#f0fdf4"; // Light green for auto-approvable
                     else if (isUnapplied) bg = "#fef2f2"; // Red (Unapplied)
                     else if (isWorking) bg = "#ffffff"; // White (Working)
 
                     return (
                       <tr key={item.userId + item.workDate} style={{ background: bg, borderBottom: "1px solid #f3f4f6" }}>
-                        <td style={{ fontSize: "14px", color: "#374151", padding: "12px" }}>
+                        <td style={{ fontSize: "13px", color: "#374151", padding: "10px 8px" }}>
                           {format(new Date(item.workDate), "MM/dd(E)", { locale: ja })}
                         </td>
-                        <td style={{ fontWeight: "bold", fontSize: "15px", padding: "12px" }}>
+                        <td style={{ fontWeight: "bold", fontSize: "14px", padding: "10px 8px" }}>
                           {item.userName}
-                          <div style={{ fontSize: "10px", color: "#aaa" }}>{item.employmentType || "未設定"}</div>
+                          <div style={{ fontSize: "10px", color: "#aaa" }}>{item.employmentType || ""}</div>
                         </td>
-                        <td style={{ padding: "12px" }}>
-                          <div style={{ display: "flex", flexDirection: "column", gap: "2px", alignItems: "flex-start" }}>
-                            {/* 1. Working (Today & In & !Out) */}
-                            {(() => {
-                              const isToday = item.workDate === format(new Date(), "yyyy-MM-dd");
-                              if (isToday && item.clockIn && !item.clockOut) {
-                                return <span className="status-badge green" style={{ background: "#dcfce7", color: "#166534", border: "1px solid #bbf7d0" }}>出勤中</span>;
-                              }
-                              return null;
-                            })()}
-
-                            {/* 2. No Clock Out (Past & In & !Out) */}
-                            {(() => {
-                              const isToday = item.workDate === format(new Date(), "yyyy-MM-dd");
-                              if (!isToday && item.clockIn && !item.clockOut) {
-                                return <span className="status-badge red" style={{ background: "#fee2e2", color: "#991b1b", border: "1px solid #fecaca" }}>未退勤</span>;
-                              }
-                              return null;
-                            })()}
-
-                            {/* 3. Application Status */}
-                            {(() => {
-                              if (!rowAppStatus && item.clockIn && item.clockOut) {
-                                return <span className="status-badge gray" style={{ background: "#f3f4f6", color: "#4b5563", border: "1px solid #e5e7eb" }}>未申請</span>;
-                              }
-                              if (rowAppStatus === "pending") return <span className="status-badge orange">承認待</span>;
-                              if (rowAppStatus === "resubmission_requested") return <span className="status-badge purple">再提出依頼</span>;
-                              if (rowAppStatus === "approved") return <span className="status-badge green">承認済</span>;
-                              return null;
-                            })()}
-
-                            {/* 4. Time Discrepancy / Reason */}
-                            {(() => {
-                              const app = item._application || {};
-                              let isDiscrepancy = false;
-                              if (app.reason && (app.reason === "寝坊" || app.reason.includes("早退"))) isDiscrepancy = true;
-                              if (toMin(item.clockIn) > toMin(app.appliedIn)) isDiscrepancy = true;
-                              if (toMin(item.clockOut) < toMin(app.appliedOut)) isDiscrepancy = true;
-
-                              if (isDiscrepancy || app.reason) {
-                                return (
-                                  <span style={{ fontSize: "11px", color: isDiscrepancy ? "#ef4444" : "#6b7280", marginTop: 2 }}>
-                                    {isDiscrepancy && "⚠️ "}
-                                    {app.reason || (isDiscrepancy ? "時間乖離" : "")}
-                                  </span>
-                                );
-                              }
-                              return null;
-                            })()}
-                          </div>
+                        <td style={{ padding: "10px 8px", fontSize: "13px" }}>
+                          {shift ? (
+                            shift.isOff ? (
+                              <span style={{ color: "#ef4444", fontWeight: "bold" }}>休み</span>
+                            ) : (
+                              <span style={{ color: "#2563eb", fontFamily: "monospace" }}>{shift.start}-{shift.end}</span>
+                            )
+                          ) : (
+                            <span style={{ color: "#9ca3af" }}>-</span>
+                          )}
                         </td>
-                        <td style={{ fontSize: "14px", padding: "12px" }}>
-                          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "8px 12px", alignItems: "center" }}>
-                            {/* Actual Time */}
-                            <div style={{ color: "#6b7280", fontSize: "0.8rem" }}>実績:</div>
-                            <div style={{ fontFamily: "monospace", fontWeight: "bold" }}>
-                              {(() => {
-                                const min = calcRoundedWorkMin(item);
-                                const h = Math.floor(min / 60);
-                                const m = (min % 60) === 30 ? 5 : 0;
-                                return `${h}.${m}H`;
-                              })()}
-                            </div>
-
-                            {/* Applied Time (if pending/approved/resubmit) */}
-                            {(rowAppStatus || item._application?.appliedIn) && (
-                              <>
-                                <div style={{ color: "#2563eb", fontSize: "0.8rem" }}>申請:</div>
-                                <div style={{ fontFamily: "monospace", fontWeight: "bold", color: "#2563eb" }}>
-                                  {(() => {
-                                    const app = item._application;
-                                    // Use same logic: 30 min truncate
-                                    // Construct temp object mimicking item structure for calc logic
-                                    // NOTE: Applied logic typically assumes NO breaks unless specified?
-                                    // Or should we subtract break time from applied duration too?
-                                    // Usually "Original Intended" includes break logic.
-                                    // If break is not in application, fallback to item.breaks?
-                                    // Let's assume applied duration = (Out - In) - Breaks.
-
-                                    if (!app?.appliedIn || !app?.appliedOut) return "-";
-                                    const dummyWithAppTimes = {
-                                      ...item,
-                                      clockIn: app.appliedIn,
-                                      clockOut: app.appliedOut
-                                    };
-
-                                    const min = calcRoundedWorkMin(dummyWithAppTimes);
-                                    const h = Math.floor(min / 60);
-                                    const m = (min % 60) === 30 ? 5 : 0;
-                                    return `${h}.${m}H`;
-                                  })()}
-                                </div>
-                              </>
-                            )}
-                          </div>
+                        <td style={{ padding: "10px 8px", fontSize: "13px" }}>
+                          {item.clockIn ? (
+                            <span style={{ fontFamily: "monospace" }}>
+                              {item.clockIn.slice(0, 5)}-{item.clockOut ? item.clockOut.slice(0, 5) : "..."}
+                            </span>
+                          ) : (
+                            <span style={{ color: "#9ca3af" }}>-</span>
+                          )}
                         </td>
-
-                        <td style={{ fontSize: "14px", padding: "12px" }}>
-                          <div style={{ display: "flex", gap: "8px" }}>
-                            {rowAppStatus === "pending" && (
+                        <td style={{ padding: "10px 8px", fontSize: "13px" }}>
+                          {(() => {
+                            const app = item._application;
+                            if (app?.appliedIn && app?.appliedOut) {
+                              return (
+                                <span style={{ fontFamily: "monospace", color: "#2563eb" }}>
+                                  {app.appliedIn.slice(0, 5)}-{app.appliedOut.slice(0, 5)}
+                                </span>
+                              );
+                            }
+                            return <span style={{ color: "#9ca3af" }}>-</span>;
+                          })()}
+                        </td>
+                        <td style={{ padding: "10px 8px" }}>
+                          {isWorking && <span className="status-badge green" style={{ background: "#dcfce7", color: "#166534", border: "1px solid #bbf7d0", fontSize: "11px" }}>出勤中</span>}
+                          {isIncomplete && <span className="status-badge red" style={{ fontSize: "11px" }}>未退勤</span>}
+                          {rowAppStatus === "pending" && <span className="status-badge orange" style={{ fontSize: "11px" }}>承認待</span>}
+                          {rowAppStatus === "approved" && <span className="status-badge green" style={{ fontSize: "11px" }}>済</span>}
+                          {rowAppStatus === "resubmission_requested" && <span className="status-badge purple" style={{ fontSize: "11px" }}>再提出</span>}
+                          {isUnapplied && !isWorking && !isIncomplete && <span className="status-badge gray" style={{ fontSize: "11px" }}>未申請</span>}
+                        </td>
+                        <td style={{ padding: "10px 8px", fontSize: "14px", fontFamily: "monospace", fontWeight: "bold" }}>
+                          {(() => {
+                            // 承認済みの場合は申請時間から計算
+                            if (rowAppStatus === "approved") {
+                              const app = item._application;
+                              if (app?.appliedIn && app?.appliedOut) {
+                                const toMinLocal = (t) => {
+                                  if (!t) return 0;
+                                  const [h, m] = t.split(":").map(Number);
+                                  return h * 60 + (m || 0);
+                                };
+                                const inMin = toMinLocal(app.appliedIn);
+                                const outMin = toMinLocal(app.appliedOut);
+                                const duration = outMin - inMin;
+                                const h = Math.floor(duration / 60);
+                                const m = (duration % 60) >= 30 ? 5 : 0;
+                                return <span style={{ color: "#16a34a" }}>{h}.{m}H</span>;
+                              }
+                            }
+                            // 通常は実績から計算
+                            const min = calcRoundedWorkMin(item);
+                            const h = Math.floor(min / 60);
+                            const m = (min % 60) === 30 ? 5 : 0;
+                            return min > 0 ? `${h}.${m}H` : "-";
+                          })()}
+                        </td>
+                        <td style={{ padding: "10px 8px" }}>
+                          {shiftCheck === "ok" && (
+                            <span style={{ color: "#16a34a", fontWeight: "bold", fontSize: "12px", display: "flex", alignItems: "center", gap: "4px" }}>
+                              <CheckCircle size={14} /> 問題なし
+                            </span>
+                          )}
+                          {shiftCheck === "late" && (
+                            <span style={{ color: "#f59e0b", fontWeight: "bold", fontSize: "12px" }}>⚠️ 遅刻</span>
+                          )}
+                          {shiftCheck === "early" && (
+                            <span style={{ color: "#f59e0b", fontWeight: "bold", fontSize: "12px" }}>⚠️ 早退</span>
+                          )}
+                          {shiftCheck === "both" && (
+                            <span style={{ color: "#ef4444", fontWeight: "bold", fontSize: "12px" }}>⚠️ 遅刻+早退</span>
+                          )}
+                          {!shiftCheck && item.clockIn && item.clockOut && !shift && (
+                            <span style={{ color: "#9ca3af", fontSize: "11px" }}>シフト未登録</span>
+                          )}
+                        </td>
+                        <td style={{ fontSize: "13px", padding: "10px 8px" }}>
+                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                            {/* 問題なし + 未申請 or 承認待ち → 即時承認ボタン */}
+                            {((shiftCheck === "ok" && isUnapplied) || rowAppStatus === "pending") && (
                               <button
                                 className="btn"
                                 onClick={() => handleApprove(item)}
                                 style={{
-                                  fontSize: "12px", padding: "4px 8px",
+                                  fontSize: "11px", padding: "4px 10px",
                                   background: "#10b981", color: "#fff", border: "none", borderRadius: "4px",
                                   cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", gap: "4px"
                                 }}
                               >
-                                <CheckCircle size={14} /> 承認
+                                <CheckCircle size={12} /> 承認
                               </button>
                             )}
-                            <button className="btn btn-outline" onClick={() => openEdit(item)} style={{ fontSize: "12px", padding: "4px 8px" }}>
+                            <button className="btn btn-outline" onClick={() => openEdit(item)} style={{ fontSize: "11px", padding: "4px 8px" }}>
                               詳細
                             </button>
                           </div>
@@ -983,6 +1050,17 @@ export default function AdminAttendance() {
                   </p>
                   <button className="btn btn-green" onClick={() => handleApprove(null)} style={{ width: "100%", padding: "12px", fontSize: "16px" }}>
                     <CheckCircle size={20} style={{ marginRight: 6 }} /> 承認する
+                  </button>
+                </div>
+              )}
+
+              {editingItem._application?.status === "absent" && (
+                <div style={{ marginBottom: "24px", textAlign: "center" }}>
+                  <p style={{ fontSize: "13px", color: "#6b7280", marginBottom: "8px" }}>
+                    現在は「欠勤」として登録されています。
+                  </p>
+                  <button className="btn" onClick={() => handleCancelAbsent(editingItem)} style={{ width: "100%", padding: "12px", fontSize: "16px", background: "#6b7280", color: "#fff", border: "none", borderRadius: "8px" }}>
+                    欠勤を取り消す
                   </button>
                 </div>
               )}

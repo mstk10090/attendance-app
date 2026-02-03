@@ -10,6 +10,7 @@ const API_BASE = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com";
 const API_USER_URL = `${API_BASE}/users`;
 
 import { LOCATIONS, DEPARTMENTS, EMPLOYMENT_TYPES, HOLIDAYS } from "../../constants";
+import HistoryReport from "../../components/HistoryReport";
 
 // Utilities
 const toMin = (t) => {
@@ -401,7 +402,6 @@ export default function AdminHistory() {
             {!historyUser ? (
                 /* --- User Selection Mode --- */
                 <div className="card" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", padding: 0 }}>
-                    {/* Search & Filter Header - Fixed */}
                     {/* Search & Filter Header (Refined) */}
                     <div style={{ padding: "16px", borderBottom: "1px solid #e5e7eb", background: "#f9fafb", flexShrink: 0 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
@@ -547,165 +547,13 @@ export default function AdminHistory() {
                                 <div>履歴を読み込み中...</div>
                             </div>
                         ) : (
-                            <>
-                                {/* Summary / Report Logic */}
-                                {stats && (
-                                    <>
-                                        <div className="stats-grid">
-                                            {/* Row 1: Basic Counts */}
-                                            <div className="stat-card">
-                                                <div className="stat-label">出勤日数</div>
-                                                <div className="stat-value">{stats.days} <span className="unit">日</span></div>
-                                                <Calendar className="stat-icon" size={20} />
-                                            </div>
-                                            <div className="stat-card">
-                                                <div className="stat-label">総実働</div>
-                                                <div className="stat-value">
-                                                    {Math.floor(stats.totalMin / 60)}<span className="unit">h</span>
-                                                    {String(stats.totalMin % 60).padStart(2, '0')}<span className="unit">m</span>
-                                                </div>
-                                                <Clock className="stat-icon" size={20} />
-                                            </div>
-                                            {/* Absent card removed */}
-                                            <div className={`stat-card ${stats.lateCount > 0 ? "alert" : ""}`}>
-                                                <div className="stat-label">遅刻 (申請ベース)</div>
-                                                <div className="stat-value">{stats.lateCount} <span className="unit">件</span></div>
-                                            </div>
-                                            <div className={`stat-card ${stats.earlyCount > 0 ? "alert" : ""}`}>
-                                                <div className="stat-label">早退 (申請ベース)</div>
-                                                <div className="stat-value">{stats.earlyCount} <span className="unit">件</span></div>
-                                            </div>
-                                        </div>
-
-                                        {/* Reason Breakdown */}
-                                        {Object.keys(stats.reasons).length > 0 && (
-                                            <div style={{ marginTop: "24px", padding: "16px", background: "#f8fafc", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
-                                                <h4 style={{ fontSize: "0.95rem", fontWeight: "bold", marginBottom: "12px", color: "#475569", display: "flex", alignItems: "center", gap: "8px" }}>
-                                                    <PieChart size={16} /> 理由別内訳
-                                                </h4>
-                                                <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
-                                                    {Object.entries(stats.reasons).map(([reason, count]) => (
-                                                        <div key={reason} style={{ background: "#fff", padding: "8px 12px", borderRadius: "8px", border: "1px solid #e5e7eb", fontSize: "0.9rem", display: "flex", alignItems: "center", gap: "8px" }}>
-                                                            <span style={{ fontWeight: "600", color: "#334155" }}>{reason}</span>
-                                                            <span style={{ background: "#e2e8f0", padding: "2px 8px", borderRadius: "12px", fontSize: "0.8rem", color: "#475569" }}>{count}件</span>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        )}
-                                    </>
-                                )}
-
-                                {/* Table List - Render Items */}
-                                <div className="table-wrap" style={{ marginTop: "24px", boxShadow: "0 1px 3px rgba(0,0,0,0.05)", borderRadius: "8px", overflow: "hidden", border: "1px solid #e5e7eb" }}>
-                                    <table className="admin-table" style={{ width: "100%", borderCollapse: "collapse" }}>
-                                        <thead>
-                                            <tr style={{ background: "#f9fafb" }}>
-                                                <th style={{ padding: "12px 16px", textAlign: "left", fontSize: "0.85rem", color: "#6b7280" }}>日付</th>
-                                                <th style={{ padding: "12px 16px", textAlign: "center", fontSize: "0.85rem", color: "#6b7280" }}>シフト</th>
-                                                <th style={{ padding: "12px 16px", textAlign: "center", fontSize: "0.85rem", color: "#6b7280" }}>出勤</th>
-                                                <th style={{ padding: "12px 16px", textAlign: "center", fontSize: "0.85rem", color: "#6b7280" }}>退勤</th>
-                                                <th style={{ padding: "12px 16px", textAlign: "center", fontSize: "0.85rem", color: "#6b7280" }}>実働</th>
-                                                <th style={{ padding: "12px 16px", textAlign: "center", fontSize: "0.85rem", color: "#6b7280" }}>状態/理由</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {(() => {
-                                                // Prepare rows: All Days in view range
-                                                let startD, endD;
-                                                if (viewMode === "month") {
-                                                    const d = new Date(baseDate.slice(0, 7) + "-01");
-                                                    startD = new Date(d.getFullYear(), d.getMonth(), 1);
-                                                    endD = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-                                                } else {
-                                                    const y = parseInt(baseDate.slice(0, 4));
-                                                    startD = startOfYear(new Date(y, 0, 1));
-                                                    endD = endOfYear(new Date(y, 0, 1));
-                                                }
-                                                const daysToRender = eachDayOfInterval({ start: startD, end: endD });
-
-                                                // Create Map for quick lookup
-                                                const attendanceMap = {};
-                                                userItems.forEach(i => attendanceMap[i.displayDate || i.workDate] = i);
-
-                                                return daysToRender.map(dateObj => {
-                                                    const dateStr = format(dateObj, "yyyy-MM-dd");
-                                                    const item = attendanceMap[dateStr] || { workDate: dateStr }; // Dummy item if missing
-                                                    const hasAttendance = !!attendanceMap[dateStr];
-
-                                                    const workMin = calcWorkMin(item);
-                                                    const rounded = calcRoundedWorkMin(item);
-                                                    const isError = (item.clockIn && item.clockOut && workMin <= 0);
-                                                    const incomplete = (item.clockIn && !item.clockOut);
-                                                    const status = parseStatus(item);
-                                                    const reason = extractReason(item);
-
-                                                    let bg = "#fff";
-                                                    if (isError || incomplete) bg = "#fef2f2";
-
-                                                    // Shift Lookup Logic
-                                                    let shift = null;
-                                                    if (shiftMap) {
-                                                        const keysToTry = [
-                                                            historyUser.userName,
-                                                            `${historyUser.lastName || ""} ${historyUser.firstName || ""}`.trim(),
-                                                            `${historyUser.firstName || ""} ${historyUser.lastName || ""}`.trim(),
-                                                            `${historyUser.lastName || ""}　${historyUser.firstName || ""}`.trim(),
-                                                            `${historyUser.firstName || ""}　${historyUser.lastName || ""}`.trim(),
-                                                            `${historyUser.lastName || ""}${historyUser.firstName || ""}`.trim()
-                                                        ];
-
-                                                        for (const k of keysToTry) {
-                                                            if (k && shiftMap[k] && shiftMap[k][dateStr]) {
-                                                                shift = shiftMap[k][dateStr];
-                                                                break;
-                                                            }
-                                                        }
-                                                    }
-
-                                                    // If no shift and no attendance, maybe skip in YEAR mode? 
-                                                    // But in MONTH mode show all.
-
-                                                    return (
-                                                        <tr key={dateStr} style={{ background: bg, borderBottom: "1px solid #f3f4f6" }}>
-                                                            <td style={{ padding: "12px 16px", borderRight: "1px solid #f3f4f6", fontWeight: "500", color: "#374151" }}>
-                                                                {format(dateObj, "MM/dd (E)", { locale: ja })}
-                                                            </td>
-                                                            <td style={{ padding: "12px 16px", textAlign: "center", fontSize: "0.9rem", color: shift ? "#2563eb" : "#9ca3af" }}>
-                                                                {shift ? `${shift.start}-${shift.end}` : "-"}
-                                                            </td>
-                                                            <td style={{ padding: "12px 16px", textAlign: "center", fontFamily: "monospace", fontSize: "1rem" }}>
-                                                                {item.clockIn || <span style={{ color: "#d1d5db" }}>-</span>}
-                                                            </td>
-                                                            <td style={{ padding: "12px 16px", textAlign: "center", fontFamily: "monospace", fontSize: "1rem" }}>
-                                                                {item.clockOut || <span style={{ color: "#d1d5db" }}>-</span>}
-                                                            </td>
-                                                            <td style={{ padding: "12px 16px", textAlign: "center", fontWeight: "bold", color: "#111827" }}>
-                                                                {rounded > 0
-                                                                    ? `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, '0')}`
-                                                                    : <span style={{ color: "#e5e7eb" }}>-</span>
-                                                                }
-                                                            </td>
-                                                            <td style={{ padding: "12px 16px", textAlign: "center" }}>
-                                                                {incomplete && <span className="status-badge red">未退勤</span>}
-                                                                {isError && <span className="status-badge red">異常</span>}
-                                                                {status === "pending" && <span className="status-badge orange">承認待</span>}
-                                                                {status === "resubmission_requested" && <span className="status-badge purple">再提出依頼</span>}
-                                                                {status === "approved" && <span className="status-badge green">済</span>}
-
-                                                                {/* Reason Display */}
-                                                                {reason && <span className="status-badge gray" style={{ marginLeft: "6px" }}>{reason}</span>}
-
-                                                                {!incomplete && !isError && !status && !reason && hasAttendance && <CheckCircle size={18} color="#22c55e" />}
-                                                            </td>
-                                                        </tr>
-                                                    );
-                                                });
-                                            })()}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </>
+                            <HistoryReport
+                                user={historyUser}
+                                items={userItems}
+                                baseDate={baseDate}
+                                viewMode={viewMode}
+                                shiftMap={shiftMap}
+                            />
                         )}
                     </div>
                 </div>

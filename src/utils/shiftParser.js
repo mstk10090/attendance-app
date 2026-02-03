@@ -250,6 +250,16 @@ export function parseCsv(csvText, config, year, month, shifts, locationName, spe
 
 function normalizeTime(t) {
     if (!t) return "";
+    // 既にHH:MM形式の場合
     if (t.includes(":")) return t.padStart(5, "0");
+    // 小数点形式の場合（例: 17.5 → 17:30）
+    if (t.includes(".")) {
+        const parts = t.split(".");
+        const hours = parts[0].padStart(2, "0");
+        const decimalPart = parseFloat("0." + parts[1]);
+        const minutes = Math.round(decimalPart * 60);
+        return `${hours}:${String(minutes).padStart(2, "0")}`;
+    }
+    // 整数のみの場合（例: 17 → 17:00）
     return `${t.padStart(2, "0")}:00`;
 }

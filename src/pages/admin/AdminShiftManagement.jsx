@@ -7,7 +7,7 @@ import { LOCATIONS, DEPARTMENTS, EMPLOYMENT_TYPES, HOLIDAYS } from "../../consta
 import { fetchShiftData, parseCsv, SPECIAL_SHIFTS } from "../../utils/shiftParser";
 
 const API_BASE = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com";
-const API_USER_URL = `${API_BASE}/users`;
+const API_USER_URL = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com/users";
 
 // --- Utilities ---
 const parseComment = (raw) => {
@@ -171,12 +171,15 @@ export default function AdminShiftManagement() {
   const [items, setItems] = useState([]);
   const [users, setUsers] = useState([]); // For report
   const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
 
   // Filter States
   const [filterName, setFilterName] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterLocation, setFilterLocation] = useState("all");
   const [filterDepartment, setFilterDepartment] = useState("all");
+  const [filterShiftLocation, setFilterShiftLocation] = useState("all"); // シフトチェック用勤務地フィルタ
+  const [filterShiftDepartment, setFilterShiftDepartment] = useState("all"); // シフトチェック用勤務部署フィルタ
 
   const [shiftMap, setShiftMap] = useState({});
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'desc' });
@@ -330,7 +333,21 @@ export default function AdminShiftManagement() {
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch(API_USER_URL);
+      const token = localStorage.getItem("token");
+      const headers = {};
+
+      // ✅ Add Authorization header if token exists
+      if (token) headers["Authorization"] = token;
+
+      const res = await fetch(API_USER_URL, { headers });
+
+      // ✅ Handle 403 Forbidden (Token expired/missing) safely
+      if (res.status === 403) {
+        setMessage("❌ 認証エラー: セッションが切れました。再ログインしてください。");
+        setUsers([]); // Clear users list on error
+        return; // Stop processing
+      }
+
       if (res.ok) {
         const text = await res.text();
         const outer = JSON.parse(text);
@@ -338,7 +355,11 @@ export default function AdminShiftManagement() {
         const list = Array.isArray(data) ? data : (data.items || []);
         setUsers(list);
       }
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+      setMessage("❌ スタッフ情報の取得に失敗しました");
+      setUsers([]); // Clear users list on error
+    }
   }
 
   /* Data Fetching */
@@ -404,7 +425,12 @@ export default function AdminShiftManagement() {
 
   const fetchAttendances = async () => {
     setLoading(true);
+    // don't clear message here to avoid hiding fetchUsers errors
     try {
+      const token = localStorage.getItem("token");
+      const headers = {};
+      if (token) headers["Authorization"] = token;
+
       const start = new Date(fetchRange.start);
       const end = new Date(fetchRange.end);
       const days = eachDayOfInterval({ start, end });
@@ -414,11 +440,14 @@ export default function AdminShiftManagement() {
       const CHUNK_SIZE = 5;
       for (let i = 0; i < days.length; i += CHUNK_SIZE) {
         const chunk = days.slice(i, i + CHUNK_SIZE);
-        const chunkResults = await Promise.all(chunk.map(day =>
-          fetch(`${API_BASE}/admin/attendance?date=${format(day, "yyyy-MM-dd")}`)
-            .then(r => r.json())
-            .then(d => (d.success ? d.items : []))
-        ));
+        const chunkResults = await Promise.all(chunk.map(async (day) => {
+          const res = await fetch(`${API_BASE}/admin/attendance?date=${format(day, "yyyy-MM-dd")}`, { headers });
+          if (res.status === 403) {
+            throw new Error("403 Forbidden");
+          }
+          const d = await res.json();
+          return (d.success ? d.items : []);
+        }));
         results.push(...chunkResults);
         await new Promise(r => setTimeout(r, 50));
       }
@@ -446,7 +475,11 @@ export default function AdminShiftManagement() {
       setItems(processedItems);
     } catch (e) {
       console.error(e);
-      alert("データの取得に失敗しました");
+      if (e.message === "403 Forbidden") {
+        setMessage("❌ 認証エラー: セッションが切れました。再ログインしてください。");
+      } else {
+        setMessage("❌ データの取得に失敗しました");
+      }
     } finally {
       setLoading(false);
     }
@@ -613,19 +646,36 @@ export default function AdminShiftManagement() {
     setSortConfig({ key, direction });
   };
 
-  const [searchQuery, setSearchQuery] = useState("");
-
+  // 勤務地・勤務部署フィルタ適用後のユーザーリスト
   const filteredShiftCheckUsers = useMemo(() => {
-    if (!searchQuery) return users;
     return users.filter(u => {
-      const fullName = (u.lastName || "") + (u.firstName || "");
-      return fullName.includes(searchQuery);
+      const userName = `${u.lastName} ${u.firstName}`;
+      const userShifts = shiftMap[userName];
+      const shift = userShifts ? userShifts[baseDate] : null;
+      // シフトに勤務地がある場合はそれを使用、なければデフォルト勤務地
+      const rawLocation = (shift && !shift.isOff && shift.location) ? shift.location : (u.defaultLocation || "未記載");
+      // デフォルト勤務部署
+      const department = u.defaultDepartment || "未記載";
+
+      // 勤務地フィルター（部分一致でチェック：「即日・派遣」は「即日」でも「派遣」でもヒット）
+      if (filterShiftLocation !== "all" && !rawLocation.includes(filterShiftLocation)) return false;
+      // 勤務部署フィルター
+      if (filterShiftDepartment !== "all" && department !== filterShiftDepartment) return false;
+
+      return true;
     });
-  }, [users, searchQuery]);
+  }, [users, filterShiftLocation, filterShiftDepartment, shiftMap, baseDate]);
 
   /* Mark Absent Logic */
-  const handleMarkAbsent = async (userId, userName, dateStr) => {
-    if (!window.confirm(`${userName}さんを「欠勤」として登録しますか？`)) return;
+  const handleMarkAbsent = async (e, userId, userName, dateStr) => {
+    // イベントの伝播を即座に止める
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    const isConfirmed = window.confirm(`${userName}さんを「欠勤」として登録しますか？`);
+    if (!isConfirmed) return;
 
     try {
       const payload = {
@@ -641,16 +691,64 @@ export default function AdminShiftManagement() {
         })
       };
 
-      await fetch(`${API_BASE}/attendance/update`, {
+      const res = await fetch(`${API_BASE}/attendance/update`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error("API Error:", res.status, errorText);
+        alert(`欠勤登録に失敗しました: ${res.status}`);
+        return;
+      }
+
       alert("欠勤登録しました");
-      window.location.reload();
-    } catch (e) {
-      console.error(e);
+      fetchAttendances();
+    } catch (err) {
+      console.error(err);
+      alert("エラーが発生しました");
+    }
+  };
+
+  const handleCancelAbsent = async (e, userId, dateStr) => {
+    // イベントの伝播を即座に止める
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    const isConfirmed = window.confirm("欠勤を取り消しますか？\n(未申請状態に戻ります)");
+    if (!isConfirmed) return;
+
+    try {
+      const payload = {
+        userId: userId,
+        workDate: dateStr,
+        clockIn: "",
+        clockOut: "",
+        breaks: [],
+        comment: ""
+      };
+
+      const res = await fetch(`${API_BASE}/attendance/update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error("API Error:", res.status, errorText);
+        alert(`欠勤取消に失敗しました: ${res.status}`);
+        return;
+      }
+
+      alert("欠勤を取り消しました");
+      fetchAttendances();
+    } catch (err) {
+      console.error(err);
       alert("エラーが発生しました");
     }
   };
@@ -746,6 +844,21 @@ export default function AdminShiftManagement() {
     <div className="admin-container" style={{ paddingBottom: "100px" }}>
       {/* Header & Controls */}
       <div className="card">
+        {message && (
+          <div style={{
+            padding: "12px 16px",
+            background: message.includes("❌") ? "#fef2f2" : "#ecfdf5",
+            color: message.includes("❌") ? "#991b1b" : "#065f46",
+            marginBottom: "16px",
+            borderRadius: "8px",
+            border: "1px solid",
+            borderColor: message.includes("❌") ? "#fecaca" : "#a7f3d0",
+            display: "flex", alignItems: "center", gap: "8px", fontWeight: "bold"
+          }}>
+            {message.includes("❌") ? <AlertTriangle size={20} /> : <CheckCircle size={20} />}
+            {message.replace("✅ ", "").replace("❌ ", "")}
+          </div>
+        )}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
           <h2 style={{ fontSize: "1.2rem", fontWeight: "bold", display: "flex", alignItems: "center", gap: "8px" }}>
             <Clock size={24} /> 勤怠管理ダッシュボード
@@ -755,6 +868,7 @@ export default function AdminShiftManagement() {
               <div style={{ display: "flex", background: "#f3f4f6", padding: "4px", borderRadius: "8px" }}>
                 {[
                   { id: "shift_check", icon: <ClipboardCheck size={14} />, label: "シフト確認" },
+                  { id: "gantt", icon: <BarChart size={14} />, label: "ガントチャート" },
                   { id: "shift_import", icon: <FileText size={14} />, label: "シフト取込" },
                   { id: "report", icon: <BarChart size={14} />, label: "レポート" }
                 ].map(mode => (
@@ -788,27 +902,27 @@ export default function AdminShiftManagement() {
           <div style={{ display: "flex", gap: "16px", marginBottom: "16px", alignItems: "center" }}>
             <button className="icon-btn" onClick={() => {
               const d = new Date(baseDate);
-              if (viewMode === "shift_check" || viewMode === "daily") setBaseDate(format(addDays(d, -1), "yyyy-MM-dd"));
+              if (viewMode === "shift_check" || viewMode === "daily" || viewMode === "gantt") setBaseDate(format(addDays(d, -1), "yyyy-MM-dd"));
               if (viewMode === "weekly") setBaseDate(format(addDays(d, -7), "yyyy-MM-dd"));
               if (viewMode === "monthly" || viewMode === "report") setBaseDate(format(addDays(d, -30), "yyyy-MM-dd"));
             }}>{"<"}</button>
 
             <span style={{ fontWeight: "bold", fontSize: "1.1rem" }}>
-              {viewMode === "shift_check" && format(new Date(baseDate), "yyyy年M月d日 (E)", { locale: ja })}
-              {viewMode !== "shift_check" && `${fetchRange.start} 〜 ${fetchRange.end}`}
+              {(viewMode === "shift_check" || viewMode === "gantt") && format(new Date(baseDate), "yyyy年M月d日 (E)", { locale: ja })}
+              {viewMode !== "shift_check" && viewMode !== "gantt" && `${fetchRange.start} 〜 ${fetchRange.end}`}
             </span>
 
             <button className="icon-btn" onClick={() => {
               const d = new Date(baseDate);
-              if (viewMode === "shift_check" || viewMode === "daily") setBaseDate(format(addDays(d, 1), "yyyy-MM-dd"));
+              if (viewMode === "shift_check" || viewMode === "daily" || viewMode === "gantt") setBaseDate(format(addDays(d, 1), "yyyy-MM-dd"));
               if (viewMode === "weekly") setBaseDate(format(addDays(d, 7), "yyyy-MM-dd"));
               if (viewMode === "monthly" || viewMode === "report") setBaseDate(format(addDays(d, 30), "yyyy-MM-dd"));
             }}>{">"}</button>
           </div>
         )}
 
-        {/* Filters */}
-        {viewMode !== "report" && viewMode !== "current" && (
+        {/* Filters - shift_checkモードでは非表示（独自フィルタを使用） */}
+        {viewMode !== "report" && viewMode !== "current" && viewMode !== "shift_check" && (
           <div className="filter-bar">
             {/* Same Filters ... */}
             <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
@@ -1008,29 +1122,44 @@ export default function AdminShiftManagement() {
             <h3 style={{ fontSize: "1.1rem", fontWeight: "bold", color: "#4b5563" }}>
               シフト vs 出勤状況確認 ({baseDate})
             </h3>
-            <div style={{ display: "flex", gap: "10px" }}>
-              <input
-                type="text"
-                placeholder="氏名検索..."
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
+            <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+              <label style={{ fontSize: "0.85rem", color: "#6b7280" }}>勤務地:</label>
+              <select
+                value={filterShiftLocation}
+                onChange={e => setFilterShiftLocation(e.target.value)}
                 style={{ padding: "6px 10px", borderRadius: "4px", border: "1px solid #d1d5db", fontSize: "0.9rem" }}
-              />
+              >
+                <option value="all">すべて</option>
+                {LOCATIONS.map(loc => (
+                  <option key={loc} value={loc}>{loc}</option>
+                ))}
+              </select>
+              <label style={{ fontSize: "0.85rem", color: "#6b7280", marginLeft: "10px" }}>勤務部署:</label>
+              <select
+                value={filterShiftDepartment}
+                onChange={e => setFilterShiftDepartment(e.target.value)}
+                style={{ padding: "6px 10px", borderRadius: "4px", border: "1px solid #d1d5db", fontSize: "0.9rem" }}
+              >
+                <option value="all">すべて</option>
+                {DEPARTMENTS.map(dept => (
+                  <option key={dept} value={dept}>{dept}</option>
+                ))}
+              </select>
             </div>
           </div>
           {loading ? (
             <div style={{ padding: "40px", textAlign: "center" }}>読み込み中...</div>
           ) : (
-            <div className="table-wrap">
+            <div className="table-wrap" style={{ maxHeight: "60vh", overflowY: "auto" }}>
               <table className="admin-table">
                 <thead>
                   <tr>
                     <th style={{ padding: "12px", width: "150px" }}>氏名</th>
                     <th style={{ padding: "12px", width: "150px" }}>シフト予定</th>
                     <th style={{ padding: "12px", width: "100px" }}>予定地</th>
+                    <th style={{ padding: "12px", width: "100px" }}>勤務部署</th>
                     <th style={{ padding: "12px", width: "100px" }}>状態</th>
                     <th style={{ padding: "12px", width: "150px" }}>実績 (出-退)</th>
-                    <th style={{ padding: "12px" }}>補足</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1092,22 +1221,33 @@ export default function AdminShiftManagement() {
                       statusBadge = <span className="status-badge orange" style={{ background: "#ffedd5", color: "#c2410c" }}>シフト外</span>;
                     }
 
+                    // 欠勤・休みの場合のグレーアウト判定
+                    const isAbsent = item && item._application?.status === "absent";
+                    const isOffDay = shift && shift.isOff;
+                    const shouldGrayOut = isAbsent || isOffDay;
+
+                    // 予定地: デフォルト勤務地を使用（シフトのlocationではなく）
+                    const displayLocation = u.defaultLocation || "未記載";
+                    // 勤務部署: デフォルト勤務部署から取得
+                    const displayDepartment = u.defaultDepartment || "未記載";
+
                     return (
-                      <tr key={u.userId} style={{ background: rowBg }}>
+                      <tr key={u.userId} style={{
+                        background: shouldGrayOut ? "#e5e7eb" : rowBg,
+                        opacity: shouldGrayOut ? 0.6 : 1
+                      }}>
                         <td style={{ padding: "12px", fontWeight: "bold" }}>{userName}</td>
-                        <td style={{ padding: "12px", display: "flex", flexDirection: "column" }}>
+                        <td style={{ padding: "12px" }}>
                           {shift ? (
-                            <>
-                              <span style={{ fontWeight: shift.isOff ? "bold" : "normal", color: shift.isOff ? "#ef4444" : "inherit" }}>
-                                {shift.isOff ? "休み" : `${shift.start} - ${shift.end}`}
-                              </span>
-                              {shift.location && !shift.isOff && <span style={{ fontSize: "0.8rem", color: "#6b7280" }}>{shift.location}</span>}
-                            </>
+                            <span style={{ fontWeight: shift.isOff ? "bold" : "normal", color: shift.isOff ? "#ef4444" : "inherit" }}>
+                              {shift.isOff ? "休み" : `${shift.start} - ${shift.end}`}
+                            </span>
                           ) : (
                             <span style={{ color: "#aaa" }}>-</span>
                           )}
                         </td>
-                        <td style={{ padding: "12px" }}>{(shift && !shift.isOff) ? shift.location : "-"}</td>
+                        <td style={{ padding: "12px" }}>{displayLocation}</td>
+                        <td style={{ padding: "12px" }}>{displayDepartment}</td>
                         <td style={{ padding: "12px" }}>{statusBadge}</td>
                         <td style={{ padding: "12px" }}>
                           {item ? (
@@ -1116,16 +1256,6 @@ export default function AdminShiftManagement() {
                             </div>
                           ) : "-"}
                         </td>
-                        <td style={{ padding: "12px", fontSize: "0.85rem", color: "#6b7280", textAlign: "center" }}>
-                          {item && item._application?.status === "pending" && <div style={{ color: "#ea580c", marginBottom: "4px" }}>申請承認待ち</div>}
-                          <button
-                            className="action-btn"
-                            style={{ background: "#ef4444", color: "#fff", border: "none", padding: "4px 8px", borderRadius: "4px", fontSize: "0.75rem", cursor: "pointer" }}
-                            onClick={() => handleMarkAbsent(u.userId, userName, baseDate)}
-                          >
-                            欠勤
-                          </button>
-                        </td>
                       </tr>
                     );
                   })}
@@ -1133,6 +1263,107 @@ export default function AdminShiftManagement() {
               </table>
             </div>
           )}
+        </div>
+
+      ) : viewMode === "gantt" ? (
+        /* --- GANTT CHART VIEW --- */
+        <div className="card" style={{ padding: "24px" }}>
+          <h3 style={{ fontSize: "1.1rem", fontWeight: "bold", marginBottom: "16px", color: "#4b5563" }}>
+            ガントチャート - {format(new Date(baseDate), "yyyy年M月d日 (E)", { locale: ja })}
+          </h3>
+
+          {/* 勤務地フィルタ */}
+          <div style={{ marginBottom: "16px", display: "flex", gap: "12px", alignItems: "center" }}>
+            <label style={{ fontSize: "13px", color: "#6b7280" }}>勤務地:</label>
+            <select
+              value={filterShiftLocation}
+              onChange={(e) => setFilterShiftLocation(e.target.value)}
+              style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "13px" }}
+            >
+              <option value="all">すべて</option>
+              {LOCATIONS.map(loc => <option key={loc} value={loc}>{loc}</option>)}
+            </select>
+          </div>
+
+          {/* ガントチャート本体 */}
+          <div style={{ overflowX: "auto", maxHeight: "60vh", overflowY: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+              <thead>
+                <tr style={{ background: "#f3f4f6" }}>
+                  <th style={{ padding: "8px", textAlign: "left", minWidth: "100px", borderRight: "1px solid #e5e7eb", position: "sticky", left: 0, background: "#f3f4f6", zIndex: 10 }}>氏名</th>
+                  <th style={{ padding: "8px", textAlign: "center", minWidth: "60px", borderRight: "1px solid #e5e7eb" }}>シフト</th>
+                  {/* 7時〜24時の時間ヘッダー */}
+                  {Array.from({ length: 18 }, (_, i) => i + 7).map(hour => (
+                    <th key={hour} style={{ padding: "4px", textAlign: "center", minWidth: "30px", borderRight: "1px solid #e5e7eb", fontSize: "10px" }}>
+                      {hour}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(() => {
+                  // フィルタリングされたユーザー（シフトがある人のみ）
+                  const ganttUsers = users.filter(u => {
+                    if (filterShiftLocation !== "all" && u.defaultLocation !== filterShiftLocation) return false;
+                    // シフトがあるかチェック
+                    const userName = `${u.lastName} ${u.firstName}`;
+                    const userShifts = shiftMap[userName];
+                    const shift = userShifts ? userShifts[baseDate] : null;
+                    if (!shift || !shift.start || !shift.end) return false; // シフトがない人は除外
+                    return true;
+                  });
+
+                  return ganttUsers.map(u => {
+                    const userName = `${u.lastName} ${u.firstName}`;
+                    const userShifts = shiftMap[userName];
+                    const shift = userShifts ? userShifts[baseDate] : null;
+
+                    // シフト時間をバーに変換
+                    let shiftStart = null;
+                    let shiftEnd = null;
+                    if (shift && shift.start && shift.end) {
+                      shiftStart = toMin(shift.start);
+                      shiftEnd = toMin(shift.end);
+                    }
+
+                    return (
+                      <tr key={u.userId} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                        <td style={{ padding: "8px", fontWeight: "500", borderRight: "1px solid #e5e7eb", position: "sticky", left: 0, background: "#fff", zIndex: 5 }}>
+                          {userName}
+                        </td>
+                        <td style={{ padding: "4px 8px", textAlign: "center", fontSize: "11px", color: shift ? "#2563eb" : "#9ca3af", borderRight: "1px solid #e5e7eb" }}>
+                          {shift ? `${shift.start}-${shift.end}` : "-"}
+                        </td>
+                        {/* 7時〜24時の各時間セル */}
+                        {Array.from({ length: 18 }, (_, i) => i + 7).map(hour => {
+                          const cellStart = hour * 60;
+                          const cellEnd = (hour + 1) * 60;
+
+                          // シフトがこの時間帯にあるかチェック
+                          let hasShift = false;
+                          if (shiftStart !== null && shiftEnd !== null) {
+                            hasShift = shiftStart < cellEnd && shiftEnd > cellStart;
+                          }
+
+                          return (
+                            <td
+                              key={hour}
+                              style={{
+                                padding: "4px",
+                                borderRight: "1px solid #e5e7eb",
+                                background: hasShift ? "#a3e635" : "#fff",
+                                minHeight: "24px"
+                              }}
+                            />
+                          );
+                        })}
+                      </tr>
+                    );
+                  });
+                })()}
+              </tbody>
+            </table>
+          </div>
         </div>
 
       ) : null}

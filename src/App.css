@@ -985,3 +985,11 @@
     background: rgba(255, 255, 255, 0.95) !important;
   }
 }
+
+/* === Admin Container (Full Width) === */
+.admin-container {
+  max-width: none !important;
+  width: 100%;
+  padding: 24px;
+  box-sizing: border-box;
+}

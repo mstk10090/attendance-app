@@ -18,6 +18,7 @@ import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSaturday, isSund
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { ja } from "date-fns/locale";
 import { HOLIDAYS, LOCATIONS, DEPARTMENTS, REASON_OPTIONS } from "../constants";
+import HistoryReport from "../components/HistoryReport";
 import "../App.css";
 
 const isHoliday = (d) => {
@@ -511,7 +512,7 @@ export default function AttendanceRecord({ user: propUser }) {
       }
 
       setFormText(p.text || ""); // Set text
-      // Set Reason
+      // Set Reason: Use existing or default to "-"
       if (app.reason && REASON_OPTIONS.includes(app.reason)) setReason(app.reason);
       else setReason(REASON_OPTIONS[0]);
 
@@ -522,7 +523,7 @@ export default function AttendanceRecord({ user: propUser }) {
       setAdminFeedback("");
       setFormSegments([{ location: user.defaultLocation || LOCATIONS[0], department: user.defaultDepartment || DEPARTMENTS[0], hours: "" }]);
       setFormText("");
-      setReason(REASON_OPTIONS[0]);
+      setReason(REASON_OPTIONS[0]); // Default to "-"
     }
     // setModalOpen(true); // Removed
   };
@@ -562,6 +563,13 @@ export default function AttendanceRecord({ user: propUser }) {
       const shift = getShift(user.userName, lookupDate);
 
       // --- VALIDATION START ---
+      // 0. Reason Required Check
+      if (!reason || reason === "-") {
+        alert("修正・申請理由を選択してください");
+        setLoading(false);
+        return;
+      }
+
       // 1. Reason Check for "Other"
       if (reason === "その他" && (!formText || !formText.trim())) {
         alert("修正理由が「その他」の場合は、詳細な理由（コメント）の入力が必須です。");
@@ -570,28 +578,9 @@ export default function AttendanceRecord({ user: propUser }) {
       }
 
       // 2. Lateness/Early Check
-      let isLate = false;
-      let isEarly = false;
-      const intendedIn = shift ? shift.start : null;
-      const intendedOut = shift ? shift.end : null;
+      // Logic removed as Reason is now mandatory.
+      // const isDiscrepancy = ...
 
-      // Late if Actual (formIn) > Scheduled (intendedIn)
-      if (intendedIn && formIn && toMin(formIn) > toMin(intendedIn)) isLate = true;
-      // Early if Actual (formOut) < Scheduled (intendedOut)
-      if (intendedOut && formOut && toMin(formOut) < toMin(intendedOut)) isEarly = true;
-
-      const isDiscrepancy = isLate || isEarly;
-
-      // Strict Rule: If Discrepancy, Reason IS Required.
-      // And we rely on shift data.
-      if (isDiscrepancy && !reason) {
-        const msg = [];
-        if (isLate) msg.push(`本来の出勤時間(${intendedIn})より遅れています`);
-        if (isEarly) msg.push(`本来の退勤時間(${intendedOut})より早まっています`);
-        alert(`${msg.join("・")}。\n遅刻/早退のため、修正理由の入力が必須です`);
-        setLoading(false);
-        return;
-      }
       // --- VALIDATION END ---
 
       const p = parseComment(originalItem?.comment);
@@ -633,6 +622,53 @@ export default function AttendanceRecord({ user: propUser }) {
     } catch (e) {
       console.error(e);
       alert("保存に失敗しました: " + (e.message || "Error"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleWithdraw = async (workDate = null) => {
+    const targetDate = workDate || expandedDate;
+    if (!targetDate) return;
+    if (!window.confirm("申請を取り下げますか？")) return;
+    setLoading(true);
+    try {
+      const originalItem = items.find(i => i.workDate === targetDate);
+      if (!originalItem) {
+        alert("対象の勤怠データが見つかりません");
+        setLoading(false);
+        return;
+      }
+      const p = parseComment(originalItem?.comment);
+
+      // Remove application object to withdraw
+      const newComment = {
+        ...p,
+        application: null
+      };
+
+      const payload = {
+        userId: user.userId,
+        workDate: targetDate,
+        clockIn: originalItem.clockIn,
+        clockOut: originalItem.clockOut,
+        breaks: originalItem.breaks,
+        segments: originalItem.segments,
+        comment: JSON.stringify(newComment)
+      };
+
+      await fetch(`${API_BASE}/attendance/update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      alert("申請を取り下げました");
+      fetchData();
+      if (workDate === expandedDate) setExpandedDate(null);
+    } catch (e) {
+      console.error(e);
+      alert("エラーが発生しました");
     } finally {
       setLoading(false);
     }
@@ -757,16 +793,16 @@ export default function AttendanceRecord({ user: propUser }) {
           {/* Clock In */}
           <button
             onClick={handleClockIn}
-            disabled={loading || activeItem}
+            disabled={loading || activeItem || (items.find(i => i.workDate === format(new Date(), "yyyy-MM-dd"))?.clockIn)} // Disable if already clocked in today (finished or not)
             style={{
               width: "160px", height: "64px",
               borderRadius: "8px", border: "none",
-              background: activeItem ? "#d1d5db" : "#22c55e",
+              background: (activeItem || items.find(i => i.workDate === format(new Date(), "yyyy-MM-dd"))?.clockIn) ? "#d1d5db" : "#22c55e",
               color: "#fff",
               fontSize: "1.1rem", fontWeight: "bold",
-              cursor: activeItem ? "default" : "pointer",
+              cursor: (activeItem || items.find(i => i.workDate === format(new Date(), "yyyy-MM-dd"))?.clockIn) ? "default" : "pointer",
               display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
-              boxShadow: activeItem ? "none" : "0 4px 6px rgba(34,197,94,0.3)"
+              boxShadow: (activeItem || items.find(i => i.workDate === format(new Date(), "yyyy-MM-dd"))?.clockIn) ? "none" : "0 4px 6px rgba(34,197,94,0.3)"
             }}
           >
             <LogIn size={20} /> 出勤
@@ -859,9 +895,8 @@ export default function AttendanceRecord({ user: propUser }) {
           ) : (
             <div style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#374151" }}>
               {Math.floor(((stats.dispH * 60 + stats.dispM) + (stats.partH * 60 + stats.partM)) / 60)}
-              <span style={{ fontSize: "1rem", fontWeight: "normal" }}> 時間 </span>
-              {((stats.dispH * 60 + stats.dispM) + (stats.partH * 60 + stats.partM)) % 60}
-              <span style={{ fontSize: "1rem", fontWeight: "normal" }}> 分 </span>
+              <span style={{ fontSize: "1.5rem" }}>:</span>
+              {String(((stats.dispH * 60 + stats.dispM) + (stats.partH * 60 + stats.partM)) % 60).padStart(2, '0')}
             </div>
           )}
         </div>
@@ -871,411 +906,243 @@ export default function AttendanceRecord({ user: propUser }) {
         </div>
       </div>
 
+
       {/* 4. HISTORY SECTION */}
-      <div className="card" style={{ padding: "0" }}>
+      <div className="card" style={{ padding: "0", overflow: "hidden" }}>
         <div style={{ padding: "24px", borderBottom: "1px solid #e5e7eb", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h3 style={{ fontSize: "1.1rem", fontWeight: "bold", margin: 0 }}>勤務履歴</h3>
+          <h3 style={{ fontSize: "1.1rem", fontWeight: "bold", margin: 0 }}>勤務履歴・レポート</h3>
 
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             <button
               onClick={handlePrevMonth}
-              style={{ background: "none", border: "1px solid #d1d5db", borderRadius: "4px", padding: "4px 8px", cursor: "pointer", display: "flex", alignItems: "center" }}
+              style={{ background: "#fff", border: "1px solid #d1d5db", borderRadius: "6px", padding: "6px 12px", cursor: "pointer", display: "flex", alignItems: "center", transition: "all 0.2s" }}
             >
-              <ChevronLeft size={16} /> <span style={{ fontSize: "0.8rem", marginLeft: "4px" }}>先月</span>
+              <ChevronLeft size={16} /> <span style={{ fontSize: "0.85rem", marginLeft: "4px" }}>先月</span>
             </button>
 
-            <span style={{ fontWeight: "bold", fontSize: "1rem" }}>{format(currentDate, "yyyy年 M月")}</span>
+            <span style={{ fontWeight: "bold", fontSize: "1rem", minWidth: "100px", textAlign: "center" }}>{format(currentDate, "yyyy年 M月")}</span>
 
             <button
               onClick={handleNextMonth}
-              style={{ background: "none", border: "1px solid #d1d5db", borderRadius: "4px", padding: "4px 8px", cursor: "pointer", display: "flex", alignItems: "center" }}
+              style={{ background: "#fff", border: "1px solid #d1d5db", borderRadius: "6px", padding: "6px 12px", cursor: "pointer", display: "flex", alignItems: "center", transition: "all 0.2s" }}
             >
-              <span style={{ fontSize: "0.8rem", marginRight: "4px" }}>翌月</span> <ChevronRight size={16} />
+              <span style={{ fontSize: "0.85rem", marginRight: "4px" }}>翌月</span> <ChevronRight size={16} />
             </button>
           </div>
         </div>
 
-        <div style={{ padding: "0 24px 24px" }}>
-          {/* Table Header like */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 2fr 100px", padding: "16px 0", borderBottom: "1px solid #e5e7eb", color: "#6b7280", fontSize: "0.85rem", fontWeight: "bold" }}>
-            <div>日付</div>
-            <div>出勤</div>
-            <div>退勤</div>
-            <div>休憩</div>
-            <div>勤務</div>
-            <div>勤務地 / 部署 / コメント</div>
-            <div></div>
-          </div>
-
-          {items
-            .filter(item => {
-              const dDate = item.displayDate || item.workDate;
-              return dDate.startsWith(format(currentDate, "yyyy-MM"));
-            })
-            .sort((a, b) => {
-              const dA = a.displayDate || a.workDate;
-              const dB = b.displayDate || b.workDate;
-              return dB.localeCompare(dA);
-            })
-            .map(item => {
-              // Multi-shift safe parsing
-              const dDate = item.displayDate || item.workDate;
-              const baseDateStr = dDate.split("_")[0];
-              const shiftNum = dDate.includes("_") ? parseInt(dDate.split("_")[1]) : 1;
-              const day = new Date(baseDateStr);
-              const isSat = isSaturday(day);
-              const isSun = isSunday(day);
-              const isHol = isHoliday(day);
-              const p = parseComment(item.comment);
-              const app = p.application;
-              // Fix: Visual badge same logic
-              const isUnapplied = item.clockIn && item.clockOut && !app?.status;
-              const isResubmit = app?.status === "resubmission_requested";
-
-              let bgStyle = {};
-              if (isUnapplied) bgStyle = { background: "#fffbfc" }; // Slight tint?
-              if (isResubmit) bgStyle = { background: "#fff5f5" };
-
-              const isExpanded = (item.workDate === expandedDate);
-
-              return (
-                <React.Fragment key={item.workDate}>
-                  <div style={{
-                    display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 2fr 100px",
-                    padding: "16px 0", borderBottom: "1px solid #f3f4f6", alignItems: "center",
-                    fontSize: "0.9rem", ...bgStyle
-                  }}>
-                    {/* Date */}
-                    <div>
-                      {format(day, "M/dd")}(
-                      <span style={{ color: (isSun || isHol) ? "#ef4444" : isSat ? "#3b82f6" : "inherit" }}>
-                        {format(day, "E", { locale: ja })}
-                      </span>)
-                      {shiftNum > 1 && <span style={{ fontSize: "0.8rem", color: "#6b7280", marginLeft: "4px" }}>({shiftNum}回目)</span>}
-                    </div>
-
-                    {/* Times */}
-                    <div>{item.clockIn || "-"}</div>
-                    <div>{item.clockOut || "-"}</div>
-                    <div>{item.clockOut ? calcBreakTime(item) + "分" : "-"}</div>
-                    <div>{item.clockOut ? minToTime(calcRoundedWorkMin(item)) : "-"}</div>
-
-                    {/* Details column */}
-                    <div>
-                      {isUnapplied && <span style={{ fontSize: "0.7rem", color: "#ef4444", border: "1px solid #ef4444", padding: "2px 6px", borderRadius: "12px", background: "#fff" }}>未申請</span>}
-                      {isResubmit && <span style={{ fontSize: "0.7rem", color: "#9333ea", border: "1px solid #9333ea", padding: "2px 6px", borderRadius: "12px", background: "#fff" }}>再提出</span>}
-
-                      {/* Shift Logic Badges */}
-                      {(() => {
-                        const s = getShift(user.userName, item.workDate);
-                        if (!s) return null;
-                        if (s.isOff) {
-                          return <span style={{ marginLeft: "4px", fontSize: "0.7rem", color: "#6b7280", border: "1px solid #d1d5db", padding: "2px 6px", borderRadius: "12px", background: "#f3f4f6" }}>休日</span>;
-                        }
-
-                        // Check Late
-                        if (item.clockIn && s.start && toMin(item.clockIn) > toMin(s.start)) {
-                          return <span style={{ marginLeft: "4px", fontSize: "0.7rem", color: "#b91c1c", border: "1px solid #b91c1c", padding: "2px 6px", borderRadius: "12px", background: "#fef2f2" }}>遅刻</span>;
-                        }
-                        return null;
-                      })()}
-
-                      {(() => {
-                        const s = getShift(user.userName, item.workDate);
-                        if (s && !s.isOff && !item.clockIn && new Date(item.workDate) < new Date(todayStr)) {
-                          return <span style={{ marginLeft: "4px", fontSize: "0.7rem", color: "#4b5563", border: "1px solid #4b5563", padding: "2px 6px", borderRadius: "12px", background: "#f3f4f6" }}>欠勤</span>;
-                        }
-                        return null;
-                      })()}
-
-                      <div style={{ fontSize: "0.8rem", color: "#6b7280", marginTop: "4px" }}>
-                        {p.segments.map((s, i) => (
-                          <span key={i} style={{ marginRight: "8px", background: "#f3f4f6", padding: "2px 6px", borderRadius: "4px" }}>
-                            {s.location} / {s.department}
-                          </span>
-                        ))}
-                        {p.text && <div style={{ marginTop: "2px" }}>{p.text}</div>}
-                      </div>
-                    </div>
-
-                    {/* Action Button */}
-                    <div style={{ textAlign: "right" }}>
-                      {app?.status === "pending" ? (
-                        <span style={{ fontSize: "0.8rem", color: "#f97316", border: "1px solid #f97316", padding: "4px 10px", borderRadius: "20px", background: "#fff", fontWeight: "bold" }}>
-                          承認待ち
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => handleEdit(item.workDate, item)}
-                          style={{
-                            background: isExpanded ? "#4b5563" : "#3b82f6", // Grey if expanding/closing? Or just keep blue?
-                            // User image shows a Pencil icon actually, but let's stick to the button for now or match image if possible.
-                            // Image shows a generated edit icon? No, user image shows "未記" badges etc.
-                            // The user image 2 shows an edit pen icon on the right.
-                            // But I will keep the "申請" button for now to match current state logic, 
-                            // changing it to "閉じる" (Close) if expanded might be good interactions.
-                            color: "#fff", border: "none",
-                            padding: "6px 16px", borderRadius: "20px", fontSize: "0.8rem", cursor: "pointer", fontWeight: "bold"
-                          }}
-                        >
-                          {isExpanded ? (isUnapplied ? "申請" : "修正") : (isUnapplied ? "申請" : "修正")}
-                          {/* Actually user just clicked "Submit" on second image. I will keep it simple. */}
-                        </button>
-                      )}
-
-                      {/* Show edit icon on right if not pending? User image 2 shows a Pencil icon. */}
-                      {!isExpanded && !app?.status && (
-                        <button onClick={() => handleEdit(item.workDate, item)} style={{ background: "none", border: "none", cursor: "pointer", marginLeft: "8px" }}>
-                          <Pencil size={16} color="#9ca3af" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* INLINE FORM */}
-                  {isExpanded && (
-                    <div style={{
-                      gridColumn: "1 / -1",
-                      background: "#fee2e2", // Pinkish background
-                      padding: "24px",
-                      borderRadius: "8px",
-                      marginTop: "8px",
-                      marginBottom: "16px"
-                    }}>
-                      {/* Admin Feedback Inline */}
-                      {adminFeedback && (
-                        <div style={{
-                          background: "#fff", border: "1px solid #fca5a5", padding: "12px", borderRadius: "8px", marginBottom: "16px", color: "#b91c1c", fontSize: "0.9rem"
-                        }}>
-                          <strong>管理者からのメッセージ:</strong> {adminFeedback}
-                        </div>
-                      )}
-
-                      <div style={{ marginBottom: "16px" }}>
-                        <div style={{ fontSize: "0.85rem", color: "#6b7280", marginBottom: "4px" }}>勤務地 / 部署 / コメント</div>
-                        {formSegments.map((s, i) => (
-                          <div key={i} style={{ display: "flex", gap: "8px", marginBottom: "8px", alignItems: "center" }}>
-                            <span style={{ fontSize: "0.8rem", background: "#fff", padding: "2px 6px", borderRadius: "4px" }}>未記載</span>
-                            <span style={{ fontSize: "0.8rem", background: "#fff", padding: "2px 6px", borderRadius: "4px" }}>未記載</span>
-                          </div>
-                        ))}
-                        {/* NOTE: user image shows "未記載" badges, but also inputs below. 
-                             The inputs below are handled by formSegments. 
-                             I'll mimic the form layout from the image.
-                             Image shows:
-                             - Top: Badges (read only representation?)
-                             - Label: "勤務地" -> Select "未記載"
-                             - Label: "部署" -> Select "未記載"
-                             - Label: "区間を追加"
-                             - Inputs "本来の出勤時刻" "本来の退勤時刻"
-                             - Logic for segments editing
-                         */}
-
-                        {/* Actual Segment Editor */}
-                        {formSegments.map((s, i) => (
-                          <div key={i} style={{ background: "#fff", padding: "12px", borderRadius: "8px", marginBottom: "8px" }}>
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "8px" }}>
-                              <div>
-                                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: "bold", marginBottom: "4px" }}>勤務地</label>
-                                <select
-                                  value={s.location}
-                                  onChange={e => updateSegment(i, "location", e.target.value)}
-                                  style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px" }}
-                                >
-                                  {LOCATIONS.map(l => <option key={l} value={l}>{l}</option>)}
-                                </select>
-                              </div>
-                              <div>
-                                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: "bold", marginBottom: "4px" }}>部署</label>
-                                <select
-                                  value={s.department}
-                                  onChange={e => updateSegment(i, "department", e.target.value)}
-                                  style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px" }}
-                                >
-                                  {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-                                </select>
-                              </div>
-                            </div>
-                            <button onClick={() => removeSegment(i)} style={{ fontSize: "0.8rem", color: "#ef4444", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
-                              削除
-                            </button>
-                          </div>
-                        ))}
-                        <button onClick={addSegment} style={{
-                          width: "100%", padding: "8px", border: "1px dashed #d1d5db", background: "#fff", color: "#6b7280", borderRadius: "4px", cursor: "pointer", fontSize: "0.9rem"
-                        }}>
-                          + 区間を追加
-                        </button>
-                      </div>
-
-                      {/* Shift Info Header */}
-                      {(() => {
-                        const shift = getShift(user.userName, expandedDate);
-                        if (shift) {
-                          return (
-                            <div style={{
-                              background: "#eff6ff", border: "1px solid #bfdbfe", padding: "12px", borderRadius: "8px", marginBottom: "16px", color: "#1e40af", fontSize: "0.9rem", fontWeight: "bold"
-                            }}>
-                              <Info size={16} style={{ display: "inline", marginRight: "6px", verticalAlign: "middle" }} />
-                              本日のシフト: {shift.start} - {shift.end}
-                            </div>
-                          );
-                        }
-                        return null;
-                      })()}
-
-                      {/* Time Inputs */}
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
-                        <div>
-                          <label style={{ display: "block", fontSize: "0.8rem", fontWeight: "bold", marginBottom: "4px" }}>
-                            出勤時刻 <span style={{ color: "#ef4444", fontSize: "0.8rem", marginLeft: "4px" }}>(必須)</span>
-                          </label>
-                          <select
-                            value={formIn}
-                            onChange={e => setFormIn(e.target.value)}
-                            style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px" }}
-                          >
-                            <option value="">選択</option>
-                            {TIME_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
-                          </select>
-                        </div>
-                        <div>
-                          <label style={{ display: "block", fontSize: "0.8rem", fontWeight: "bold", marginBottom: "4px" }}>
-                            退勤時刻 <span style={{ color: "#ef4444", fontSize: "0.8rem", marginLeft: "4px" }}>(必須)</span>
-                          </label>
-                          <select
-                            value={formOut}
-                            onChange={e => setFormOut(e.target.value)}
-                            style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px" }}
-                          >
-                            <option value="">選択</option>
-                            {TIME_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
-                          </select>
-                        </div>
-                      </div>
-
-                      {/* If NO Shift, maybe show optional Original Time or just hide? 
-                          User says "If no shift, calculate actual only". 
-                          So we don't show Original Time inputs anymore. 
-                      */}
-
-                      {/* Lateness/Early Auto-Detection */}
-                      {(() => {
-                        const shift = getShift(user.userName, expandedDate);
-
-                        let isLate = false;
-                        let isEarly = false;
-                        let intendedIn = shift ? shift.start : null;
-                        let intendedOut = shift ? shift.end : null;
-
-                        if (intendedIn && formIn && toMin(formIn) > toMin(intendedIn)) isLate = true;
-                        if (intendedOut && formOut && toMin(formOut) < toMin(intendedOut)) isEarly = true;
-
-                        /* No shift -> No lateness check */
-
-                        return (
-                          <>
-                            {isLate && (
-                              <div style={{ background: "#fef2f2", color: "#b91c1c", padding: "8px", borderRadius: "6px", fontSize: "0.85rem", marginBottom: "8px", border: "1px solid #fee2e2" }}>
-                                ※ シフト開始({intendedIn})より遅れています。「遅刻」等の理由を選択してください。
-                              </div>
-                            )}
-                            {isEarly && (
-                              <div style={{ background: "#fef2f2", color: "#b91c1c", padding: "8px", borderRadius: "6px", fontSize: "0.85rem", marginBottom: "8px", border: "1px solid #fee2e2" }}>
-                                ※ シフト終了({intendedOut})より早まっています。「早退」等の理由を選択してください。
-                              </div>
-                            )}
-                          </>
-                        );
-                      })()}
-
-                      {/* Reason - Conditional Display */}
-                      {(() => {
-                        const shift = getShift(user.userName, expandedDate);
-                        let isLate = false;
-                        let isEarly = false;
-
-                        if (shift) {
-                          if (formIn && toMin(formIn) > toMin(shift.start)) isLate = true;
-                          if (formOut && toMin(formOut) < toMin(shift.end)) isEarly = true;
-                        }
-
-                        const showReason = isLate || isEarly;
-
-                        if (!showReason) return null;
-
-                        return (
-                          <div style={{ marginBottom: "24px" }}>
-                            <label style={{ display: "block", fontSize: "0.8rem", fontWeight: "bold", marginBottom: "4px" }}>
-                              勤怠修正理由 <span style={{ color: "#ef4444", fontSize: "0.8rem", marginLeft: "4px" }}>(必須)</span>
-                            </label>
-                            {isLate && <div style={{ fontSize: "0.8rem", color: "#ef4444", marginBottom: "4px" }}>※遅刻の可能性があります</div>}
-                            {isEarly && <div style={{ fontSize: "0.8rem", color: "#ef4444", marginBottom: "4px" }}>※早退の可能性があります</div>}
-                            <select
-                              value={reason}
-                              onChange={e => setReason(e.target.value)}
-                              style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px", marginBottom: "8px" }}
-                            >
-                              <option value="">選択してください</option>
-                              {REASON_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-                            </select>
-
-                            {/* Detailed Text if "Others" */}
-                            {reason === "その他" && (
-                              <div>
-                                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: "bold", marginBottom: "4px" }}>
-                                  詳細理由 (コメント) <span style={{ color: "#ef4444", fontSize: "0.8rem", marginLeft: "4px" }}>(必須)</span>
-                                </label>
-                                <textarea
-                                  value={formText}
-                                  onChange={e => setFormText(e.target.value)}
-                                  placeholder="理由を詳しく入力してください"
-                                  style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px", minHeight: "60px" }}
-                                />
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
-                      {/* Original Reason Block was here */}
-
-                      {/* Buttons */}
-                      <div style={{ display: "flex", gap: "12px" }}>
-                        <button
-                          onClick={() => setExpandedDate(null)}
-                          style={{
-                            flex: 1, padding: "10px", border: "none", background: "#f3f4f6", borderRadius: "20px", fontWeight: "bold", color: "#4b5563", cursor: "pointer"
-                          }}
-                        >
-                          キャンセル
-                        </button>
-                        <button
-                          onClick={handleUpdate}
-                          style={{
-                            flex: 1, padding: "10px", border: "none", background: "#3b82f6", borderRadius: "20px", fontWeight: "bold", color: "#fff", cursor: "pointer"
-                          }}
-                        >
-                          申請する
-                        </button>
-                      </div>
-
-                    </div>
-                  )}
-                </React.Fragment>
-              );
-            })}
-
-          {items.length === 0 && (
-            <div style={{ padding: "40px", textAlign: "center", color: "#9ca3af" }}>
-              履歴がありません
-            </div>
-          )}
+        <div style={{ padding: "24px" }}>
+          <HistoryReport
+            user={user}
+            items={items}
+            baseDate={format(currentDate, "yyyy-MM-dd")}
+            viewMode="month"
+            shiftMap={shiftMap}
+            onRowClick={(dateStr, item) => handleEdit(dateStr, item)}
+            onWithdraw={(dateStr, item) => handleWithdraw(dateStr)}
+          />
         </div>
       </div>
 
+      {/* --- EDIT FORM (Rendered when expandedDate is set) --- */}
+      {expandedDate && (
+        <>
+          <div
+            ref={(el) => el && el.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+            style={{
+              position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+              width: "90%", maxWidth: "600px", zIndex: 1000,
+              background: "#fff", padding: "24px", borderRadius: "16px",
+              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
+              maxHeight: "90vh", overflowY: "auto", border: "1px solid #e5e7eb"
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", borderBottom: "1px solid #f3f4f6", paddingBottom: "12px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <div style={{ background: "#eff6ff", padding: "8px", borderRadius: "8px", color: "#2563eb" }}>
+                  <Pencil size={20} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "1.1rem", color: "#1f2937" }}>勤怠修正</h3>
+                  <div style={{ fontSize: "0.85rem", color: "#6b7280" }}>{format(new Date(expandedDate), "yyyy年MM月dd日", { locale: ja })}</div>
+                </div>
+              </div>
+              <button
+                onClick={() => setExpandedDate(null)}
+                style={{
+                  background: "#f3f4f6", border: "none", cursor: "pointer",
+                  width: "32px", height: "32px", borderRadius: "50%",
+                  display: "flex", alignItems: "center", justifyContent: "center", color: "#4b5563"
+                }}
+              >
+                <XCircle size={20} />
+              </button>
+            </div>
 
-      {/* TRI MODAL */}
-      {/* TRIP MODAL */}
+            {/* Admin Feedback Display */}
+            {adminFeedback && (
+              <div style={{
+                background: "#fef2f2", border: "1px solid #fecaca", padding: "12px", borderRadius: "8px", marginBottom: "20px", color: "#b91c1c", fontSize: "0.9rem", display: "flex", gap: "8px", alignItems: "start"
+              }}>
+                <MessageCircle size={18} style={{ marginTop: "2px", flexShrink: 0 }} />
+                <div>
+                  <strong style={{ display: "block", marginBottom: "4px" }}>管理者からのメッセージ:</strong>
+                  {adminFeedback}
+                </div>
+              </div>
+            )}
+
+            <div style={{ marginBottom: "24px" }}>
+              {/* SEGMENTS */}
+              <div style={{ fontSize: "0.9rem", fontWeight: "bold", color: "#374151", marginBottom: "8px" }}>勤務場所 / 部署</div>
+              {formSegments.map((s, i) => (
+                <div key={i} style={{ background: "#f9fafb", padding: "16px", borderRadius: "12px", marginBottom: "12px", border: "1px solid #e5e7eb", position: "relative" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "8px" }}>
+                    <div>
+                      <label style={{ fontSize: "0.8rem", fontWeight: "bold", color: "#6b7280", marginBottom: "4px", display: "block" }}>勤務地</label>
+                      <select value={s.location} onChange={e => updateSegment(i, "location", e.target.value)} className="input" style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db" }}>
+                        {LOCATIONS.map(l => <option key={l} value={l}>{l}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: "0.8rem", fontWeight: "bold", color: "#6b7280", marginBottom: "4px", display: "block" }}>部署</label>
+                      <select value={s.department} onChange={e => updateSegment(i, "department", e.target.value)} className="input" style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db" }}>
+                        {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  {formSegments.length > 1 && (
+                    <button
+                      onClick={() => removeSegment(i)}
+                      style={{
+                        position: "absolute", top: "-8px", right: "-8px",
+                        background: "#ef4444", color: "#fff",
+                        width: "24px", height: "24px", borderRadius: "50%",
+                        border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                        boxShadow: "0 2px 4px rgba(0,0,0,0.1)"
+                      }}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button
+                onClick={addSegment}
+                style={{
+                  width: "100%", padding: "10px", border: "1px dashed #cbd5e1", borderRadius: "8px",
+                  background: "#f8fafc", color: "#64748b", fontWeight: "500", cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
+                  transition: "all 0.2s"
+                }}
+              >
+                <Plus size={16} /> 区間を追加
+              </button>
+            </div>
+
+            {/* TIME INPUTS */}
+            <div style={{ background: "#f9fafb", padding: "16px", borderRadius: "12px", border: "1px solid #e5e7eb", marginBottom: "24px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "bold", color: "#374151", marginBottom: "6px" }}>出勤時刻</label>
+                  <div style={{ position: "relative" }}>
+                    <LogIn size={16} style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: "#6b7280" }} />
+                    <select value={formIn} onChange={e => setFormIn(e.target.value)} style={{ width: "100%", padding: "10px 10px 10px 32px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "1rem" }}>
+                      <option value="">未選択</option>
+                      {TIME_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "bold", color: "#374151", marginBottom: "6px" }}>退勤時刻</label>
+                  <div style={{ position: "relative" }}>
+                    <LogOut size={16} style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: "#6b7280" }} />
+                    <select value={formOut} onChange={e => setFormOut(e.target.value)} style={{ width: "100%", padding: "10px 10px 10px 32px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "1rem" }}>
+                      <option value="">未選択</option>
+                      {TIME_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* REASON */}
+            <div style={{ marginBottom: "24px" }}>
+              <label style={{ display: "block", fontSize: "0.9rem", fontWeight: "bold", marginBottom: "8px", color: "#374151" }}>
+                修正・申請理由
+                {((formIn && shiftMap[user.userName]?.[expandedDate]?.start && toMin(formIn) > toMin(shiftMap[user.userName]?.[expandedDate]?.start)) || (formOut && shiftMap[user.userName]?.[expandedDate]?.end && toMin(formOut) < toMin(shiftMap[user.userName]?.[expandedDate]?.end))) &&
+                  <span style={{ color: "#ef4444", fontSize: "0.8rem", marginLeft: "6px", background: "#fef2f2", padding: "2px 6px", borderRadius: "4px", border: "1px solid #fecaca" }}>遅刻/早退 (必須)</span>
+                }
+              </label>
+              <select value={reason} onChange={e => setReason(e.target.value)} style={{ width: "100%", padding: "12px", borderRadius: "8px", border: "1px solid #d1d5db", marginBottom: "12px", fontSize: "0.95rem" }}>
+                <option value="">理由を選択してください</option>
+                {REASON_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+              {reason === "その他" && (
+                <textarea
+                  value={formText}
+                  onChange={e => setFormText(e.target.value)}
+                  placeholder="具体的な理由を入力してください（必須）"
+                  style={{ width: "100%", padding: "12px", borderRadius: "8px", border: "1px solid #d1d5db", minHeight: "80px", fontSize: "0.95rem", boxSizing: "border-box" }}
+                />
+              )}
+            </div>
+
+            <div style={{ display: "flex", gap: "12px", paddingTop: "12px", borderTop: "1px solid #f3f4f6" }}>
+              <button onClick={() => setExpandedDate(null)} style={{ flex: 1, padding: "14px", borderRadius: "8px", border: "none", background: "#f3f4f6", color: "#4b5563", fontWeight: "bold", cursor: "pointer" }}>キャンセル</button>
+              {adminFeedback && items.find(i => i.workDate === expandedDate)?._application?.status === "pending" && (
+                <button
+                  type="button"
+                  onClick={handleWithdraw}
+                  disabled={loading}
+                  style={{
+                    flex: 1, padding: "14px", borderRadius: "8px", border: "none",
+                    background: "#ef4444", color: "#fff", fontWeight: "bold", cursor: loading ? "default" : "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: "8px"
+                  }}
+                >
+                  取り下げ
+                </button>
+              )}
+              {/* Also show withdraw if status is pending generally, not just with feedback? 
+                  The user request said "Withdraw pending application". 
+                  Let's show it if status is pending. 
+              */}
+              {!adminFeedback && items.find(i => i.workDate === expandedDate)?._application?.status === "pending" && (
+                <button
+                  type="button"
+                  onClick={handleWithdraw}
+                  disabled={loading}
+                  style={{
+                    flex: 1, padding: "14px", borderRadius: "8px", border: "none",
+                    background: "#6b7280", color: "#fff", fontWeight: "bold", cursor: loading ? "default" : "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: "8px"
+                  }}
+                >
+                  申請取り下げ
+                </button>
+              )}
+
+              <button
+                onClick={handleUpdate}
+                disabled={loading}
+                style={{
+                  flex: 2, padding: "14px", borderRadius: "8px", border: "none",
+                  background: loading ? "#93c5fd" : "#2563eb", color: "#fff", fontWeight: "bold", cursor: loading ? "default" : "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
+                  boxShadow: "0 4px 6px rgba(37, 99, 235, 0.2)"
+                }}
+              >
+                {loading ? "送信中..." : <><CheckCircle size={20} /> 申請を保存</>}
+              </button>
+            </div>
+          </div>
+          <div className="modal-overlay" onClick={() => setExpandedDate(null)} style={{ zIndex: 999 }}></div>
+        </>
+      )}
+
+
+      {/* TRIP MODAL (Kept as is) */}
       {tripModalOpen && (
         <div className="modal-overlay">
           <div className="modal" style={{ width: "420px", maxWidth: "90vw" }}>
@@ -1382,8 +1249,29 @@ export default function AttendanceRecord({ user: propUser }) {
         </div>
       )}
 
-      {/* Modal Removed */}
-
+      {/* Styles for Modal */}
+      <style>{`
+        .modal-overlay {
+          position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+          background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;
+          backdrop-filter: blur(2px);
+        }
+        .modal {
+          background: #fff; padding: 32px; borderRadius: 16px;
+          box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
+          animation: modalFadeIn 0.2s ease-out;
+        }
+        @keyframes modalFadeIn {
+          from { opacity: 0; transform: scale(0.95); }
+          to { opacity: 1; transform: scale(1); }
+        }
+        .modal-actions { display: flex; gap: 12px; justify-content: flex-end; }
+        .modal-btn {
+          padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; transition: all 0.2s;
+        }
+        .modal-cancel { background: #f3f4f6; color: #4b5563; }
+        .modal-cancel:hover { background: #e5e7eb; }
+      `}</style>
 
     </div>
   );
