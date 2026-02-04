@@ -173,6 +173,32 @@ export default function AdminAttendance() {
   const [users, setUsers] = useState([]); // For report
   const [loading, setLoading] = useState(false);
 
+  // 確認モーダル用ステート（window.confirmの代わり）
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    message: "",
+    onConfirm: null,
+    onCancel: null
+  });
+
+  // 確認モーダルを表示する関数
+  const showConfirm = (msg) => {
+    return new Promise((resolve) => {
+      setConfirmModal({
+        isOpen: true,
+        message: msg,
+        onConfirm: () => {
+          setConfirmModal({ isOpen: false, message: "", onConfirm: null, onCancel: null });
+          resolve(true);
+        },
+        onCancel: () => {
+          setConfirmModal({ isOpen: false, message: "", onConfirm: null, onCancel: null });
+          resolve(false);
+        }
+      });
+    });
+  };
+
   // Filter States
   const [filterName, setFilterName] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -387,7 +413,7 @@ export default function AdminAttendance() {
 
   /* Mark Absent Logic */
   const handleMarkAbsent = async (userId, userName, dateStr) => {
-    if (!window.confirm(`${userName}さんを「欠勤」として登録しますか？`)) return;
+    if (!await showConfirm(`${userName}さんを「欠勤」として登録しますか？`)) return;
 
     try {
       const payload = {
@@ -428,7 +454,7 @@ export default function AdminAttendance() {
       alert("再提出依頼の理由を入力してください");
       return;
     }
-    if (!window.confirm("このスタッフに再提出を依頼しますか？\n(通知が送られます)")) return;
+    // 確認ダイアログなしで即座に再提出状態にする
 
     setLoading(true);
     try {
@@ -457,7 +483,7 @@ export default function AdminAttendance() {
         }),
       });
 
-      alert("再提出を依頼しました");
+      // 成功時は即座に閉じてリフレッシュ
       setEditingItem(null);
       fetchAttendances();
 
@@ -469,7 +495,7 @@ export default function AdminAttendance() {
   };
 
   const handleApprove = async (targetItem = null) => {
-    if (!window.confirm("承認しますか？")) return;
+    if (!await showConfirm("承認しますか？")) return;
     setLoading(true);
     try {
       const item = targetItem || editingItem;
@@ -503,7 +529,7 @@ export default function AdminAttendance() {
   };
 
   const handleCancelAbsent = async (item) => {
-    if (!window.confirm("欠勤を取り消しますか？\n(未申請状態に戻ります)")) return;
+    if (!await showConfirm("欠勤を取り消しますか？\n(未申請状態に戻ります)")) return;
     setLoading(true);
     try {
       const payload = {
@@ -1089,6 +1115,65 @@ export default function AdminAttendance() {
           </div>
         )
       }
+
+      {/* 確認モーダル */}
+      {confirmModal.isOpen && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: "rgba(0,0,0,0.5)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 10000
+        }}>
+          <div style={{
+            background: "#fff",
+            borderRadius: "12px",
+            padding: "24px",
+            maxWidth: "400px",
+            width: "90%",
+            boxShadow: "0 4px 20px rgba(0,0,0,0.2)"
+          }}>
+            <h3 style={{ marginBottom: "16px", fontSize: "1.1rem" }}>確認</h3>
+            <p style={{ marginBottom: "24px", whiteSpace: "pre-wrap", color: "#374151" }}>
+              {confirmModal.message}
+            </p>
+            <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
+              <button
+                onClick={confirmModal.onCancel}
+                style={{
+                  padding: "10px 20px",
+                  borderRadius: "8px",
+                  border: "1px solid #d1d5db",
+                  background: "#fff",
+                  cursor: "pointer",
+                  fontSize: "0.95rem"
+                }}
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={confirmModal.onConfirm}
+                style={{
+                  padding: "10px 20px",
+                  borderRadius: "8px",
+                  border: "none",
+                  background: "#2563eb",
+                  color: "#fff",
+                  cursor: "pointer",
+                  fontSize: "0.95rem"
+                }}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`
           .status-badge.purple { background: #f3e8ff; color: #7c3aed; border: 1px solid #d8b4fe; }

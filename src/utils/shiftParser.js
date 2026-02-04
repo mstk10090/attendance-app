@@ -81,9 +81,9 @@ export async function fetchShiftData(forceRefresh = false, additionalSources = [
                         url += `&t=${Date.now()}`;
                     }
 
-                    // 10s Timeout
+                    // 30s Timeout (延長してAbortError対策)
                     const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 10000);
+                    const timeoutId = setTimeout(() => controller.abort(), 30000);
 
                     const response = await fetch(url, { signal: controller.signal });
                     clearTimeout(timeoutId);

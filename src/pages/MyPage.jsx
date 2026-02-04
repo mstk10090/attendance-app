@@ -3,6 +3,7 @@ import { User, Wallet, Clock, Calendar, LogOut, Home, Gift, Award, Pencil, Lock,
 import { format, getDaysInMonth, isSaturday, isSunday, parseISO, differenceInYears, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths } from "date-fns";
 import { ja } from "date-fns/locale";
 import { HOLIDAYS, LOCATIONS, DEPARTMENTS } from "../constants";
+import { fetchShiftData } from "../utils/shiftParser";
 
 import "../App.css";
 
@@ -52,6 +53,12 @@ export default function MyPage({ onLogout }) {
   const [currentItems, setCurrentItems] = useState([]); // Filtered by currentDate
   const [allItems, setAllItems] = useState([]); // All fetched items for yearly stats
   const [lateViewMode, setLateViewMode] = useState("month"); // "month" or "year"
+  const [shiftMap, setShiftMap] = useState({}); // シフトデータ
+
+  // シフトデータを取得
+  useEffect(() => {
+    fetchShiftData().then(data => setShiftMap(data));
+  }, []);
 
   // --- Utility ---
   const toMin = (t) => {
@@ -564,15 +571,27 @@ export default function MyPage({ onLogout }) {
               item.workDate && item.workDate.startsWith(currentYearPrefix)
             );
 
+            // シフト開始時刻と出勤時刻を比較して遅刻をカウント
             const lateCount = targetItems.filter(item => {
-              if (!item.comment) return false;
-              try {
-                const p = JSON.parse(item.comment);
-                const reason = p?.application?.reason || "";
-                return reason.includes("遅刻");
-              } catch {
-                return false;
+              if (!item.clockIn) return false;
+              const workDate = item.displayDate || item.workDate;
+              // ユーザー名でシフトを検索
+              const keysToTry = [
+                userName,
+                userInfo?.lastName && userInfo?.firstName ? `${userInfo.lastName} ${userInfo.firstName}` : null,
+                userInfo?.lastName && userInfo?.firstName ? `${userInfo.lastName}${userInfo.firstName}` : null,
+              ].filter(Boolean);
+              let shift = null;
+              for (const k of keysToTry) {
+                if (shiftMap[k] && shiftMap[k][workDate]) {
+                  shift = shiftMap[k][workDate];
+                  break;
+                }
               }
+              if (shift && shift.start && toMin(item.clockIn) > toMin(shift.start)) {
+                return true;
+              }
+              return false;
             }).length;
 
             return (

@@ -674,6 +674,50 @@ export default function AttendanceRecord({ user: propUser }) {
     }
   };
 
+  /* --- 欠勤申請 --- */
+  const handleAbsentRequest = async () => {
+    if (!expandedDate) return;
+
+    setLoading(true);
+    try {
+      // 完全なペイロードを送信（ドキュメントのCorrect Patternに従う）
+      const payload = {
+        userId: user.userId,
+        workDate: expandedDate,
+        clockIn: "",
+        clockOut: "",
+        breaks: [],
+        location: user.defaultLocation || "",
+        department: user.defaultDepartment || "",
+        comment: JSON.stringify({
+          segments: [],
+          text: "スタッフによる欠勤申請",
+          application: { status: "absent", reason: "欠勤" }
+        })
+      };
+
+      const res = await fetch(ENDPOINTS.update, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        console.error("欠勤申請エラー:", res.status, await res.text());
+        alert(`欠勤申請に失敗しました (${res.status})`);
+        return;
+      }
+
+      fetchData();
+      setExpandedDate(null);
+    } catch (e) {
+      console.error(e);
+      alert("エラーが発生しました");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   /* --- STATISTICS CALCULATION --- */
   const stats = useMemo(() => {
     let days = 0;
@@ -684,9 +728,26 @@ export default function AttendanceRecord({ user: propUser }) {
       // Use displayDate for stats
       const dDate = item.displayDate || item.workDate;
       if (dDate.startsWith(format(currentDate, "yyyy-MM"))) {
-        if (item.clockIn) {
+        // 承認済み（approved）のレコードのみを集計対象とする
+        const p = parseComment(item.comment);
+        const status = p.application?.status;
+
+        if (status === "approved") {
           days++;
-          const wm = calcRoundedWorkMin(item);
+
+          // 申請時間から勤務時間を計算（承認済みなので申請時間を使用）
+          let wm = 0;
+          const appliedIn = p.application?.appliedIn;
+          const appliedOut = p.application?.appliedOut;
+
+          if (appliedIn && appliedOut) {
+            const inMin = toMin(appliedIn);
+            const outMin = toMin(appliedOut);
+            wm = Math.max(0, outMin - inMin);
+          } else if (item.clockIn && item.clockOut) {
+            // フォールバック：実際の打刻時間を使用
+            wm = calcRoundedWorkMin(item);
+          }
 
           // Get Shift to check Dispatch status. Use displayDate.
           const s = getShift(user.userName, dDate);
@@ -722,9 +783,56 @@ export default function AttendanceRecord({ user: propUser }) {
     // Fix: Only count as "Unapplied" if clockOut exists (work finished) OR if admin requested resubmission
     // If clockIn exists but no clockOut, it's either "Working" or "Forgot Clockout" (handled separately)
     if (i.clockIn && i.clockOut && !app?.status) return true;
-    if (app?.status === "resubmission_requested") return true;
     return false;
   }).length;
+
+  // 再提出依頼のカウント
+  const resubmissionCount = items.filter(i => {
+    const p = parseComment(i.comment);
+    return p.application?.status === "resubmission_requested";
+  }).length;
+
+  // 未退勤のカウント（今月・出勤しているが退勤していない、本日を除く）
+  const currentMonth = format(currentDate, "yyyy-MM");
+  const notClockedOutCount = items.filter(i => {
+    const workDate = i.displayDate || i.workDate;
+    // 本日は除外（出勤中のため）
+    if (workDate === todayStr) return false;
+    return workDate.startsWith(currentMonth) && i.clockIn && !i.clockOut;
+  }).length;
+
+  // 遅刻のカウント（今月・シフト開始より遅く出勤した場合）
+  const lateCount = useMemo(() => {
+    if (!user || !shiftMap) return 0;
+    return items.filter(item => {
+      const dDate = item.displayDate || item.workDate;
+      if (!dDate.startsWith(currentMonth)) return false;
+      if (!item.clockIn) return false;
+
+      // シフトを取得
+      const keysToTry = [
+        user.userName,
+        `${user.lastName || ""} ${user.firstName || ""}`.trim(),
+        `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+        `${user.lastName || ""}　${user.firstName || ""}`.trim(),
+        `${user.firstName || ""}　${user.lastName || ""}`.trim(),
+        `${user.lastName || ""}${user.firstName || ""}`.trim()
+      ];
+      let shift = null;
+      for (const k of keysToTry) {
+        if (k && shiftMap[k] && shiftMap[k][dDate]) {
+          shift = shiftMap[k][dDate];
+          break;
+        }
+      }
+
+      // シフトがあり、開始時刻より遅く出勤した場合
+      if (shift && shift.start && toMin(item.clockIn) > toMin(shift.start)) {
+        return true;
+      }
+      return false;
+    }).length;
+  }, [items, user, shiftMap, currentMonth]);
 
   return (
     <div className="record-container" style={{ width: "100%", margin: "0 auto" }}> {/* RESTORED FULL WIDTH */}
@@ -735,6 +843,22 @@ export default function AttendanceRecord({ user: propUser }) {
           <Info size={18} />
           前日以降の勤怠が申請可能です
         </div>
+
+        {/* 再提出依頼バナー（最優先で表示） */}
+        {resubmissionCount > 0 && (
+          <div style={{ background: "#faf5ff", color: "#7c3aed", padding: "12px 16px", borderRadius: "8px", marginBottom: "8px", display: "flex", alignItems: "center", gap: "8px", fontSize: "0.9rem", border: "1px solid #e9d5ff" }}>
+            <AlertCircle size={18} />
+            <span>⚠️ <strong>再提出依頼: {resubmissionCount}件</strong> があります。管理者からのコメントを確認して再度申請してください。</span>
+          </div>
+        )}
+
+        {/* 未退勤バナー */}
+        {notClockedOutCount > 0 && (
+          <div style={{ background: "#fffbeb", color: "#b45309", padding: "12px 16px", borderRadius: "8px", marginBottom: "8px", display: "flex", alignItems: "center", gap: "8px", fontSize: "0.9rem", border: "1px solid #fde68a" }}>
+            <AlertCircle size={18} />
+            <span>⏰ <strong>未退勤: {notClockedOutCount}件</strong> があります。退勤打刻を忘れずに。</span>
+          </div>
+        )}
 
         {unappliedCount > 0 && (
           <div style={{ background: "#fef2f2", color: "#b91c1c", padding: "12px 16px", borderRadius: "8px", display: "flex", alignItems: "center", gap: "8px", fontSize: "0.9rem", border: "1px solid #fee2e2" }}>
@@ -880,7 +1004,7 @@ export default function AttendanceRecord({ user: propUser }) {
       </div>
 
       {/* 3. STATS CARDS */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "20px", marginBottom: "32px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "20px", marginBottom: "32px" }}>
         <div className="card" style={{ padding: "24px" }}>
           <div style={{ fontSize: "0.85rem", color: "#6b7280", marginBottom: "8px" }}>今月の出勤日数</div>
           <div style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{stats.days} 日</div>
@@ -903,6 +1027,10 @@ export default function AttendanceRecord({ user: propUser }) {
         <div className="card" style={{ padding: "24px" }}>
           <div style={{ fontSize: "0.85rem", color: "#6b7280", marginBottom: "8px" }}>平均勤務時間</div>
           <div style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{stats.avgHours} 時間</div>
+        </div>
+        <div className="card" style={{ padding: "24px", background: lateCount > 0 ? "#fef2f2" : undefined }}>
+          <div style={{ fontSize: "0.85rem", color: lateCount > 0 ? "#b91c1c" : "#6b7280", marginBottom: "8px" }}>遅刻</div>
+          <div style={{ fontSize: "1.5rem", fontWeight: "bold", color: lateCount > 0 ? "#dc2626" : "#374151" }}>{lateCount} 件</div>
         </div>
       </div>
 
@@ -972,10 +1100,12 @@ export default function AttendanceRecord({ user: propUser }) {
                 style={{
                   background: "#f3f4f6", border: "none", cursor: "pointer",
                   width: "32px", height: "32px", borderRadius: "50%",
-                  display: "flex", alignItems: "center", justifyContent: "center", color: "#4b5563"
+                  display: "flex", alignItems: "center", justifyContent: "center", color: "#374151",
+                  fontSize: "18px", fontWeight: "bold"
                 }}
+                title="閉じる"
               >
-                <XCircle size={20} />
+                ✕
               </button>
             </div>
 
@@ -1122,6 +1252,20 @@ export default function AttendanceRecord({ user: propUser }) {
                   申請取り下げ
                 </button>
               )}
+
+              {/* 欠勤申請ボタン */}
+              <button
+                type="button"
+                onClick={handleAbsentRequest}
+                disabled={loading}
+                style={{
+                  flex: 1, padding: "14px", borderRadius: "8px", border: "none",
+                  background: "#ef4444", color: "#fff", fontWeight: "bold", cursor: loading ? "default" : "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: "8px"
+                }}
+              >
+                欠勤申請
+              </button>
 
               <button
                 onClick={handleUpdate}

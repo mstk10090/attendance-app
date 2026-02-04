@@ -173,6 +173,32 @@ export default function AdminShiftManagement() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
+  // 確認モーダル用ステート（window.confirmの代わり）
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    message: "",
+    onConfirm: null,
+    onCancel: null
+  });
+
+  // 確認モーダルを表示する関数
+  const showConfirm = (msg) => {
+    return new Promise((resolve) => {
+      setConfirmModal({
+        isOpen: true,
+        message: msg,
+        onConfirm: () => {
+          setConfirmModal({ isOpen: false, message: "", onConfirm: null, onCancel: null });
+          resolve(true);
+        },
+        onCancel: () => {
+          setConfirmModal({ isOpen: false, message: "", onConfirm: null, onCancel: null });
+          resolve(false);
+        }
+      });
+    });
+  };
+
   // Filter States
   const [filterName, setFilterName] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -249,8 +275,8 @@ export default function AdminShiftManagement() {
     alert("追加しました。シフトを再読み込みします。");
   };
 
-  const handleRemoveSheet = (ts) => {
-    if (!window.confirm("削除しますか？")) return;
+  const handleRemoveSheet = async (ts) => {
+    if (!await showConfirm("削除しますか？")) return;
     const newSheets = customSheets.filter(s => s.timestamp !== ts);
     setCustomSheets(newSheets);
     localStorage.setItem("admin_custom_sheets", JSON.stringify(newSheets));
@@ -578,20 +604,36 @@ export default function AdminShiftManagement() {
       let early = 0;
       let missingOut = 0;
 
+      // シフトマップからユーザーのシフトを取得するためのキー
+      const fullName = (u.lastName || "") + (u.firstName || "");
+      const fullNameSpace = (u.lastName || "") + " " + (u.firstName || "");
+      const fullNameWide = (u.lastName || "") + "　" + (u.firstName || "");
+      const uShiftData = shiftMap[fullName] || shiftMap[fullNameSpace] || shiftMap[fullNameWide] || shiftMap[u.userName] || {};
+
       uItems.forEach(i => {
         const app = i._application || {};
-        if (app.reason && app.reason.includes("遅刻")) late++;
+        // 早退は理由ベース
         if (app.reason && app.reason.includes("早退")) early++;
         if (i.clockIn && !i.clockOut) missingOut++;
         // Check for explicit "absent" status
         if (app.status === "absent") absent++;
+
+        // 遅刻チェック: シフト開始時刻と実際の出勤時刻を比較
+        const workDate = i.displayDate || i.workDate;
+        const shift = uShiftData[workDate];
+        if (shift && shift.start && i.clockIn) {
+          const shiftStartMin = toMin(shift.start);
+          const clockInMin = toMin(i.clockIn);
+          if (clockInMin > shiftStartMin) {
+            late++;
+          }
+        }
       });
 
       // Prescribed Days
       const m = new Date(baseDate);
       const pKey = `prescribed_${m.getFullYear()}_${m.getMonth() + 1}`;
-      const fullName = (u.lastName || "") + (u.firstName || "");
-      const fullNameSpace = (u.lastName || "") + " " + (u.firstName || "");
+      // uFullName等は既に上で定義済み
       const sData = shiftMap[fullName] || shiftMap[fullNameSpace] || {};
       let prescribed = sData[pKey];
 
@@ -674,7 +716,7 @@ export default function AdminShiftManagement() {
       e.stopPropagation();
     }
 
-    const isConfirmed = window.confirm(`${userName}さんを「欠勤」として登録しますか？`);
+    const isConfirmed = await showConfirm(`${userName}さんを「欠勤」として登録しますか？`);
     if (!isConfirmed) return;
 
     try {
@@ -719,7 +761,7 @@ export default function AdminShiftManagement() {
       e.stopPropagation();
     }
 
-    const isConfirmed = window.confirm("欠勤を取り消しますか？\n(未申請状態に戻ります)");
+    const isConfirmed = await showConfirm("欠勤を取り消しますか？\n(未申請状態に戻ります)");
     if (!isConfirmed) return;
 
     try {
@@ -764,7 +806,7 @@ export default function AdminShiftManagement() {
       alert("再提出依頼の理由を入力してください");
       return;
     }
-    if (!window.confirm("このスタッフに再提出を依頼しますか？\n(通知が送られます)")) return;
+    if (!await showConfirm("このスタッフに再提出を依頼しますか？\n(通知が送られます)")) return;
 
     setLoading(true);
     try {
@@ -805,7 +847,7 @@ export default function AdminShiftManagement() {
   };
 
   const handleApprove = async (targetItem = null) => {
-    if (!window.confirm("承認しますか？")) return;
+    if (!await showConfirm("承認しますか？")) return;
     setLoading(true);
     try {
       const item = targetItem || editingItem;
@@ -1563,6 +1605,65 @@ export default function AdminShiftManagement() {
           </div>
         )
       }
+
+      {/* 確認モーダル */}
+      {confirmModal.isOpen && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: "rgba(0,0,0,0.5)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 10000
+        }}>
+          <div style={{
+            background: "#fff",
+            borderRadius: "12px",
+            padding: "24px",
+            maxWidth: "400px",
+            width: "90%",
+            boxShadow: "0 4px 20px rgba(0,0,0,0.2)"
+          }}>
+            <h3 style={{ marginBottom: "16px", fontSize: "1.1rem" }}>確認</h3>
+            <p style={{ marginBottom: "24px", whiteSpace: "pre-wrap", color: "#374151" }}>
+              {confirmModal.message}
+            </p>
+            <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
+              <button
+                onClick={confirmModal.onCancel}
+                style={{
+                  padding: "10px 20px",
+                  borderRadius: "8px",
+                  border: "1px solid #d1d5db",
+                  background: "#fff",
+                  cursor: "pointer",
+                  fontSize: "0.95rem"
+                }}
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={confirmModal.onConfirm}
+                style={{
+                  padding: "10px 20px",
+                  borderRadius: "8px",
+                  border: "none",
+                  background: "#2563eb",
+                  color: "#fff",
+                  cursor: "pointer",
+                  fontSize: "0.95rem"
+                }}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`
           .status-badge.purple { background: #f3e8ff; color: #7c3aed; border: 1px solid #d8b4fe; }

@@ -86,6 +86,19 @@ const extractAppliedTime = (item) => {
     }
 }
 
+const extractAdminComment = (item) => {
+    if (!item.comment) return null;
+    try {
+        const p = JSON.parse(item.comment);
+        if (p && p.application && p.application.adminComment) {
+            return p.application.adminComment;
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
+
 const isWorkDay = (dateStr) => {
     const d = new Date(dateStr);
     if (isSaturday(d) || isSunday(d)) return false;
@@ -180,20 +193,12 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                 const reason = extractReason(item);
                                 const isApproved = status === "approved";
                                 const isPending = status === "pending";
+                                const isToday = dateStr === todayStr; // 本日かどうか
 
-                                const isInteractive = !isApproved && (!isFuture || status);
+                                // 本日は編集不可、承認済みも編集不可
+                                const isInteractive = !isApproved && !isToday && (!isFuture || status);
 
-                                // 行全体の背景色を決定
-                                let bg = "#fff";
-                                if (isApproved) {
-                                    bg = "#f0fdf4"; // 緑（済）
-                                } else if (isPending) {
-                                    bg = "#fff7ed"; // オレンジ（承認待ち）
-                                } else if (isError || incomplete || status === "absent") {
-                                    bg = "#fef2f2"; // 赤（異常/未退勤/欠勤）
-                                }
-
-                                // Shift Lookup
+                                // Shift Lookup（背景色判定のために先に行う）
                                 let shift = null;
                                 if (shiftMap && user) {
                                     const keysToTry = [
@@ -212,6 +217,24 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                     }
                                 }
 
+                                // シフトがあるのに出勤・退勤していない場合（過去の日付のみ）
+                                const hasShift = shift && !shift.isOff;
+                                const noAttendance = !item.clockIn && !item.clockOut;
+                                const isPast = dateStr < todayStr;
+                                const isShiftMissing = hasShift && noAttendance && isPast && status !== "approved" && status !== "pending" && status !== "absent";
+
+                                // 行全体の背景色を決定
+                                let bg = "#fff";
+                                if (isApproved) {
+                                    bg = "#f0fdf4"; // 緑（済）
+                                } else if (isPending) {
+                                    bg = "#fff7ed"; // オレンジ（承認待ち）
+                                } else if (isError || incomplete || status === "absent" || isShiftMissing) {
+                                    bg = "#fef2f2"; // 赤（異常/未退勤/欠勤/シフト未出勤）
+                                }
+
+                                // 申請時刻の取得
+                                const appliedTime = extractAppliedTime(item);
 
                                 // Work Time Display Logic
                                 let workTimeDisplay = <span style={{ color: "#e5e7eb" }}>-</span>;
@@ -236,13 +259,36 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                     workTimeDisplay = "0:00";
                                 }
 
-                                // ステータス表示
+                                // ステータス表示（承認済み・欠勤を最優先で判定）
                                 let statusDisplay = <span style={{ color: "#d1d5db" }}>-</span>;
-                                if (incomplete) {
-                                    statusDisplay = <span className="status-badge red">未退勤</span>;
+                                if (status === "approved") {
+                                    statusDisplay = <span className="status-badge green">済</span>;
+                                } else if (status === "absent") {
+                                    statusDisplay = <span className="status-badge red">欠勤</span>;
+                                } else if (status === "resubmission_requested") {
+                                    const adminComment = extractAdminComment(item);
+                                    statusDisplay = (
+                                        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                                            <span className="status-badge purple">再提出依頼</span>
+                                            {adminComment && (
+                                                <span style={{ fontSize: "10px", color: "#9333ea", maxWidth: "120px", wordBreak: "break-word" }}>
+                                                    ⚠️ {adminComment}
+                                                </span>
+                                            )}
+                                        </div>
+                                    );
+                                } else if (isToday && item.clockIn && !item.clockOut) {
+                                    // 本日出勤中（退勤していない）
+                                    statusDisplay = <span className="status-badge blue">出勤中</span>;
+                                } else if (incomplete) {
+                                    // 本日以外で未退勤
+                                    statusDisplay = <span className="status-badge orange">未退勤</span>;
                                 } else if (isError) {
                                     statusDisplay = <span className="status-badge red">異常</span>;
-                                } else if (status === "pending") {
+                                } else if (isShiftMissing) {
+                                    statusDisplay = <span className="status-badge red">シフト未出勤</span>;
+                                } else if (status === "pending" && !isToday) {
+                                    // 本日以外で承認待ち
                                     statusDisplay = (
                                         <>
                                             <span className="status-badge orange">承認待</span>
@@ -268,12 +314,8 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                             )}
                                         </>
                                     );
-                                } else if (status === "resubmission_requested") {
-                                    statusDisplay = <span className="status-badge purple">再提出</span>;
-                                } else if (status === "approved") {
-                                    statusDisplay = <span className="status-badge green">済</span>;
-                                } else if (status === "absent") {
-                                    statusDisplay = <span className="status-badge red">欠勤</span>;
+                                } else if (hasAttendance && item.clockIn && !item.clockOut) {
+                                    // 未退勤（出勤しているが退勤していない）- 既に上部で判定済み
                                 } else if (hasAttendance) {
                                     statusDisplay = <CheckCircle size={18} color="#22c55e" />;
                                 }
@@ -308,19 +350,34 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                             {shift ? `${shift.start}-${shift.end}` : "-"}
                                         </td>
                                         <td style={{ padding: "12px 16px", textAlign: "center", fontFamily: "monospace", fontSize: "1rem" }}>
-                                            {formatTimeHHMM(item.clockIn) || <span style={{ color: "#d1d5db" }}>-</span>}
+                                            {item.clockIn ? (
+                                                <div>
+                                                    <span>{formatTimeHHMM(item.clockIn)}</span>
+                                                    {/* 遅刻判定：シフト開始より遅く出勤した場合 */}
+                                                    {shift && shift.start && toMin(item.clockIn) > toMin(shift.start) && (
+                                                        <span style={{ marginLeft: "4px", color: "#ef4444", fontSize: "0.75rem", fontWeight: "bold" }}>遅刻</span>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <span style={{ color: "#d1d5db" }}>-</span>
+                                            )}
                                         </td>
                                         <td style={{ padding: "12px 16px", textAlign: "center", fontFamily: "monospace", fontSize: "1rem" }}>
-                                            {formatTimeHHMM(item.clockOut) || <span style={{ color: "#d1d5db" }}>-</span>}
+                                            {item.clockIn && !item.clockOut ? (
+                                                // 本日は空欄、本日以外は「未退勤」
+                                                isToday ? (
+                                                    <span style={{ color: "#d1d5db" }}>-</span>
+                                                ) : (
+                                                    <span style={{ color: "#ef4444", fontWeight: "bold" }}>未退勤</span>
+                                                )
+                                            ) : item.clockOut ? (
+                                                formatTimeHHMM(item.clockOut)
+                                            ) : (
+                                                <span style={{ color: "#d1d5db" }}>-</span>
+                                            )}
                                         </td>
                                         <td style={{ padding: "12px 16px", textAlign: "center", fontFamily: "monospace", fontSize: "0.9rem", color: "#2563eb" }}>
-                                            {(() => {
-                                                const appliedTime = extractAppliedTime(item);
-                                                if (appliedTime) {
-                                                    return `${appliedTime.appliedIn.slice(0, 5)}-${appliedTime.appliedOut.slice(0, 5)}`;
-                                                }
-                                                return <span style={{ color: "#d1d5db" }}>-</span>;
-                                            })()}
+                                            {appliedTime ? `${appliedTime.appliedIn.slice(0, 5)}-${appliedTime.appliedOut.slice(0, 5)}` : <span style={{ color: "#d1d5db" }}>-</span>}
                                         </td>
                                         <td style={{ padding: "12px 16px", textAlign: "center", fontWeight: "bold", color: workTimeColor }}>
                                             {workTimeDisplay}
@@ -356,6 +413,7 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                 .status-badge.purple { background: #faf5ff; color: #a855f7; border: 1px solid #e9d5ff; }
                 .status-badge.green { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
                 .status-badge.gray { background: #f3f4f6; color: #4b5563; border: 1px solid #e5e7eb; }
+                .status-badge.blue { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
 
                 /* Hover Effect for non-approved rows */
                 .history-row:not(.read-only-row):hover {
