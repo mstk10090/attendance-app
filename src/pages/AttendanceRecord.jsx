@@ -26,13 +26,14 @@ const isHoliday = (d) => {
   return HOLIDAYS.includes(s);
 };
 
-// Generate 30-minute intervals for 24 hours (00:00 - 23:30)
+// Generate 30-minute intervals for 24 hours (00:00 - 24:00)
 const TIME_OPTIONS = [];
 for (let h = 0; h < 24; h++) {
   const hh = String(h).padStart(2, '0');
   TIME_OPTIONS.push(`${hh}:00`);
   TIME_OPTIONS.push(`${hh}:30`);
 }
+TIME_OPTIONS.push("24:00"); // 深夜シフト用
 
 const API_BASE = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com";
 
@@ -47,6 +48,23 @@ const minToTime = (min) => {
   const h = Math.floor(min / 60);
   const m = Math.floor(min % 60);
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+};
+
+// 時刻を30分単位に丸める（出勤時刻は切り上げ、退勤時刻は切り捨て）
+const roundTimeToHalfHour = (timeStr, mode = "floor") => {
+  if (!timeStr) return "";
+  const mins = toMin(timeStr);
+  let rounded;
+  if (mode === "ceil") {
+    // 出勤は切り上げ（過少評価を避ける）
+    rounded = Math.ceil(mins / 30) * 30;
+  } else {
+    // 退勤は切り捨て（過大評価を避ける）
+    rounded = Math.floor(mins / 30) * 30;
+  }
+  // 24時間を超えた場合は23:30に
+  if (rounded >= 24 * 60) rounded = 23 * 60 + 30;
+  return minToTime(rounded);
 };
 
 const calcBreakTime = (e) => {
@@ -356,6 +374,70 @@ export default function AttendanceRecord({ user: propUser }) {
       const idx = newItems.findIndex(i => i.workDate === activeItem.workDate);
       if (idx >= 0) {
         newItems[idx].clockOut = nowTime;
+
+        // シフト通りに出勤していたら自動で承認待ちにする（シフトがない場合も自動申請）
+        const lookupDate = newItems[idx].displayDate || newItems[idx].workDate;
+        const shift = getShift(user.userName, lookupDate);
+        const clockInTime = newItems[idx].clockIn;
+        const clockOutTime = nowTime;
+
+        let appliedIn, appliedOut;
+        let shouldAutoApply = false;
+
+        if (shift && clockInTime && clockOutTime) {
+          const shiftStartMin = toMin(shift.start);
+          const shiftEndMin = toMin(shift.end);
+          const clockInMin = toMin(clockInTime);
+          const clockOutMin = toMin(clockOutTime);
+
+          // シフト開始時刻より前に出勤し、シフト終了時刻より後に退勤している場合
+          if (clockInMin <= shiftStartMin && clockOutMin >= shiftEndMin) {
+            // シフト通りなのでシフト時間を申請時間とする
+            appliedIn = shift.start;
+            appliedOut = shift.end;
+            shouldAutoApply = true;
+          }
+        } else if (!shift && clockInTime && clockOutTime) {
+          // シフトがない場合: 実際の打刻時間（出勤は切り上げ、退勤は切り捨て）を申請時間とする
+          appliedIn = roundTimeToHalfHour(clockInTime, "ceil");   // 出勤は切り上げ
+          appliedOut = roundTimeToHalfHour(clockOutTime, "floor"); // 退勤は切り捨て
+          shouldAutoApply = true;
+        }
+
+        if (shouldAutoApply) {
+          // 自動で承認待ちにする
+          const existingComment = parseComment(newItems[idx].comment);
+          const updatedComment = {
+            segments: existingComment.segments || [],
+            text: existingComment.text || "",
+            application: {
+              status: "pending",
+              reason: "-",
+              appliedIn: appliedIn,
+              appliedOut: appliedOut,
+              submittedAt: new Date().toISOString(),
+              autoApplied: true  // 自動申請フラグ
+            }
+          };
+
+          // APIで更新
+          await fetch(ENDPOINTS.update, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              userId: user.userId,
+              workDate: activeItem.workDate,
+              clockIn: newItems[idx].clockIn,
+              clockOut: nowTime,
+              breaks: newItems[idx].breaks || [],
+              comment: JSON.stringify(updatedComment),
+              location: newItems[idx].location || "",
+              department: newItems[idx].department || ""
+            }),
+          });
+
+          newItems[idx].comment = JSON.stringify(updatedComment);
+        }
       }
       setItems(newItems);
 
@@ -450,6 +532,86 @@ export default function AttendanceRecord({ user: propUser }) {
           }
           return { ...item, displayDate };
         });
+
+        // シフト一致レコードを自動で承認待ちにする（バックグラウンドで更新）
+        const today = format(new Date(), "yyyy-MM-dd");
+        for (const item of normalized) {
+          const p = parseComment(item.comment);
+          const existingStatus = p.application?.status;
+
+          // 既にステータスがある場合はスキップ
+          if (existingStatus) continue;
+
+          // 取り下げ済みの場合はスキップ（再度自動申請しない）
+          if (p.application?.withdrawn) continue;
+
+          // 出勤・退勤が完了していない場合はスキップ
+          if (!item.clockIn || !item.clockOut) continue;
+
+          // 未来の日付はスキップ
+          const lookupDate = item.displayDate || item.workDate;
+          if (lookupDate > today) continue;
+
+          // シフトを取得
+          const shift = getShift(user.userName, lookupDate);
+
+          let appliedIn, appliedOut;
+
+          if (shift) {
+            // シフトがある場合: シフト通りかチェック（シフト開始前に出勤、シフト終了後に退勤）
+            const shiftStartMin = toMin(shift.start);
+            const shiftEndMin = toMin(shift.end);
+            const clockInMin = toMin(item.clockIn);
+            const clockOutMin = toMin(item.clockOut);
+
+            if (clockInMin <= shiftStartMin && clockOutMin >= shiftEndMin) {
+              // シフト通りなのでシフト時間を申請時間とする
+              appliedIn = shift.start;
+              appliedOut = shift.end;
+            } else {
+              // シフトはあるが時間が合わないのでスキップ（手動申請が必要）
+              continue;
+            }
+          } else {
+            // シフトがない場合: 実際の打刻時間（出勤は切り上げ、退勤は切り捨て）を申請時間とする
+            appliedIn = roundTimeToHalfHour(item.clockIn, "ceil");   // 出勤は切り上げ
+            appliedOut = roundTimeToHalfHour(item.clockOut, "floor"); // 退勤は切り捨て
+          }
+
+          // 自動で承認待ちにする
+          const updatedComment = {
+            segments: p.segments || [],
+            text: p.text || "",
+            application: {
+              status: "pending",
+              reason: "-",
+              appliedIn: appliedIn,
+              appliedOut: appliedOut,
+              submittedAt: new Date().toISOString(),
+              autoApplied: true
+            }
+          };
+
+          // APIで更新（バックグラウンド）
+          fetch(ENDPOINTS.update, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              userId: user.userId,
+              workDate: item.workDate,
+              clockIn: item.clockIn,
+              clockOut: item.clockOut,
+              breaks: item.breaks || [],
+              comment: JSON.stringify(updatedComment),
+              location: item.location || "",
+              department: item.department || ""
+            }),
+          }).catch(err => console.error("Auto-apply failed:", err));
+
+          // ローカルも更新
+          item.comment = JSON.stringify(updatedComment);
+        }
+
         setItems(normalized);
       }
     } catch (e) {
@@ -492,10 +654,11 @@ export default function AttendanceRecord({ user: propUser }) {
     const shift = getShift(user?.userName, lookupDate);
 
     if (item) {
-      // Use existing values or defaults
-      setFormIn(item.clockIn || shift?.start || "");
-      // If clockOut is missing, user MUST input it (do not auto-fill from shift)
-      setFormOut(item.clockOut || "");
+      // Use existing values or defaults, rounding to 30-minute intervals
+      const clockInRounded = roundTimeToHalfHour(item.clockIn, "ceil"); // 出勤は切り上げ
+      const clockOutRounded = roundTimeToHalfHour(item.clockOut, "floor"); // 退勤は切り捨て
+      setFormIn(clockInRounded || shift?.start || "");
+      setFormOut(clockOutRounded || "");
       setFormBreaks(item.breaks || []);
 
       if (item.segments && item.segments.length > 0) {
@@ -600,22 +763,35 @@ export default function AttendanceRecord({ user: propUser }) {
         application: application
       };
 
+      // シフト未出勤の場合（originalItemがない、またはclockInがない）
+      // workDateは正規化された日付形式（yyyy-MM-dd）を使用する
+      const effectiveWorkDate = originalItem?.workDate || expandedDate;
+
       const payload = {
         userId: user.userId,
-        workDate: expandedDate, // KEEP MANGLED ID
+        workDate: effectiveWorkDate,
         clockIn: formIn,
         clockOut: formOut,
         breaks: formBreaks.filter(b => b.start && b.end),
         comment: JSON.stringify(commentObj),
-        location: formSegments[0]?.location || "",
-        department: formSegments[0]?.department || ""
+        location: formSegments[0]?.location || user.defaultLocation || "",
+        department: formSegments[0]?.department || user.defaultDepartment || ""
       };
 
-      await fetch(ENDPOINTS.update, {
+      // APIを呼び出し - updateはUPSERT動作をする（存在しなければ作成）
+      const res = await fetch(ENDPOINTS.update, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error("申請エラー:", res.status, errText);
+        alert(`申請に失敗しました (${res.status}): ${errText || "不明なエラー"}`);
+        setLoading(false);
+        return;
+      }
 
       setExpandedDate(null); // Close inline
       fetchData();
@@ -641,10 +817,10 @@ export default function AttendanceRecord({ user: propUser }) {
       }
       const p = parseComment(originalItem?.comment);
 
-      // Remove application object to withdraw
+      // 取り下げフラグを設定（application: nullにすると自動申請で再度pendingに戻るため）
       const newComment = {
         ...p,
-        application: null
+        application: { withdrawn: true, withdrawnAt: new Date().toISOString() }
       };
 
       const payload = {
@@ -751,7 +927,46 @@ export default function AttendanceRecord({ user: propUser }) {
 
           // Get Shift to check Dispatch status. Use displayDate.
           const s = getShift(user.userName, dDate);
-          if (s && s.isDispatch) {
+
+          if (s && s.isDispatch && (s.dispatchRange || s.partTimeRange)) {
+            // 派遣シフトがある場合: dispatchRangeとpartTimeRangeを使用して正確に計算
+            const actualIn = toMin(appliedIn || item.clockIn);
+            const actualOut = toMin(appliedOut || item.clockOut);
+
+            // 派遣区間の計算
+            if (s.dispatchRange) {
+              const dispStart = toMin(s.dispatchRange.start);
+              const dispEnd = toMin(s.dispatchRange.end);
+              // 実際の出勤時刻と派遣区間の重なりを計算
+              const overlapStart = Math.max(actualIn, dispStart);
+              const overlapEnd = Math.min(actualOut, dispEnd);
+              if (overlapStart < overlapEnd) {
+                dispatchMin += (overlapEnd - overlapStart);
+              }
+            }
+
+            // バイト区間の計算
+            if (s.partTimeRange) {
+              const partStart = toMin(s.partTimeRange.start);
+              const partEnd = toMin(s.partTimeRange.end);
+              // 実際の出勤時刻とバイト区間の重なりを計算
+              const overlapStart = Math.max(actualIn, partStart);
+              const overlapEnd = Math.min(actualOut, partEnd);
+              if (overlapStart < overlapEnd) {
+                partTimeMin += (overlapEnd - overlapStart);
+              }
+            }
+
+            // partTimeRangeがない場合（派遣のみの日）で、派遣終了後も働いている場合
+            if (!s.partTimeRange && s.dispatchRange) {
+              const dispEnd = toMin(s.dispatchRange.end);
+              if (actualOut > dispEnd) {
+                // 派遣終了後はバイト時間として計算
+                partTimeMin += (actualOut - dispEnd);
+              }
+            }
+          } else if (s && s.isDispatch) {
+            // dispatchRange/partTimeRangeがない旧データの場合のフォールバック
             // Dispatch Logic: First 8h is Dispatch, Rest is PartTime
             const disp = Math.min(wm, 8 * 60);
             const part = Math.max(0, wm - 8 * 60);
@@ -780,6 +995,8 @@ export default function AttendanceRecord({ user: propUser }) {
   const unappliedCount = items.filter(i => {
     const p = parseComment(i.comment);
     const app = p.application;
+    // 取り下げ済みの場合は未申請としてカウントしない
+    if (app?.withdrawn) return false;
     // Fix: Only count as "Unapplied" if clockOut exists (work finished) OR if admin requested resubmission
     // If clockIn exists but no clockOut, it's either "Working" or "Forgot Clockout" (handled separately)
     if (i.clockIn && i.clockOut && !app?.status) return true;
@@ -826,8 +1043,12 @@ export default function AttendanceRecord({ user: propUser }) {
         }
       }
 
-      // シフトがあり、開始時刻より遅く出勤した場合
+
+      // シフトがあり、開始時刻より遅く出勤した場合（取消済みの場合は除外）
       if (shift && shift.start && toMin(item.clockIn) > toMin(shift.start)) {
+        // 遅刻取消フラグがある場合は除外
+        const p = parseComment(item.comment);
+        if (p.application?.lateCancelled) return false;
         return true;
       }
       return false;
@@ -876,10 +1097,15 @@ export default function AttendanceRecord({ user: propUser }) {
             <Clock size={24} />
             出退勤入力
             <span style={{ fontSize: "0.9rem", color: "#6b7280", fontWeight: "normal", marginLeft: "12px" }}>
-              ({format(currentDate, "M")}月の規定日数: {(currentDate.getFullYear() === 2026 && currentDate.getMonth() === 1) ? 18 : 19}日)
+              ({format(currentDate, "M")}月の規定日数: {(currentDate.getFullYear() === 2026 && currentDate.getMonth() === 1) ? (user?.employmentType === "学生バイト" ? 16 : 18) : 19}日)
               {todayShift && (
                 <span style={{ marginLeft: "12px", color: "#2563eb", fontWeight: "bold" }}>
                   本日のシフト: {todayShift.isOff ? "休み" : `${todayShift.start} - ${todayShift.end}`}
+                  {todayShift.original && ["朝", "早", "中", "遅", "深"].some(code => todayShift.original.includes(code)) && (
+                    <span style={{ marginLeft: "6px", background: "#eff6ff", color: "#2563eb", padding: "2px 8px", borderRadius: "4px", fontSize: "0.85rem" }}>
+                      {todayShift.original.split(/[\s\/]/)[0]}
+                    </span>
+                  )}
                 </span>
               )}
             </span>

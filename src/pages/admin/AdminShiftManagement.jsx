@@ -99,64 +99,90 @@ const calcSplitDisplay = (item, shift) => {
   if (!item.clockIn) return "-";
   if (!item.clockOut) return `${item.clockIn} ~ (勤務中)`;
 
-  const totalWork = calcWorkMin(item);
+  const actualIn = toMin(item.clockIn);
+  const actualOut = toMin(item.clockOut);
   let dispatchMin = 0;
   let partTimeMin = 0;
+  let dispatchStart = null, dispatchEnd = null;
+  let partTimeStart = null, partTimeEnd = null;
 
   // Dispatch Check
-  // "朝","早","遅","中" imply Dispatch if matched.
-  // Also shift.location === "派遣"
   const isDispatch = shift?.isDispatch || shift?.location === "派遣" || ["朝", "早", "遅", "中"].includes(shift?.type || "");
 
-  if (isDispatch && shift && shift.start && shift.end) {
+  if (!isDispatch) {
+    // Not dispatch, return standard
+    return <div>{item.clockIn} - {item.clockOut}</div>;
+  }
+
+  // 新しいdispatchRange/partTimeRange方式を使用
+  if (shift?.dispatchRange || shift?.partTimeRange) {
+    // 派遣区間の計算
+    if (shift.dispatchRange) {
+      const dispStart = toMin(shift.dispatchRange.start);
+      const dispEnd = toMin(shift.dispatchRange.end);
+      const overlapStart = Math.max(actualIn, dispStart);
+      const overlapEnd = Math.min(actualOut, dispEnd);
+      if (overlapStart < overlapEnd) {
+        dispatchMin = overlapEnd - overlapStart;
+        dispatchStart = minToTime(overlapStart);
+        dispatchEnd = minToTime(overlapEnd);
+      }
+    }
+
+    // バイト区間の計算
+    if (shift.partTimeRange) {
+      const partStart = toMin(shift.partTimeRange.start);
+      const partEnd = toMin(shift.partTimeRange.end);
+      const overlapStart = Math.max(actualIn, partStart);
+      const overlapEnd = Math.min(actualOut, partEnd);
+      if (overlapStart < overlapEnd) {
+        partTimeMin = overlapEnd - overlapStart;
+        partTimeStart = minToTime(overlapStart);
+        partTimeEnd = minToTime(overlapEnd);
+      }
+    }
+
+    // partTimeRangeがない場合（派遣のみの日）で、派遣終了後も働いている場合
+    if (!shift.partTimeRange && shift.dispatchRange) {
+      const dispEnd = toMin(shift.dispatchRange.end);
+      if (actualOut > dispEnd) {
+        partTimeMin = actualOut - dispEnd;
+        partTimeStart = minToTime(dispEnd);
+        partTimeEnd = item.clockOut;
+      }
+    }
+  } else if (shift && shift.start && shift.end) {
+    // 旧方式: シフト時間ベースで計算（フォールバック）
     const shiftStart = toMin(shift.start);
     const shiftEnd = toMin(shift.end);
-    const actualIn = toMin(item.clockIn);
-    const actualOut = toMin(item.clockOut);
 
     const start = Math.max(shiftStart, actualIn);
     const end = Math.min(shiftEnd, actualOut);
 
     if (start < end) {
-      // Intersection Exists
-      const breaks = item.breaks || [];
-      let breakInOverlap = 0;
-
-      breaks.forEach(b => {
-        if (b.start && b.end) {
-          const bStart = toMin(b.start);
-          const bEnd = toMin(b.end);
-          const bOverlapStart = Math.max(start, bStart);
-          const bOverlapEnd = Math.min(end, bEnd);
-          if (bOverlapStart < bOverlapEnd) {
-            breakInOverlap += (bOverlapEnd - bOverlapStart);
-          }
-        }
-      });
-
-      dispatchMin = Math.max(0, (end - start) - breakInOverlap);
+      dispatchMin = end - start;
+      dispatchStart = minToTime(Math.max(actualIn, shiftStart));
+      dispatchEnd = minToTime(Math.min(actualOut, shiftEnd));
     }
+
+    const totalWork = calcWorkMin(item);
     partTimeMin = Math.max(0, totalWork - dispatchMin);
-
-  } else {
-    // Not dispatch, return standard
-    return <div>{item.clockIn} - {item.clockOut}</div>;
+    if (partTimeMin > 0) {
+      partTimeStart = dispatchEnd;
+      partTimeEnd = item.clockOut;
+    }
   }
-
-  // Visual Display Logic
-  const splitPointMin = Math.min(toMin(shift.end), toMin(item.clockOut));
-  const splitPoint = minToTime(splitPointMin);
 
   return (
     <div style={{ fontSize: "0.85rem", lineHeight: "1.4" }}>
       {dispatchMin > 0 && (
-        <div>{item.clockIn} - {splitPoint} (派遣)</div>
+        <div style={{ color: "#2563eb" }}>{dispatchStart} - {dispatchEnd} (派遣 {Math.floor(dispatchMin / 60)}h{dispatchMin % 60 > 0 ? dispatchMin % 60 + 'm' : ''})</div>
       )}
       {partTimeMin > 0 && (
-        <div style={{ color: "#16a34a" }}>{splitPoint} - {item.clockOut} (バイト)</div>
+        <div style={{ color: "#16a34a" }}>{partTimeStart} - {partTimeEnd} (バイト {Math.floor(partTimeMin / 60)}h{partTimeMin % 60 > 0 ? partTimeMin % 60 + 'm' : ''})</div>
       )}
       {dispatchMin === 0 && partTimeMin === 0 && (
-        <div>{item.clockIn} - {item.clockOut} (派遣)</div>
+        <div>{item.clockIn} - {item.clockOut}</div>
       )}
     </div>
   );
@@ -603,12 +629,17 @@ export default function AdminShiftManagement() {
       let late = 0;
       let early = 0;
       let missingOut = 0;
+      let dispatchMin = 0;
+      let partTimeMin = 0;
 
       // シフトマップからユーザーのシフトを取得するためのキー
       const fullName = (u.lastName || "") + (u.firstName || "");
       const fullNameSpace = (u.lastName || "") + " " + (u.firstName || "");
       const fullNameWide = (u.lastName || "") + "　" + (u.firstName || "");
       const uShiftData = shiftMap[fullName] || shiftMap[fullNameSpace] || shiftMap[fullNameWide] || shiftMap[u.userName] || {};
+
+      // 派遣ユーザーかどうかをチェック
+      const isDispatchUser = u.employmentType === "派遣";
 
       uItems.forEach(i => {
         const app = i._application || {};
@@ -626,6 +657,51 @@ export default function AdminShiftManagement() {
           const clockInMin = toMin(i.clockIn);
           if (clockInMin > shiftStartMin) {
             late++;
+          }
+        }
+
+        // 派遣/バイト時間の計算（承認済みのレコードのみ）
+        if (app.status === "approved" && i.clockIn && i.clockOut && isDispatchUser) {
+          const actualIn = toMin(app.appliedIn || i.clockIn);
+          const actualOut = toMin(app.appliedOut || i.clockOut);
+
+          if (shift && (shift.dispatchRange || shift.partTimeRange)) {
+            // 新しい方式: dispatchRange/partTimeRangeを使用
+            if (shift.dispatchRange) {
+              const dispStart = toMin(shift.dispatchRange.start);
+              const dispEnd = toMin(shift.dispatchRange.end);
+              const overlapStart = Math.max(actualIn, dispStart);
+              const overlapEnd = Math.min(actualOut, dispEnd);
+              if (overlapStart < overlapEnd) {
+                dispatchMin += (overlapEnd - overlapStart);
+              }
+            }
+
+            if (shift.partTimeRange) {
+              const partStart = toMin(shift.partTimeRange.start);
+              const partEnd = toMin(shift.partTimeRange.end);
+              const overlapStart = Math.max(actualIn, partStart);
+              const overlapEnd = Math.min(actualOut, partEnd);
+              if (overlapStart < overlapEnd) {
+                partTimeMin += (overlapEnd - overlapStart);
+              }
+            }
+
+            // partTimeRangeがない場合で、派遣終了後も働いている場合
+            if (!shift.partTimeRange && shift.dispatchRange) {
+              const dispEnd = toMin(shift.dispatchRange.end);
+              if (actualOut > dispEnd) {
+                partTimeMin += (actualOut - dispEnd);
+              }
+            }
+          } else if (shift && shift.isDispatch) {
+            // 旧方式: フォールバック
+            const wm = Math.max(0, actualOut - actualIn);
+            dispatchMin += Math.min(wm, 8 * 60);
+            partTimeMin += Math.max(0, wm - 8 * 60);
+          } else {
+            // シフトなしまたは派遣シフトでない場合は全てバイト
+            partTimeMin += Math.max(0, actualOut - actualIn);
           }
         }
       });
@@ -649,7 +725,11 @@ export default function AdminShiftManagement() {
         late,
         early,
         missingOut,
-        prescribed
+        prescribed,
+        dispatchMin,
+        partTimeMin,
+        dispatchHours: `${Math.floor(dispatchMin / 60)}:${String(dispatchMin % 60).padStart(2, '0')}`,
+        partTimeHours: `${Math.floor(partTimeMin / 60)}:${String(partTimeMin % 60).padStart(2, '0')}`
       };
     });
   }, [items, users, viewMode, fetchRange, shiftMap]);
@@ -1053,6 +1133,12 @@ export default function AdminShiftManagement() {
                       <th style={{ background: "#f9fafb", padding: "12px 16px", borderBottom: "2px solid #e5e7eb" }}>雇用形態</th>
                       <th style={{ background: "#f9fafb", padding: "12px 16px", borderBottom: "2px solid #e5e7eb" }}>部署/拠点</th>
                       <th style={{ background: "#f9fafb", padding: "12px 16px", borderBottom: "2px solid #e5e7eb", textAlign: "center" }}>規定日数</th>
+                      <th onClick={() => requestSort('dispatchMin')} style={{ cursor: "pointer", background: "#eff6ff", padding: "12px 16px", borderBottom: "2px solid #e5e7eb", textAlign: "center", color: "#2563eb" }}>
+                        派遣時間 {sortConfig.key === 'dispatchMin' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                      </th>
+                      <th onClick={() => requestSort('partTimeMin')} style={{ cursor: "pointer", background: "#f0fdf4", padding: "12px 16px", borderBottom: "2px solid #e5e7eb", textAlign: "center", color: "#16a34a" }}>
+                        バイト時間 {sortConfig.key === 'partTimeMin' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                      </th>
                       <th onClick={() => requestSort('absent')} style={{ cursor: "pointer", background: "#f9fafb", padding: "12px 16px", borderBottom: "2px solid #e5e7eb", textAlign: "center" }}>
                         欠勤 {sortConfig.key === 'absent' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
                       </th>
@@ -1077,6 +1163,16 @@ export default function AdminShiftManagement() {
                         <td style={{ padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>{r.user.defaultDepartment}/{r.user.defaultLocation}</td>
                         <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", fontWeight: "bold", color: "#374151" }}>
                           {r.prescribed || "-"}
+                        </td>
+                        <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", background: "#f8faff" }}>
+                          {r.user.employmentType === "派遣" && r.dispatchMin > 0 ? (
+                            <span style={{ fontWeight: "bold", color: "#2563eb" }}>{r.dispatchHours}</span>
+                          ) : <span style={{ color: "#d1d5db" }}>-</span>}
+                        </td>
+                        <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", background: "#f8fff8" }}>
+                          {r.user.employmentType === "派遣" && r.partTimeMin > 0 ? (
+                            <span style={{ fontWeight: "bold", color: "#16a34a" }}>{r.partTimeHours}</span>
+                          ) : <span style={{ color: "#d1d5db" }}>-</span>}
                         </td>
                         <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>
                           {r.absent > 0 ? <span className="status-badge red" style={{ minWidth: "30px", display: "inline-block" }}>{r.absent}</span> : <span style={{ color: "#d1d5db" }}>-</span>}
@@ -1282,7 +1378,36 @@ export default function AdminShiftManagement() {
                         <td style={{ padding: "12px" }}>
                           {shift ? (
                             <span style={{ fontWeight: shift.isOff ? "bold" : "normal", color: shift.isOff ? "#ef4444" : "inherit" }}>
-                              {shift.isOff ? "休み" : `${shift.start} - ${shift.end}`}
+                              {shift.isOff ? "休み" : (
+                                <>
+                                  {`${shift.start} - ${shift.end}`}
+                                  {/* 派遣シフトの場合はシフト種別を表示 */}
+                                  {shift.isDispatch && shift.original && (() => {
+                                    // originalから最初のシフトコード（朝・早・中・遅・深）を抽出
+                                    const firstCode = shift.original.split(/[\s\/]/)[0]?.trim();
+                                    if (["朝", "早", "中", "遅", "深"].includes(firstCode)) {
+                                      return (
+                                        <span style={{
+                                          marginLeft: "6px",
+                                          padding: "2px 6px",
+                                          borderRadius: "4px",
+                                          fontSize: "11px",
+                                          fontWeight: "bold",
+                                          background: firstCode === "朝" ? "#fef3c7" :
+                                            firstCode === "早" ? "#d1fae5" :
+                                              firstCode === "中" ? "#dbeafe" :
+                                                firstCode === "遅" ? "#fce7f3" :
+                                                  firstCode === "深" ? "#1e293b" : "#e5e7eb",
+                                          color: firstCode === "深" ? "#fff" : "#374151"
+                                        }}>
+                                          {firstCode}
+                                        </span>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
+                                </>
+                              )}
                             </span>
                           ) : (
                             <span style={{ color: "#aaa" }}>-</span>
@@ -1314,17 +1439,30 @@ export default function AdminShiftManagement() {
             ガントチャート - {format(new Date(baseDate), "yyyy年M月d日 (E)", { locale: ja })}
           </h3>
 
-          {/* 勤務地フィルタ */}
-          <div style={{ marginBottom: "16px", display: "flex", gap: "12px", alignItems: "center" }}>
-            <label style={{ fontSize: "13px", color: "#6b7280" }}>勤務地:</label>
-            <select
-              value={filterShiftLocation}
-              onChange={(e) => setFilterShiftLocation(e.target.value)}
-              style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "13px" }}
-            >
-              <option value="all">すべて</option>
-              {LOCATIONS.map(loc => <option key={loc} value={loc}>{loc}</option>)}
-            </select>
+          {/* 勤務地・勤務部署フィルタ */}
+          <div style={{ marginBottom: "16px", display: "flex", gap: "20px", alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <label style={{ fontSize: "13px", color: "#6b7280" }}>勤務地:</label>
+              <select
+                value={filterShiftLocation}
+                onChange={(e) => setFilterShiftLocation(e.target.value)}
+                style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "13px" }}
+              >
+                <option value="all">すべて</option>
+                {LOCATIONS.map(loc => <option key={loc} value={loc}>{loc}</option>)}
+              </select>
+            </div>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <label style={{ fontSize: "13px", color: "#6b7280" }}>部署:</label>
+              <select
+                value={filterShiftDepartment}
+                onChange={(e) => setFilterShiftDepartment(e.target.value)}
+                style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "13px" }}
+              >
+                <option value="all">すべて</option>
+                {DEPARTMENTS.map(dept => <option key={dept} value={dept}>{dept}</option>)}
+              </select>
+            </div>
           </div>
 
           {/* ガントチャート本体 */}
@@ -1346,7 +1484,10 @@ export default function AdminShiftManagement() {
                 {(() => {
                   // フィルタリングされたユーザー（シフトがある人のみ）
                   const ganttUsers = users.filter(u => {
+                    // 勤務地フィルタ
                     if (filterShiftLocation !== "all" && u.defaultLocation !== filterShiftLocation) return false;
+                    // 勤務部署フィルタ
+                    if (filterShiftDepartment !== "all" && u.defaultDepartment !== filterShiftDepartment) return false;
                     // シフトがあるかチェック
                     const userName = `${u.lastName} ${u.firstName}`;
                     const userShifts = shiftMap[userName];
@@ -1374,7 +1515,29 @@ export default function AdminShiftManagement() {
                           {userName}
                         </td>
                         <td style={{ padding: "4px 8px", textAlign: "center", fontSize: "11px", color: shift ? "#2563eb" : "#9ca3af", borderRight: "1px solid #e5e7eb" }}>
-                          {shift ? `${shift.start}-${shift.end}` : "-"}
+                          {shift ? (
+                            <>
+                              {`${shift.start}-${shift.end}`}
+                              {/* 派遣シフトの場合はシフト種別を表示 */}
+                              {shift.isDispatch && shift.original && SPECIAL_SHIFTS[shift.original.trim()] && (
+                                <span style={{
+                                  marginLeft: "4px",
+                                  padding: "1px 4px",
+                                  borderRadius: "3px",
+                                  fontSize: "9px",
+                                  fontWeight: "bold",
+                                  background: shift.original.trim() === "朝" ? "#fef3c7" :
+                                    shift.original.trim() === "早" ? "#d1fae5" :
+                                      shift.original.trim() === "中" ? "#dbeafe" :
+                                        shift.original.trim() === "遅" ? "#fce7f3" :
+                                          shift.original.trim() === "深" ? "#1e293b" : "#e5e7eb",
+                                  color: shift.original.trim() === "深" ? "#fff" : "#374151"
+                                }}>
+                                  {shift.original.trim()}
+                                </span>
+                              )}
+                            </>
+                          ) : "-"}
                         </td>
                         {/* 7時〜24時の各時間セル */}
                         {Array.from({ length: 18 }, (_, i) => i + 7).map(hour => {
@@ -1393,7 +1556,7 @@ export default function AdminShiftManagement() {
                               style={{
                                 padding: "4px",
                                 borderRight: "1px solid #e5e7eb",
-                                background: hasShift ? "#a3e635" : "#fff",
+                                background: hasShift ? "#60a5fa" : "#fff",
                                 minHeight: "24px"
                               }}
                             />

@@ -46,10 +46,12 @@ const SOURCES = [
 ];
 
 export const SPECIAL_SHIFTS = {
-    "朝": { start: "07:00", end: "17:00" },
-    "早": { start: "09:00", end: "19:00" },
-    "中": { start: "10:00", end: "19:00" },
-    "遅": { start: "12:00", end: "22:00" }
+    // 派遣シフト: dispatchEndは派遣先での終了時刻、endは全体の終了時刻
+    "朝": { start: "07:00", end: "17:00", dispatchEnd: "15:00" },  // 派遣7-15、バイト15-17
+    "早": { start: "09:00", end: "19:00", dispatchEnd: "17:00" },  // 派遣9-17、バイト17-19
+    "中": { start: "10:00", end: "19:00", dispatchEnd: "17:00" },  // 派遣10-17、バイト17-19
+    "遅": { start: "12:00", end: "22:00", dispatchEnd: "20:00" },  // 派遣12-20、バイト20-22
+    "深": { start: "17:00", end: "03:00", dispatchEnd: "01:00" }   // 深夜シフト
 };
 
 export async function fetchShiftData(forceRefresh = false, additionalSources = []) {
@@ -173,10 +175,12 @@ export function parseCsv(csvText, config, year, month, shifts, locationName, spe
             let isOff = false;
 
             // Check for special single-char codes first (for non-split, usually)
+            let specialShiftCode = null;
             if (val1 && specialShifts && specialShifts[val1]) {
                 const spec = specialShifts[val1];
                 start = spec.start;
                 end = spec.end;
+                specialShiftCode = val1;
             } else if (val1 === "休" || val1 === "休み") {
                 isOff = true;
             } else {
@@ -205,7 +209,28 @@ export function parseCsv(csvText, config, year, month, shifts, locationName, spe
                 const dateKey = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 
                 // Determine if Dispatch based on special code match or location
-                const isDispatch = (locationName === "派遣") || (!!(specialShifts && val1 && specialShifts[val1]));
+                const isDispatch = (locationName === "派遣") || (specialShiftCode !== null);
+
+                // 派遣シフトの場合、dispatchEndを使って派遣区間を設定
+                let dispatchRange = null;
+                let partTimeRange = null;
+
+                if (isDispatch && !isOff && specialShiftCode && specialShifts[specialShiftCode]?.dispatchEnd) {
+                    // 派遣シフト（朝・早・遅・中）の場合 - dispatchEndまでが派遣時間
+                    const spec = specialShifts[specialShiftCode];
+                    dispatchRange = {
+                        start: normalizeTime(spec.start),
+                        end: normalizeTime(spec.dispatchEnd)
+                    };
+                    // 派遣シフト単体の場合はpartTimeRangeは設定しない
+                    // （即日シフトがマージされた時にpartTimeRangeが設定される）
+                } else if (isDispatch && !isOff) {
+                    // dispatchEndがない派遣シフト
+                    dispatchRange = { start: normalizeTime(start), end: normalizeTime(end) };
+                } else if (!isDispatch && !isOff) {
+                    // バイト（即日など）
+                    partTimeRange = { start: normalizeTime(start), end: normalizeTime(end) };
+                }
 
                 const newShift = {
                     start: isOff ? "" : normalizeTime(start),
@@ -213,7 +238,9 @@ export function parseCsv(csvText, config, year, month, shifts, locationName, spe
                     original: isSplit ? `${val1} ${row[colIdx + 1] || ""}` : val1,
                     location: locationName,
                     isOff: isOff,
-                    isDispatch: isDispatch
+                    isDispatch: isDispatch,
+                    dispatchRange: dispatchRange,
+                    partTimeRange: partTimeRange
                 };
 
                 const existing = shifts[name][dateKey];
@@ -225,10 +252,31 @@ export function parseCsv(csvText, config, year, month, shifts, locationName, spe
                     } else if (!existing.isOff && newShift.isOff) {
                         // Keep Work (ignore Off)
                     } else if (!existing.isOff && !newShift.isOff) {
-                        // Both Work: Extend Range
+                        // Both Work: Extend Range and preserve dispatch/partTime ranges
                         const mergedStart = (existing.start < newShift.start) ? existing.start : newShift.start;
                         const mergedEnd = (existing.end > newShift.end) ? existing.end : newShift.end;
                         const mergedLoc = existing.location === newShift.location ? existing.location : `${existing.location}・${newShift.location}`;
+
+                        // Merge dispatchRange: 既存または新規の派遣区間を保持
+                        let mergedDispatchRange = existing.dispatchRange || newShift.dispatchRange;
+                        // Merge partTimeRange: 既存または新規のバイト区間を保持
+                        let mergedPartTimeRange = existing.partTimeRange || newShift.partTimeRange;
+
+                        // もし両方にdispatchRangeがある場合は、範囲を拡張
+                        if (existing.dispatchRange && newShift.dispatchRange) {
+                            mergedDispatchRange = {
+                                start: existing.dispatchRange.start < newShift.dispatchRange.start ? existing.dispatchRange.start : newShift.dispatchRange.start,
+                                end: existing.dispatchRange.end > newShift.dispatchRange.end ? existing.dispatchRange.end : newShift.dispatchRange.end
+                            };
+                        }
+
+                        // もし両方にpartTimeRangeがある場合は、範囲を拡張
+                        if (existing.partTimeRange && newShift.partTimeRange) {
+                            mergedPartTimeRange = {
+                                start: existing.partTimeRange.start < newShift.partTimeRange.start ? existing.partTimeRange.start : newShift.partTimeRange.start,
+                                end: existing.partTimeRange.end > newShift.partTimeRange.end ? existing.partTimeRange.end : newShift.partTimeRange.end
+                            };
+                        }
 
                         shifts[name][dateKey] = {
                             ...existing,
@@ -236,6 +284,8 @@ export function parseCsv(csvText, config, year, month, shifts, locationName, spe
                             end: mergedEnd,
                             location: mergedLoc,
                             isDispatch: existing.isDispatch || newShift.isDispatch,
+                            dispatchRange: mergedDispatchRange,
+                            partTimeRange: mergedPartTimeRange,
                             // Append original text for debug/detail
                             original: `${existing.original} / ${newShift.original}`
                         };

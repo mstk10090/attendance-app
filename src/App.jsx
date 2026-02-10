@@ -24,6 +24,7 @@ import AdminAttendance from "./pages/admin/AdminAttendance";
 import AdminHistory from "./pages/admin/AdminHistory";
 import AdminManual from "./pages/admin/AdminManual";
 import StaffManual from "./pages/StaffManual";
+import ShiftGantt from "./pages/ShiftGantt";
 
 import AdminShiftManagement from "./pages/admin/AdminShiftManagement"; // New Component
 
@@ -257,6 +258,15 @@ export default function App() {
                 </NavLink>
               </div>
 
+              <div className="tab">
+                <NavLink
+                  to="/shift"
+                  className={navLinkClass}
+                >
+                  シフト管理
+                </NavLink>
+              </div>
+
               {/* <div className="tab">
                 <NavLink to="/" className={navLinkClass}>
                   確定シフト
@@ -409,6 +419,7 @@ export default function App() {
               />
               <Route path="/shift/:date" element={<ShiftDetail />} />
               <Route path="/attendance" element={<Attendance />} />
+              <Route path="/shift" element={<ShiftGantt />} />
               <Route path="/manual" element={<StaffManual />} />
               <Route path="*" element={<Navigate to="/attendance" replace />} />
             </>

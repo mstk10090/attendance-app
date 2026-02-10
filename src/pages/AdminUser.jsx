@@ -9,6 +9,29 @@ const WRITE_USER_URL = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.
 
 import { LOCATIONS, DEPARTMENTS, EMPLOYMENT_TYPES } from "../constants";
 
+// パスワード表示用マップ（APIがpasswordDisplayを返さないため、ローカルで保持）
+const PASSWORD_MAP = {
+  "aria2022": "0309", "ariaacc": "2203", "nnn0703": "0403", "asaya62": "6002",
+  "omg": "0000", "1": "1111", "asahi": "0606", "go": "5555", "0001": "0001",
+  "adgj1111": "1111", "202212": "6010", "toya": "0822", "ariatomiku": "0914",
+  "24": "5555", "yyabunakaad1": "5578", "kitagawayuto": "1903", "akari0404": "0044",
+  "0511": "1255", "sinbad24": "0122", "t318": "0318", "mizuki0723": "0723",
+  "yanashitakeishi": "0501", "taiki56": "5453", "wees": "2704", "235506": "0618",
+  "p": "3098", "imo": "0709", "aria1313": "3913", "kajyu512": "6024",
+  "sena0711": "0711", "jxxmp117": "1212", "uchidai": "0301", "sssk2833": "1015",
+  "hiyo1228": "1111", "nao5454": "1484", "Yudai": "0727", "rinsei": "0306",
+  "hinata1127": "2525", "aria0906": "0714", "esa951": "1214", "akira0517": "0517",
+  "youki.0079": "0320", "yukian0505": "0449", "ymasaki0621": "3536", "ako": "4416",
+  "kurukurukun": "0331", "0933c": "0933", "510": "2424", "miu0319": "0319",
+  "nakazaki": "0000", "yudai1108": "1108", "tettamizo": "2953", "hyt41403": "0414",
+  "hyonsu0311": "0311", "iwasa0901": "0510", "thiago1401": "1401", "aria102414": "0121",
+  "hibiki0012": "9609", "riri124": "0124", "ayumi0510": "0510", "guillelju1": "2911",
+  "shotarotakada": "0108", "osu2026": "0423", "77": "0315", "nasimtakaki": "0929",
+  "ama722": "0306", "takutaku303": "0721", "mudai0825": "0825", "kaiwtnb66": "6666",
+  "daichi0502": "0502", "adachi0512": "9110", "eitaw0320": "1061", "emma": "0428",
+  "yuri0713": "0713", "moomin10": "4211", "MasatokiSekiguchi": "4011"
+};
+
 export default function AdminUser() {
   const [mode, setMode] = useState("list");
 
@@ -81,7 +104,16 @@ export default function AdminUser() {
         else if (data && Array.isArray(data.Items)) list = data.Items;
         else if (data && data.success && Array.isArray(data.items)) list = data.items;
 
-        setUsers(list);
+        // loginIdに基づいて重複を排除（最新のエントリを保持）
+        const uniqueMap = new Map();
+        list.forEach(user => {
+          if (user.loginId) {
+            uniqueMap.set(user.loginId, user);
+          }
+        });
+        const uniqueList = Array.from(uniqueMap.values());
+
+        setUsers(uniqueList);
       } catch (e) {
         console.error("Parse error", e);
         setUsers([]);
@@ -264,7 +296,11 @@ export default function AdminUser() {
       }
 
       setMessage(`✅ 保存しました (userId: ${finalUserId})`);
-      fetchUsers();
+      await fetchUsers();
+      // 保存成功後、自動で一覧画面に戻る
+      setTimeout(() => {
+        setMode("list");
+      }, 500);
 
     } catch (err) {
       console.error("Admin user error:", err);
@@ -416,6 +452,7 @@ export default function AdminUser() {
                 <thead style={{ position: "sticky", top: 0, zIndex: 10, background: "#f9fafb" }}>
                   <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
                     <th onClick={() => fetchUsers()} style={{ cursor: "pointer", padding: "12px 16px", textAlign: "left", fontSize: "0.85rem", color: "#6b7280", fontWeight: "600", borderBottom: "1px solid #e5e7eb" }}>氏名 / ID</th>
+                    <th style={{ padding: "12px 16px", textAlign: "center", fontSize: "0.85rem", color: "#6b7280", fontWeight: "600", borderBottom: "1px solid #e5e7eb" }}>パスワード</th>
                     <th style={{ padding: "12px 16px", textAlign: "left", fontSize: "0.85rem", color: "#6b7280", fontWeight: "600", borderBottom: "1px solid #e5e7eb" }}>入社日</th>
                     <th style={{ padding: "12px 16px", textAlign: "left", fontSize: "0.85rem", color: "#6b7280", fontWeight: "600", borderBottom: "1px solid #e5e7eb" }}>雇用形態</th>
                     <th style={{ padding: "12px 16px", textAlign: "left", fontSize: "0.85rem", color: "#6b7280", fontWeight: "600", borderBottom: "1px solid #e5e7eb" }}>部署 / 勤務地</th>
@@ -424,7 +461,7 @@ export default function AdminUser() {
                 </thead>
                 <tbody>
                   {filteredUsers.length === 0 ? (
-                    <tr><td colSpan="5" style={{ textAlign: "center", padding: "40px", color: "#9ca3af" }}>条件に一致するスタッフが見つかりません</td></tr>
+                    <tr><td colSpan="6" style={{ textAlign: "center", padding: "40px", color: "#9ca3af" }}>条件に一致するスタッフが見つかりません</td></tr>
                   ) : (
                     filteredUsers.map(u => {
                       // Display logic
@@ -448,6 +485,11 @@ export default function AdminUser() {
                             <div style={{ fontSize: "0.75rem", color: "#9ca3af", marginTop: "2px" }}>
                               {u.loginId} <span style={{ opacity: 0.6 }}>({u.userId})</span>
                             </div>
+                          </td>
+
+                          {/* Password Column */}
+                          <td style={{ padding: "12px 16px", textAlign: "center", fontFamily: "monospace", fontSize: "0.9rem", color: "#374151", background: "#fff" }}>
+                            {PASSWORD_MAP[u.loginId] || u.passwordDisplay || u.password || "-"}
                           </td>
 
                           {/* Start Date Column */}

@@ -141,37 +141,47 @@ export default function MyPage({ onLogout }) {
         const userRes = await fetch(`${READ_USER_URL}?userId=${userId}`);
         if (userRes.ok) {
           const text = await userRes.text();
+          console.log("MyPage: User API raw response:", text);
           let uData = null;
           try {
             const outer = JSON.parse(text);
             if (outer.body && typeof outer.body === "string") uData = JSON.parse(outer.body);
             else uData = outer;
 
-            if (Array.isArray(uData) && uData.items) uData = uData.items.find(u => u.userId === userId) || null;
-            else if (uData.Items) uData = uData.Items.find(u => u.userId === userId) || null;
+            // 配列形式の場合の処理を修正
+            if (Array.isArray(uData)) {
+              fetchedUser = uData.find(u => u.userId === userId) || null;
+            } else if (uData && uData.Items && Array.isArray(uData.Items)) {
+              fetchedUser = uData.Items.find(u => u.userId === userId) || null;
+            } else if (uData && (uData.userId === userId || uData.loginId === loginId)) {
+              fetchedUser = uData;
+            } else if (Array.isArray(outer)) {
+              fetchedUser = outer.find(u => u.userId === userId) || null;
+            }
 
-            if (uData && (uData.userId === userId || uData.loginId === loginId)) fetchedUser = uData;
-            else if (Array.isArray(outer)) fetchedUser = outer.find(u => u.userId === userId) || null;
+            console.log("MyPage: fetchedUser:", fetchedUser);
 
             if (fetchedUser) {
-              // Admin -> User Sync: If API has valid values, update localStorage (Source of Truth = API/Admin)
-              // If API is empty/unspecified, fallback to localStorage (Source of Truth = Local)
+              // Admin -> User Sync: APIの値を常に使用（Source of Truth = API/Admin）
+              const newDefaultLocation = fetchedUser.defaultLocation || "未記載";
+              const newDefaultDepartment = fetchedUser.defaultDepartment || "未記載";
 
-              if (fetchedUser.defaultLocation && fetchedUser.defaultLocation !== "未記載") {
-                localStorage.setItem("defaultLocation", fetchedUser.defaultLocation);
-              } else {
-                fetchedUser.defaultLocation = localStorage.getItem("defaultLocation") || "未記載";
-              }
+              console.log("MyPage: Setting defaultLocation to:", newDefaultLocation);
+              console.log("MyPage: Setting defaultDepartment to:", newDefaultDepartment);
 
-              if (fetchedUser.defaultDepartment && fetchedUser.defaultDepartment !== "未記載") {
-                localStorage.setItem("defaultDepartment", fetchedUser.defaultDepartment);
-              } else {
-                fetchedUser.defaultDepartment = localStorage.getItem("defaultDepartment") || "未記載";
-              }
+              // localStorageを更新
+              localStorage.setItem("defaultLocation", newDefaultLocation);
+              localStorage.setItem("defaultDepartment", newDefaultDepartment);
 
-              setUserInfo(fetchedUser);
+              // userInfoを確実に更新
+              setUserInfo(prev => ({
+                ...prev,
+                ...fetchedUser,
+                defaultLocation: newDefaultLocation,
+                defaultDepartment: newDefaultDepartment
+              }));
             }
-          } catch (e) { /* ignore */ }
+          } catch (e) { console.error("MyPage: User parse error:", e); }
         }
       } catch (e) {
         console.warn("User fetch fail", e);
@@ -212,6 +222,7 @@ export default function MyPage({ onLogout }) {
       let hasAnyNightWork = false;
       let weekendWorkCount = 0;
       let firstDayBonusAmount = 0;
+      let firstDayHasNightWork = false;
       const savedType = localStorage.getItem("employmentType");
       const currentType = fetchedUser?.employmentType || savedType;
       const isDispatchUser = currentType === "派遣";
@@ -219,10 +230,16 @@ export default function MyPage({ onLogout }) {
       currentItems.forEach(item => {
         const workMin = calcWorkMin(item);
         if (workMin > 0) {
-          // 1日ボーナス (全ユーザー対象: 働いた時間 * 1000)
+          // アリアちゃん1日出勤ボーナス (全ユーザー対象)
           const d = new Date(item.workDate);
           if (d.getDate() === 1) {
-            firstDayBonusAmount += Math.floor((workMin / 60) * 1000);
+            // 30分単位で¥500、最低¥1,000
+            const units = Math.floor(workMin / 30);
+            firstDayBonusAmount += Math.max(1000, units * 500);
+            // 1日に深夜勤務(22時以降)があるかチェック
+            if (hasNightWork(item)) {
+              firstDayHasNightWork = true;
+            }
           }
 
           // 給与対象時間 & 派遣時間計算
@@ -351,11 +368,7 @@ export default function MyPage({ onLogout }) {
         }
       }
 
-      // --- 深夜手当 ---
-      if (hasAnyNightWork) {
-        bonusList.push({ name: "深夜勤務手当", amount: 10000 });
-        bTotal += 10000;
-      }
+      // 深夜勤務手当は1日出勤ボーナス（夜勤）に統合のため削除
 
       // --- 派遣限定ボーナス ---
       if (isDispatch) {
@@ -375,10 +388,16 @@ export default function MyPage({ onLogout }) {
         }
       }
 
-      // 1日出勤ボーナス
+      // アリアちゃん1日出勤ボーナス（時給）
       if (firstDayBonusAmount > 0) {
-        bonusList.push({ name: "1日出勤ボーナス", amount: firstDayBonusAmount });
+        bonusList.push({ name: "アリアちゃん1日出勤ボーナス（時給）", amount: firstDayBonusAmount });
         bTotal += firstDayBonusAmount;
+      }
+
+      // アリアちゃん1日出勤ボーナス（夜勤）- 1日に22時以降の勤務があれば¥10,000
+      if (firstDayHasNightWork) {
+        bonusList.push({ name: "アリアちゃん1日出勤ボーナス（夜勤）", amount: 10000 });
+        bTotal += 10000;
       }
 
       setBonuses(bonusList);
@@ -399,15 +418,11 @@ export default function MyPage({ onLogout }) {
   const handleSaveSettings = async () => {
     if (!userInfo) return;
 
+    // 既存のユーザー情報を全て維持し、勤務地と部署のみ変更する
     const payload = {
-      userId: userInfo.userId,
-      loginId: userInfo.loginId,
-      lastName: userInfo.lastName || null,
-      firstName: userInfo.firstName || null,
-      startDate: userInfo.startDate || null,
-      employmentType: userInfo.employmentType || "バイト",
-      livingAlone: (userInfo.livingAlone === true || userInfo.livingAlone === "true"),
-      hourlyWage: userInfo.hourlyWage ? Number(userInfo.hourlyWage) : null,
+      ...userInfo,
+      userId: userInfo.userId || userId,
+      loginId: userInfo.loginId || loginId,
       defaultLocation: userInfo.defaultLocation || "未記載",
       defaultDepartment: userInfo.defaultDepartment || "未記載"
     };
@@ -417,11 +432,19 @@ export default function MyPage({ onLogout }) {
       const headers = { "Content-Type": "application/json" };
       if (token) headers["Authorization"] = token;
 
-      await fetch(WRITE_USER_URL, {
+      const res = await fetch(WRITE_USER_URL, {
         method: "POST",
         headers: headers,
         body: JSON.stringify(payload)
       });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error("Settings save error:", res.status, errText);
+        alert(`保存に失敗しました (${res.status})`);
+        return;
+      }
+
       // Sync to localStorage
       localStorage.setItem("defaultLocation", payload.defaultLocation);
       localStorage.setItem("defaultDepartment", payload.defaultDepartment);
@@ -574,6 +597,11 @@ export default function MyPage({ onLogout }) {
             // シフト開始時刻と出勤時刻を比較して遅刻をカウント
             const lateCount = targetItems.filter(item => {
               if (!item.clockIn) return false;
+
+              // 管理者が遅刻取消済みの場合はカウントしない
+              const parsed = safeJsonParse(item.comment);
+              if (parsed?.application?.lateCancelled) return false;
+
               const workDate = item.displayDate || item.workDate;
               // ユーザー名でシフトを検索
               const keysToTry = [

@@ -123,6 +123,14 @@ export default function Login({ onLogin }) {
         localStorage.removeItem("employmentType");
       }
 
+      // ★★★ デフォルト勤務地・部署を保存 ★★★
+      if (user.defaultLocation) {
+        localStorage.setItem("defaultLocation", user.defaultLocation);
+      }
+      if (user.defaultDepartment) {
+        localStorage.setItem("defaultDepartment", user.defaultDepartment);
+      }
+
       // ログインフラグ
       localStorage.setItem("isLoggedIn", "true");
 

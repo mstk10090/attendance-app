@@ -155,6 +155,15 @@ export default function AdminHistory() {
                     else if (data && Array.isArray(data.Items)) list = data.Items;
                     else if (data && data.success && Array.isArray(data.items)) list = data.items;
 
+                    // loginIdに基づいて重複を排除（最新のエントリを保持）
+                    const uniqueMap = new Map();
+                    list.forEach(user => {
+                        if (user.loginId) {
+                            uniqueMap.set(user.loginId, user);
+                        }
+                    });
+                    list = Array.from(uniqueMap.values());
+
                     // Sort by name or ID logically
                     list.sort((a, b) => (a.userId || "").localeCompare(b.userId || ""));
                     setUsers(list);
@@ -327,10 +336,16 @@ export default function AdminHistory() {
 
         userItems.forEach(i => {
             const r = extractReason(i);
+            // 遅刻取消フラグを確認
+            let parsed = null;
+            try { parsed = JSON.parse(i.comment || "{}"); } catch { }
+            const lateCancelled = parsed?.application?.lateCancelled;
+            const earlyCancelled = parsed?.application?.earlyCancelled;
+
             if (r) {
                 reasons[r] = (reasons[r] || 0) + 1;
-                if (r.includes("遅刻")) lateCount++;
-                if (r.includes("早退")) earlyCount++;
+                if (r.includes("遅刻") && !lateCancelled) lateCount++;
+                if (r.includes("早退") && !earlyCancelled) earlyCount++;
             }
         });
 

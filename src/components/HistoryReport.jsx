@@ -45,11 +45,29 @@ const calcRoundedWorkMin = (e) => {
     return Math.floor(raw / 30) * 30;
 };
 
+const parseComment = (comment) => {
+    if (!comment) return { segments: [], text: "", application: null };
+    try {
+        const parsed = JSON.parse(comment);
+        return {
+            segments: parsed.segments || [],
+            text: parsed.text || "",
+            application: parsed.application || null
+        };
+    } catch {
+        return { segments: [], text: comment || "", application: null };
+    }
+};
+
 const parseStatus = (item) => {
     if (!item.comment) return null;
     try {
         const p = JSON.parse(item.comment);
-        if (p && p.application) return p.application.status;
+        if (p && p.application) {
+            // 取り下げ済みの場合はステータスなし（未申請）として扱う
+            if (p.application.withdrawn) return null;
+            return p.application.status;
+        }
         return null;
     } catch {
         return null;
@@ -240,16 +258,26 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                 let workTimeDisplay = <span style={{ color: "#e5e7eb" }}>-</span>;
                                 let workTimeColor = "#111827"; // デフォルトは黒
 
-                                // 承認済みの場合は申請時間から計算（休憩時間は引かない）
+                                // 承認済みの場合は申請時間から計算、なければ打刻時間から計算
                                 if (isApproved) {
                                     const appliedTime = extractAppliedTime(item);
-                                    if (appliedTime) {
+                                    let appliedDuration = 0;
+
+                                    if (appliedTime && appliedTime.appliedIn && appliedTime.appliedOut) {
+                                        // 申請時間がある場合
                                         const inMin = toMin(appliedTime.appliedIn);
                                         const outMin = toMin(appliedTime.appliedOut);
-                                        const appliedDuration = outMin - inMin;
+                                        appliedDuration = outMin - inMin;
+                                    } else if (item.clockIn && item.clockOut) {
+                                        // フォールバック：打刻時間から計算（休憩を引く）
+                                        appliedDuration = calcWorkMin(item);
+                                    }
 
-                                        const hours = Math.floor(appliedDuration / 60);
-                                        const mins = appliedDuration % 60;
+                                    // 30分単位に丸める（切り捨て）
+                                    if (appliedDuration > 0) {
+                                        const roundedDuration = Math.floor(appliedDuration / 30) * 30;
+                                        const hours = Math.floor(roundedDuration / 60);
+                                        const mins = roundedDuration % 60;
                                         workTimeDisplay = `${hours}:${String(mins).padStart(2, '0')}`;
                                         workTimeColor = "#16a34a"; // 緑色（承認済み）
                                     }
@@ -347,16 +375,50 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                             {format(dateObj, "MM/dd (E)", { locale: ja })}
                                         </td>
                                         <td style={{ padding: "12px 16px", textAlign: "center", fontSize: "0.9rem", color: shift ? "#2563eb" : "#9ca3af" }}>
-                                            {shift ? `${shift.start}-${shift.end}` : "-"}
+                                            {shift ? (
+                                                <>
+                                                    {shift.isOff ? "休み" : `${shift.start}-${shift.end}`}
+                                                    {/* 派遣シフトコード表示 */}
+                                                    {!shift.isOff && shift.original && (() => {
+                                                        const firstCode = shift.original.split(/[\s\/]/)[0]?.trim();
+                                                        if (["朝", "早", "中", "遅", "深"].includes(firstCode)) {
+                                                            return (
+                                                                <span style={{
+                                                                    marginLeft: "6px",
+                                                                    padding: "2px 6px",
+                                                                    borderRadius: "4px",
+                                                                    fontSize: "11px",
+                                                                    fontWeight: "bold",
+                                                                    background: firstCode === "朝" ? "#fef3c7" :
+                                                                        firstCode === "早" ? "#d1fae5" :
+                                                                            firstCode === "中" ? "#dbeafe" :
+                                                                                firstCode === "遅" ? "#fce7f3" :
+                                                                                    firstCode === "深" ? "#1e293b" : "#e5e7eb",
+                                                                    color: firstCode === "深" ? "#fff" : "#374151"
+                                                                }}>
+                                                                    {firstCode}
+                                                                </span>
+                                                            );
+                                                        }
+                                                        return null;
+                                                    })()}
+                                                </>
+                                            ) : "-"}
                                         </td>
                                         <td style={{ padding: "12px 16px", textAlign: "center", fontFamily: "monospace", fontSize: "1rem" }}>
                                             {item.clockIn ? (
                                                 <div>
                                                     <span>{formatTimeHHMM(item.clockIn)}</span>
                                                     {/* 遅刻判定：シフト開始より遅く出勤した場合 */}
-                                                    {shift && shift.start && toMin(item.clockIn) > toMin(shift.start) && (
-                                                        <span style={{ marginLeft: "4px", color: "#ef4444", fontSize: "0.75rem", fontWeight: "bold" }}>遅刻</span>
-                                                    )}
+                                                    {shift && shift.start && toMin(item.clockIn) > toMin(shift.start) && (() => {
+                                                        const parsed = parseComment(item.comment);
+                                                        const lateCancelled = parsed?.application?.lateCancelled;
+                                                        if (lateCancelled) {
+                                                            const reason = parsed?.application?.lateCancelReason;
+                                                            return <span style={{ marginLeft: "4px", color: "#6b7280", fontSize: "0.7rem" }} title={reason || ""}>取消済{reason ? ` (${reason})` : ""}</span>;
+                                                        }
+                                                        return <span style={{ marginLeft: "4px", color: "#ef4444", fontSize: "0.75rem", fontWeight: "bold" }}>遅刻</span>;
+                                                    })()}
                                                 </div>
                                             ) : (
                                                 <span style={{ color: "#d1d5db" }}>-</span>

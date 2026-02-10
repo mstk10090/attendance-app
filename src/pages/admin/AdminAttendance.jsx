@@ -444,6 +444,31 @@ export default function AdminAttendance() {
   };
 
   /* --- ACTIONS --- */
+  // モーダル用シフト検索（variant対応）
+  const findShiftForItem = (item) => {
+    if (!shiftMap || !item) return null;
+    let s = shiftMap[item.userName]?.[item.workDate] || null;
+    if (!s) {
+      const user = users.find(u => u.userId === item.userId);
+      if (user) {
+        const nameVariants = [
+          user.lastName + user.firstName,
+          user.lastName + " " + user.firstName,
+          user.firstName + user.lastName,
+          user.lastName,
+          user.firstName,
+        ].filter(Boolean);
+        for (const variant of nameVariants) {
+          if (shiftMap[variant]?.[item.workDate]) {
+            s = shiftMap[variant][item.workDate];
+            break;
+          }
+        }
+      }
+    }
+    return s;
+  };
+
   const openEdit = (item) => {
     setEditingItem(item);
     setResubmitReason("");
@@ -555,8 +580,60 @@ export default function AdminAttendance() {
     }
   };
 
+  // 遅刻取消ハンドラ
+  const handleCancelLate = async (item, type = "late") => {
+    const typeLabel = type === "late" ? "遅刻" : type === "early" ? "早退" : "遅刻+早退";
 
-  /* JSX */
+    // 理由の入力を求める
+    const reason = prompt(`${typeLabel}取消の理由を入力してください（例: 電車遅延、業務都合など）`);
+    if (reason === null) return; // キャンセルされた場合
+    if (!reason.trim()) {
+      alert("理由を入力してください");
+      return;
+    }
+
+    if (!await showConfirm(`${typeLabel}を取り消しますか？\n理由: ${reason}\n（理由があり問題ない出勤として扱います）`)) return;
+    setLoading(true);
+    try {
+      const p = parseComment(item.comment);
+      const newApp = {
+        ...p.application,
+        lateCancelled: type === "late" || type === "both" ? true : (p.application?.lateCancelled || false),
+        earlyCancelled: type === "early" || type === "both" ? true : (p.application?.earlyCancelled || false),
+        lateCancelledAt: new Date().toISOString(),
+        lateCancelReason: type === "late" || type === "both" ? reason : (p.application?.lateCancelReason || ""),
+        earlyCancelReason: type === "early" || type === "both" ? reason : (p.application?.earlyCancelReason || ""),
+      };
+
+      const finalComment = JSON.stringify({
+        segments: p.segments,
+        text: p.text,
+        application: newApp
+      });
+
+      await fetch(`${API_BASE}/attendance/update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: item.userId,
+          workDate: item.workDate,
+          clockIn: item.clockIn,
+          clockOut: item.clockOut,
+          breaks: item.breaks || [],
+          comment: finalComment,
+          location: item.location || "",
+          department: item.department || ""
+        }),
+      });
+
+      alert(`${typeLabel}を取り消しました`);
+      fetchAttendances();
+    } catch (e) {
+      alert("エラーが発生しました");
+    } finally {
+      setLoading(false);
+    }
+  };  /* JSX */
   return (
     <div className="admin-container" style={{ paddingBottom: "100px" }}>
       {/* Header & Controls */}
@@ -941,23 +1018,69 @@ export default function AdminAttendance() {
                           })()}
                         </td>
                         <td style={{ padding: "10px 8px" }}>
-                          {shiftCheck === "ok" && (
-                            <span style={{ color: "#16a34a", fontWeight: "bold", fontSize: "12px", display: "flex", alignItems: "center", gap: "4px" }}>
-                              <CheckCircle size={14} /> 問題なし
-                            </span>
-                          )}
-                          {shiftCheck === "late" && (
-                            <span style={{ color: "#f59e0b", fontWeight: "bold", fontSize: "12px" }}>⚠️ 遅刻</span>
-                          )}
-                          {shiftCheck === "early" && (
-                            <span style={{ color: "#f59e0b", fontWeight: "bold", fontSize: "12px" }}>⚠️ 早退</span>
-                          )}
-                          {shiftCheck === "both" && (
-                            <span style={{ color: "#ef4444", fontWeight: "bold", fontSize: "12px" }}>⚠️ 遅刻+早退</span>
-                          )}
-                          {!shiftCheck && item.clockIn && item.clockOut && !shift && (
-                            <span style={{ color: "#9ca3af", fontSize: "11px" }}>シフト未登録</span>
-                          )}
+                          {(() => {
+                            const lateCancelled = item._application?.lateCancelled;
+                            const earlyCancelled = item._application?.earlyCancelled;
+
+                            if (shiftCheck === "ok") {
+                              return (
+                                <span style={{ color: "#16a34a", fontWeight: "bold", fontSize: "12px", display: "flex", alignItems: "center", gap: "4px" }}>
+                                  <CheckCircle size={14} /> 問題なし
+                                </span>
+                              );
+                            }
+                            if (shiftCheck === "late") {
+                              if (lateCancelled) {
+                                const reason = item._application?.lateCancelReason;
+                                return <span style={{ color: "#6b7280", fontSize: "11px" }} title={reason ? `理由: ${reason}` : ""}>遅刻取消済{reason ? ` (${reason})` : ""}</span>;
+                              }
+                              return (
+                                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                                  <span style={{ color: "#f59e0b", fontWeight: "bold", fontSize: "12px" }}>⚠️ 遅刻</span>
+                                  <button
+                                    onClick={() => handleCancelLate(item, "late")}
+                                    style={{ fontSize: "10px", padding: "2px 6px", background: "#f3f4f6", border: "1px solid #d1d5db", borderRadius: "4px", cursor: "pointer" }}
+                                  >取消</button>
+                                </div>
+                              );
+                            }
+                            if (shiftCheck === "early") {
+                              if (earlyCancelled) {
+                                const reason = item._application?.earlyCancelReason;
+                                return <span style={{ color: "#6b7280", fontSize: "11px" }} title={reason ? `理由: ${reason}` : ""}>早退取消済{reason ? ` (${reason})` : ""}</span>;
+                              }
+                              return (
+                                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                                  <span style={{ color: "#f59e0b", fontWeight: "bold", fontSize: "12px" }}>⚠️ 早退</span>
+                                  <button
+                                    onClick={() => handleCancelLate(item, "early")}
+                                    style={{ fontSize: "10px", padding: "2px 6px", background: "#f3f4f6", border: "1px solid #d1d5db", borderRadius: "4px", cursor: "pointer" }}
+                                  >取消</button>
+                                </div>
+                              );
+                            }
+                            if (shiftCheck === "both") {
+                              if (lateCancelled && earlyCancelled) {
+                                const lReason = item._application?.lateCancelReason;
+                                const eReason = item._application?.earlyCancelReason;
+                                const reasons = [lReason, eReason].filter(Boolean).join(" / ");
+                                return <span style={{ color: "#6b7280", fontSize: "11px" }} title={reasons ? `理由: ${reasons}` : ""}>遅刻+早退取消済{reasons ? ` (${reasons})` : ""}</span>;
+                              }
+                              return (
+                                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                                  <span style={{ color: "#ef4444", fontWeight: "bold", fontSize: "12px" }}>⚠️ 遅刻+早退</span>
+                                  <button
+                                    onClick={() => handleCancelLate(item, "both")}
+                                    style={{ fontSize: "10px", padding: "2px 6px", background: "#f3f4f6", border: "1px solid #d1d5db", borderRadius: "4px", cursor: "pointer" }}
+                                  >取消</button>
+                                </div>
+                              );
+                            }
+                            if (!shiftCheck && item.clockIn && item.clockOut && !shift) {
+                              return <span style={{ color: "#9ca3af", fontSize: "11px" }}>シフト未登録</span>;
+                            }
+                            return null;
+                          })()}
                         </td>
                         <td style={{ fontSize: "13px", padding: "10px 8px" }}>
                           <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
@@ -993,7 +1116,19 @@ export default function AdminAttendance() {
       {
         editingItem && (
           <div className="modal-overlay">
-            <div className="modal-content" style={{ maxWidth: "500px" }}>
+            <div className="modal-content" style={{ maxWidth: "700px", position: "relative" }}>
+              {/* 閉じるボタン（右上×） */}
+              <button
+                onClick={() => setEditingItem(null)}
+                style={{
+                  position: "absolute", top: "12px", right: "12px",
+                  background: "none", border: "none", cursor: "pointer",
+                  fontSize: "24px", color: "#dc2626", lineHeight: 1,
+                  padding: "4px 8px", borderRadius: "6px", fontWeight: "bold"
+                }}
+                onMouseOver={e => e.currentTarget.style.background = '#fee2e2'}
+                onMouseOut={e => e.currentTarget.style.background = 'none'}
+              >×</button>
               <h3>申請内容の確認・操作</h3>
 
               <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: "8px", overflow: "hidden", marginBottom: "20px" }}>
@@ -1013,7 +1148,7 @@ export default function AdminAttendance() {
                     <div style={{ fontWeight: "bold", fontSize: "14px", color: "#059669" }}>シフト予定</div>
                     <div style={{ fontFamily: "monospace", textAlign: "center", fontSize: "15px", color: "#059669" }}>
                       {(() => {
-                        const s = (shiftMap && editingItem) ? shiftMap[editingItem.userName]?.[editingItem.workDate] : null;
+                        const s = findShiftForItem(editingItem);
                         if (!s) return <span style={{ color: "#9ca3af" }}>未登録</span>;
                         if (s.isOff) return "休み";
                         return `${s.start} - ${s.end}`;
@@ -1021,7 +1156,7 @@ export default function AdminAttendance() {
                     </div>
                     <div style={{ textAlign: "center", fontSize: "12px", color: "#6b7280" }}>
                       {(() => {
-                        const s = (shiftMap && editingItem) ? shiftMap[editingItem.userName]?.[editingItem.workDate] : null;
+                        const s = findShiftForItem(editingItem);
                         return s ? s.location : "-";
                       })()}
                     </div>
@@ -1030,7 +1165,7 @@ export default function AdminAttendance() {
                     <div style={{ fontWeight: "bold", fontSize: "14px", color: "#374151" }}>実績</div>
                     <div style={{ fontFamily: "monospace", textAlign: "center", fontSize: "15px" }}>
                       {(() => {
-                        const s = (shiftMap && editingItem) ? shiftMap[editingItem.userName]?.[editingItem.workDate] : null;
+                        const s = findShiftForItem(editingItem);
                         return calcSplitDisplay(editingItem, s);
                       })()}
                     </div>
@@ -1091,24 +1226,31 @@ export default function AdminAttendance() {
                 </div>
               )}
 
-              <hr style={{ margin: "0 0 20px 0", border: "none", borderTop: "1px solid #eee" }} />
+              <div style={{ marginTop: "20px", padding: "20px", background: "#fff", border: "1px solid #e5e7eb", borderRadius: "8px" }}>
+                <h4 style={{ margin: "0 0 8px 0", fontSize: "1rem", color: "#374151" }}>再提出依頼 (修正願い)</h4>
+                <p style={{ fontSize: "0.85rem", color: "#374151", marginBottom: "12px" }}>
+                  承認できない場合は、理由を入力して再提出を依頼してください。
+                </p>
+                <textarea
+                  className="input"
+                  placeholder="例: 退勤時間の入力が間違っているようです"
+                  value={resubmitReason}
+                  onChange={e => setResubmitReason(e.target.value)}
+                  style={{ width: "100%", height: "80px", marginBottom: "12px", background: "#fff", border: "1px solid #d1d5db", borderRadius: "6px", padding: "10px", fontSize: "0.9rem" }}
+                />
+                <button className="btn btn-outline" onClick={handleRequestResubmission} style={{ width: "100%", color: "#7c3aed", borderColor: "#7c3aed", padding: "10px", fontSize: "0.95rem", fontWeight: "bold" }}>
+                  <Send size={18} style={{ marginRight: 6 }} /> 再提出を依頼する
+                </button>
+              </div>
 
-              <h4>再提出依頼 (修正願い)</h4>
-              <p style={{ fontSize: "0.85rem", color: "#666", marginBottom: "8px" }}>
-                承認できない場合は、理由を入力して再提出を依頼してください。
-              </p>
-              <textarea
-                className="input"
-                placeholder="例: 退勤時間の入力が間違っているようです"
-                value={resubmitReason}
-                onChange={e => setResubmitReason(e.target.value)}
-                style={{ width: "100%", height: "80px", marginBottom: "12px" }}
-              />
-              <button className="btn btn-outline" onClick={handleRequestResubmission} style={{ width: "100%", color: "#7c3aed", borderColor: "#7c3aed" }}>
-                <Send size={18} style={{ marginRight: 6 }} /> 再提出を依頼する
-              </button>
-
-              <button className="btn btn-gray" onClick={() => setEditingItem(null)} style={{ width: "100%", marginTop: "16px" }}>
+              <button
+                onClick={() => setEditingItem(null)}
+                style={{
+                  width: "100%", marginTop: "16px", padding: "12px",
+                  background: "#fee2e2", border: "1px solid #fca5a5", borderRadius: "8px",
+                  cursor: "pointer", fontSize: "1rem", fontWeight: "bold", color: "#dc2626"
+                }}
+              >
                 閉じる
               </button>
             </div>
