@@ -777,8 +777,8 @@ export default function AttendanceRecord({ user: propUser }) {
       const payload = {
         userId: user.userId,
         workDate: effectiveWorkDate,
-        clockIn: originalItem?.clockIn || formIn,   // 元の打刻時間を保持（新規の場合のみフォーム値）
-        clockOut: originalItem?.clockOut || formOut, // 元の打刻時間を保持（新規の場合のみフォーム値）
+        clockIn: originalItem ? originalItem.clockIn : formIn,   // 既存レコードは元の打刻時間を保持（空文字でもそのまま）
+        clockOut: originalItem ? originalItem.clockOut : formOut, // 既存レコードは元の打刻時間を保持（未退勤=""もそのまま）
         breaks: formBreaks.filter(b => b.start && b.end),
         comment: JSON.stringify(commentObj),
         location: formSegments[0]?.location || user.defaultLocation || "",
