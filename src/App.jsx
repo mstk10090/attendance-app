@@ -1,5 +1,5 @@
 // src/App.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   BrowserRouter as Router,
   Routes,
@@ -89,6 +89,60 @@ export default function App() {
       setIsLoggedIn(true);
     }
   }, []);
+
+  // 自動ログアウト（30分無操作）
+  const AUTO_LOGOUT_MS = 30 * 60 * 1000; // 30分
+  const logoutTimerRef = useRef(null);
+
+  const resetLogoutTimer = useCallback(() => {
+    if (logoutTimerRef.current) {
+      clearTimeout(logoutTimerRef.current);
+    }
+    localStorage.setItem("lastActivity", Date.now().toString());
+    logoutTimerRef.current = setTimeout(() => {
+      // 自動ログアウト実行
+      localStorage.removeItem("isLoggedIn");
+      localStorage.removeItem("userId");
+      localStorage.removeItem("loginId");
+      localStorage.removeItem("userName");
+      localStorage.removeItem("hourlyWage");
+      localStorage.removeItem("token");
+      localStorage.removeItem("role");
+      localStorage.removeItem("lastActivity");
+      setIsLoggedIn(false);
+      alert("30分間操作がなかったため、自動ログアウトしました。");
+    }, AUTO_LOGOUT_MS);
+  }, []);
+
+  useEffect(() => {
+    if (!isLoggedIn) {
+      if (logoutTimerRef.current) {
+        clearTimeout(logoutTimerRef.current);
+      }
+      return;
+    }
+
+    // 他タブでのログアウトチェック
+    const lastActivity = localStorage.getItem("lastActivity");
+    if (lastActivity && Date.now() - parseInt(lastActivity) > AUTO_LOGOUT_MS) {
+      localStorage.removeItem("isLoggedIn");
+      localStorage.removeItem("lastActivity");
+      setIsLoggedIn(false);
+      return;
+    }
+
+    // 操作イベントを監視
+    const events = ["mousemove", "keydown", "click", "touchstart", "scroll"];
+    events.forEach(evt => window.addEventListener(evt, resetLogoutTimer));
+    resetLogoutTimer(); // 初期化
+
+    return () => {
+      events.forEach(evt => window.removeEventListener(evt, resetLogoutTimer));
+      if (logoutTimerRef.current) {
+        clearTimeout(logoutTimerRef.current);
+      }
+    };
+  }, [isLoggedIn, resetLogoutTimer]);
 
   // Show Loading
   if (ipStatus === "loading") {

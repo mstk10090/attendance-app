@@ -99,8 +99,12 @@ const calcSplitDisplay = (item, shift) => {
   if (!item.clockIn) return "-";
   if (!item.clockOut) return `${item.clockIn} ~ (勤務中)`;
 
-  const actualIn = toMin(item.clockIn);
-  const actualOut = toMin(item.clockOut);
+  // 申請時間がある場合はそちらを優先使用（承認済み・承認待ちなど）
+  const app = item._application || {};
+  const effectiveIn = app.appliedIn || item.clockIn;
+  const effectiveOut = app.appliedOut || item.clockOut;
+  const actualIn = toMin(effectiveIn);
+  const actualOut = toMin(effectiveOut);
   let dispatchMin = 0;
   let partTimeMin = 0;
   let dispatchStart = null, dispatchEnd = null;
@@ -123,7 +127,7 @@ const calcSplitDisplay = (item, shift) => {
       const overlapStart = Math.max(actualIn, dispStart);
       const overlapEnd = Math.min(actualOut, dispEnd);
       if (overlapStart < overlapEnd) {
-        dispatchMin = overlapEnd - overlapStart;
+        dispatchMin = Math.min(overlapEnd - overlapStart, 8 * 60); // 派遣は最大8時間
         dispatchStart = minToTime(overlapStart);
         dispatchEnd = minToTime(overlapEnd);
       }
@@ -160,7 +164,7 @@ const calcSplitDisplay = (item, shift) => {
     const end = Math.min(shiftEnd, actualOut);
 
     if (start < end) {
-      dispatchMin = end - start;
+      dispatchMin = Math.min(end - start, 8 * 60); // 派遣は最大8時間
       dispatchStart = minToTime(Math.max(actualIn, shiftStart));
       dispatchEnd = minToTime(Math.min(actualOut, shiftEnd));
     }
@@ -175,14 +179,15 @@ const calcSplitDisplay = (item, shift) => {
 
   return (
     <div style={{ fontSize: "0.85rem", lineHeight: "1.4" }}>
-      {dispatchMin > 0 && (
+      {dispatchMin > 0 ? (
         <div style={{ color: "#2563eb" }}>{dispatchStart} - {dispatchEnd} (派遣 {Math.floor(dispatchMin / 60)}h{dispatchMin % 60 > 0 ? dispatchMin % 60 + 'm' : ''})</div>
+      ) : (
+        <div style={{ color: "#9ca3af", fontSize: "0.8rem" }}>派遣なし</div>
       )}
-      {partTimeMin > 0 && (
+      {partTimeMin > 0 ? (
         <div style={{ color: "#16a34a" }}>{partTimeStart} - {partTimeEnd} (バイト {Math.floor(partTimeMin / 60)}h{partTimeMin % 60 > 0 ? partTimeMin % 60 + 'm' : ''})</div>
-      )}
-      {dispatchMin === 0 && partTimeMin === 0 && (
-        <div>{item.clockIn} - {item.clockOut}</div>
+      ) : (
+        <div style={{ color: "#9ca3af", fontSize: "0.8rem" }}>バイトなし</div>
       )}
     </div>
   );
@@ -405,7 +410,43 @@ export default function AdminShiftManagement() {
         const outer = JSON.parse(text);
         const data = (outer.body && typeof outer.body === "string") ? JSON.parse(outer.body) : outer;
         const list = Array.isArray(data) ? data : (data.items || []);
-        setUsers(list);
+        // loginId ベースで重複排除（同一人物が異なるuserIdで複数存在する場合への対策）
+        // defaultLocation が設定されているレコードを優先
+        const deduped = new Map();
+        list.forEach(u => {
+          const key = u.loginId || u.userId; // loginId優先、なければuserIdをキーに
+          const existing = deduped.get(key);
+          if (!existing) {
+            deduped.set(key, u);
+          } else {
+            // より情報が充実しているレコードを優先（defaultLocationが設定されている方）
+            if (!existing.defaultLocation && u.defaultLocation) {
+              deduped.set(key, u);
+            }
+          }
+        });
+
+        // フルネームベースでも重複排除（loginIdが異なるが同一人物のケース）
+        const nameDeduped = new Map();
+        Array.from(deduped.values()).forEach(u => {
+          const fullName = `${u.lastName || ""}${u.firstName || ""}`.trim();
+          if (!fullName) {
+            // 名前がない場合はそのまま追加
+            nameDeduped.set(u.userId, u);
+            return;
+          }
+          const existing = nameDeduped.get(fullName);
+          if (!existing) {
+            nameDeduped.set(fullName, u);
+          } else {
+            // より情報が充実しているレコードを優先
+            if (!existing.defaultLocation && u.defaultLocation) {
+              nameDeduped.set(fullName, u);
+            }
+          }
+        });
+        const uniqueList = Array.from(nameDeduped.values());
+        setUsers(uniqueList);
       }
     } catch (e) {
       console.error(e);
@@ -655,7 +696,7 @@ export default function AdminShiftManagement() {
         if (shift && shift.start && i.clockIn) {
           const shiftStartMin = toMin(shift.start);
           const clockInMin = toMin(i.clockIn);
-          if (clockInMin > shiftStartMin) {
+          if (clockInMin >= shiftStartMin) {
             late++;
           }
         }
@@ -675,6 +716,12 @@ export default function AdminShiftManagement() {
               if (overlapStart < overlapEnd) {
                 dispatchMin += (overlapEnd - overlapStart);
               }
+            }
+            // 派遣は最大8時間に制限
+            if (dispatchMin > 8 * 60) {
+              const excess = dispatchMin - 8 * 60;
+              dispatchMin = 8 * 60;
+              partTimeMin += excess;
             }
 
             if (shift.partTimeRange) {
@@ -911,6 +958,9 @@ export default function AdminShiftManagement() {
         body: JSON.stringify({
           userId: editingItem.userId,
           workDate: editingItem.workDate,
+          clockIn: editingItem.clockIn,
+          clockOut: editingItem.clockOut,
+          breaks: editingItem.breaks || [],
           comment: finalComment
         }),
       });
@@ -946,6 +996,9 @@ export default function AdminShiftManagement() {
         body: JSON.stringify({
           userId: item.userId,
           workDate: item.workDate,
+          clockIn: item.clockIn,
+          clockOut: item.clockOut,
+          breaks: item.breaks || [],
           comment: finalComment
         }),
       });
@@ -1165,13 +1218,21 @@ export default function AdminShiftManagement() {
                           {r.prescribed || "-"}
                         </td>
                         <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", background: "#f8faff" }}>
-                          {r.user.employmentType === "派遣" && r.dispatchMin > 0 ? (
-                            <span style={{ fontWeight: "bold", color: "#2563eb" }}>{r.dispatchHours}</span>
+                          {r.user.employmentType === "派遣" ? (
+                            r.dispatchMin > 0 ? (
+                              <span style={{ fontWeight: "bold", color: "#2563eb" }}>{r.dispatchHours}</span>
+                            ) : (
+                              <span style={{ color: "#9ca3af", fontSize: "0.85rem" }}>派遣なし</span>
+                            )
                           ) : <span style={{ color: "#d1d5db" }}>-</span>}
                         </td>
                         <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", background: "#f8fff8" }}>
-                          {r.user.employmentType === "派遣" && r.partTimeMin > 0 ? (
-                            <span style={{ fontWeight: "bold", color: "#16a34a" }}>{r.partTimeHours}</span>
+                          {r.user.employmentType === "派遣" ? (
+                            r.partTimeMin > 0 ? (
+                              <span style={{ fontWeight: "bold", color: "#16a34a" }}>{r.partTimeHours}</span>
+                            ) : (
+                              <span style={{ color: "#9ca3af", fontSize: "0.85rem" }}>バイトなし</span>
+                            )
                           ) : <span style={{ color: "#d1d5db" }}>-</span>}
                         </td>
                         <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>
@@ -1325,7 +1386,7 @@ export default function AdminShiftManagement() {
                           // Check Late
                           const shiftStart = toMin(shift.start);
                           const actualIn = toMin(item.clockIn);
-                          if (actualIn > shiftStart) {
+                          if (actualIn >= shiftStart) {
                             statusBadge = <span className="status-badge orange">遅刻/出勤</span>;
                             rowBg = "#fff7ed";
                           } else {
@@ -1346,7 +1407,7 @@ export default function AdminShiftManagement() {
                           // Today: check if current time > shift start
                           const nowMin = now.getHours() * 60 + now.getMinutes();
                           const shiftStart = toMin(shift.start);
-                          if (nowMin > shiftStart) {
+                          if (nowMin >= shiftStart) {
                             statusBadge = <span className="status-badge red">遅刻(未出勤)</span>;
                             rowBg = "#fef2f2";
                           } else {

@@ -616,7 +616,7 @@ export default function MyPage({ onLogout }) {
                   break;
                 }
               }
-              if (shift && shift.start && toMin(item.clockIn) > toMin(shift.start)) {
+              if (shift && shift.start && toMin(item.clockIn) >= toMin(shift.start)) {
                 return true;
               }
               return false;

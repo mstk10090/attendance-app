@@ -85,9 +85,12 @@ const calcWorkMin = (e) => {
 };
 
 const calcRoundedWorkMin = (e) => {
-  const raw = calcWorkMin(e);
-  if (raw <= 0) return 0;
-  return Math.floor(raw / 30) * 30; // 30 min truncate
+  if (!e.clockIn || !e.clockOut) return 0;
+  // 出勤は30分切り上げ、退勤は30分切り捨てしてから実動時間を算出
+  const roundedIn = Math.ceil(toMin(e.clockIn) / 30) * 30;
+  const roundedOut = Math.floor(toMin(e.clockOut) / 30) * 30;
+  const brk = calcBreakTime(e);
+  return Math.max(0, roundedOut - roundedIn - brk);
 };
 
 const parseComment = (raw) => {
@@ -128,6 +131,14 @@ export default function AttendanceRecord({ user: propUser }) {
 
   const [items, setItems] = useState([]);
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  // 1秒ごとに現在時刻を更新
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
 
   // Modal State REMOVED, Inline State ADDED
   const [expandedDate, setExpandedDate] = useState(null); // Track which row is expanded
@@ -390,19 +401,16 @@ export default function AttendanceRecord({ user: propUser }) {
           const clockInMin = toMin(clockInTime);
           const clockOutMin = toMin(clockOutTime);
 
-          // シフト開始時刻より前に出勤し、シフト終了時刻より後に退勤している場合
-          if (clockInMin <= shiftStartMin && clockOutMin >= shiftEndMin) {
+          // シフト開始時刻より前に出勤し、シフト終了時刻より後に退勤している場合のみ自動申請
+          if (clockInMin < shiftStartMin && clockOutMin >= shiftEndMin) {
             // シフト通りなのでシフト時間を申請時間とする
             appliedIn = shift.start;
             appliedOut = shift.end;
             shouldAutoApply = true;
           }
-        } else if (!shift && clockInTime && clockOutTime) {
-          // シフトがない場合: 実際の打刻時間（出勤は切り上げ、退勤は切り捨て）を申請時間とする
-          appliedIn = roundTimeToHalfHour(clockInTime, "ceil");   // 出勤は切り上げ
-          appliedOut = roundTimeToHalfHour(clockOutTime, "floor"); // 退勤は切り捨て
-          shouldAutoApply = true;
+          // シフトと乖離がある場合は自動申請しない（手動で理由付き申請が必要）
         }
+        // シフトがない場合も自動申請しない（手動で理由付き申請が必要）
 
         if (shouldAutoApply) {
           // 自動で承認待ちにする
@@ -564,18 +572,17 @@ export default function AttendanceRecord({ user: propUser }) {
             const clockInMin = toMin(item.clockIn);
             const clockOutMin = toMin(item.clockOut);
 
-            if (clockInMin <= shiftStartMin && clockOutMin >= shiftEndMin) {
+            if (clockInMin < shiftStartMin && clockOutMin >= shiftEndMin) {
               // シフト通りなのでシフト時間を申請時間とする
               appliedIn = shift.start;
               appliedOut = shift.end;
             } else {
-              // シフトはあるが時間が合わないのでスキップ（手動申請が必要）
+              // シフトはあるが時間が合わないのでスキップ（手動で理由付き申請が必要）
               continue;
             }
           } else {
-            // シフトがない場合: 実際の打刻時間（出勤は切り上げ、退勤は切り捨て）を申請時間とする
-            appliedIn = roundTimeToHalfHour(item.clockIn, "ceil");   // 出勤は切り上げ
-            appliedOut = roundTimeToHalfHour(item.clockOut, "floor"); // 退勤は切り捨て
+            // シフトがない場合もスキップ（手動で理由付き申請が必要）
+            continue;
           }
 
           // 自動で承認待ちにする
@@ -770,8 +777,8 @@ export default function AttendanceRecord({ user: propUser }) {
       const payload = {
         userId: user.userId,
         workDate: effectiveWorkDate,
-        clockIn: formIn,
-        clockOut: formOut,
+        clockIn: originalItem?.clockIn || formIn,   // 元の打刻時間を保持（新規の場合のみフォーム値）
+        clockOut: originalItem?.clockOut || formOut, // 元の打刻時間を保持（新規の場合のみフォーム値）
         breaks: formBreaks.filter(b => b.start && b.end),
         comment: JSON.stringify(commentObj),
         location: formSegments[0]?.location || user.defaultLocation || "",
@@ -1045,7 +1052,7 @@ export default function AttendanceRecord({ user: propUser }) {
 
 
       // シフトがあり、開始時刻より遅く出勤した場合（取消済みの場合は除外）
-      if (shift && shift.start && toMin(item.clockIn) > toMin(shift.start)) {
+      if (shift && shift.start && toMin(item.clockIn) >= toMin(shift.start)) {
         // 遅刻取消フラグがある場合は除外
         const p = parseComment(item.comment);
         if (p.application?.lateCancelled) return false;
@@ -1058,38 +1065,7 @@ export default function AttendanceRecord({ user: propUser }) {
   return (
     <div className="record-container" style={{ width: "100%", margin: "0 auto" }}> {/* RESTORED FULL WIDTH */}
 
-      {/* 1. TOP ALERTS */}
-      <div style={{ marginBottom: "20px" }}>
-        <div style={{ background: "#eff6ff", color: "#1e40af", padding: "12px 16px", borderRadius: "8px", marginBottom: "8px", display: "flex", alignItems: "center", gap: "8px", fontSize: "0.9rem" }}>
-          <Info size={18} />
-          前日以降の勤怠が申請可能です
-        </div>
-
-        {/* 再提出依頼バナー（最優先で表示） */}
-        {resubmissionCount > 0 && (
-          <div style={{ background: "#faf5ff", color: "#7c3aed", padding: "12px 16px", borderRadius: "8px", marginBottom: "8px", display: "flex", alignItems: "center", gap: "8px", fontSize: "0.9rem", border: "1px solid #e9d5ff" }}>
-            <AlertCircle size={18} />
-            <span>⚠️ <strong>再提出依頼: {resubmissionCount}件</strong> があります。管理者からのコメントを確認して再度申請してください。</span>
-          </div>
-        )}
-
-        {/* 未退勤バナー */}
-        {notClockedOutCount > 0 && (
-          <div style={{ background: "#fffbeb", color: "#b45309", padding: "12px 16px", borderRadius: "8px", marginBottom: "8px", display: "flex", alignItems: "center", gap: "8px", fontSize: "0.9rem", border: "1px solid #fde68a" }}>
-            <AlertCircle size={18} />
-            <span>⏰ <strong>未退勤: {notClockedOutCount}件</strong> があります。退勤打刻を忘れずに。</span>
-          </div>
-        )}
-
-        {unappliedCount > 0 && (
-          <div style={{ background: "#fef2f2", color: "#b91c1c", padding: "12px 16px", borderRadius: "8px", display: "flex", alignItems: "center", gap: "8px", fontSize: "0.9rem", border: "1px solid #fee2e2" }}>
-            <AlertCircle size={18} />
-            <span>未申請: <strong>{unappliedCount}件</strong> があります。確認してください。</span>
-          </div>
-        )}
-      </div>
-
-      {/* 2. MAIN ACTION CARD */}
+      {/* 1. MAIN ACTION CARD */}
       <div className="card" style={{ padding: "32px", marginBottom: "24px", position: "relative" }}>
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "40px" }}>
@@ -1135,6 +1111,16 @@ export default function AttendanceRecord({ user: propUser }) {
                 管理者までご連絡ください。
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* 現在時刻表示 */}
+        <div style={{ textAlign: "center", marginBottom: "24px" }}>
+          <div style={{ fontSize: "3rem", fontWeight: "bold", fontFamily: "monospace", color: "#111827", letterSpacing: "2px" }}>
+            {format(currentTime, "HH:mm:ss")}
+          </div>
+          <div style={{ fontSize: "0.95rem", color: "#6b7280", marginTop: "4px" }}>
+            {format(currentTime, "yyyy年M月d日 (E)", { locale: ja })}
           </div>
         </div>
 
@@ -1229,30 +1215,47 @@ export default function AttendanceRecord({ user: propUser }) {
 
       </div>
 
+      {/* 2. ALERTS */}
+      <div style={{ marginBottom: "20px" }}>
+        <div style={{ background: "#eff6ff", color: "#1e40af", padding: "12px 16px", borderRadius: "8px", marginBottom: "8px", display: "flex", alignItems: "center", gap: "8px", fontSize: "0.9rem" }}>
+          <Info size={18} />
+          前日以降の勤怠が申請可能です
+        </div>
+
+        {resubmissionCount > 0 && (
+          <div style={{ background: "#faf5ff", color: "#7c3aed", padding: "12px 16px", borderRadius: "8px", marginBottom: "8px", display: "flex", alignItems: "center", gap: "8px", fontSize: "0.9rem", border: "1px solid #e9d5ff" }}>
+            <AlertCircle size={18} />
+            <span>⚠️ <strong>再提出依頼: {resubmissionCount}件</strong> があります。管理者からのコメントを確認して再度申請してください。</span>
+          </div>
+        )}
+
+        {notClockedOutCount > 0 && (
+          <div style={{ background: "#fffbeb", color: "#b45309", padding: "12px 16px", borderRadius: "8px", marginBottom: "8px", display: "flex", alignItems: "center", gap: "8px", fontSize: "0.9rem", border: "1px solid #fde68a" }}>
+            <AlertCircle size={18} />
+            <span>⏰ <strong>未退勤: {notClockedOutCount}件</strong> があります。退勤打刻を忘れずに。</span>
+          </div>
+        )}
+
+        {unappliedCount > 0 && (
+          <div style={{ background: "#fef2f2", color: "#b91c1c", padding: "12px 16px", borderRadius: "8px", display: "flex", alignItems: "center", gap: "8px", fontSize: "0.9rem", border: "1px solid #fee2e2" }}>
+            <AlertCircle size={18} />
+            <span>未申請: <strong>{unappliedCount}件</strong> があります。確認してください。</span>
+          </div>
+        )}
+      </div>
+
       {/* 3. STATS CARDS */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "20px", marginBottom: "32px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "20px", marginBottom: "32px" }}>
         <div className="card" style={{ padding: "24px" }}>
           <div style={{ fontSize: "0.85rem", color: "#6b7280", marginBottom: "8px" }}>今月の出勤日数</div>
           <div style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{stats.days} 日</div>
         </div>
         <div className="card" style={{ padding: "24px" }}>
           <div style={{ fontSize: "0.85rem", color: "#6b7280", marginBottom: "8px" }}>今月の勤務時間</div>
-          {user?.employmentType === "派遣" ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-              <div style={{ fontSize: "1.1rem", fontWeight: "bold", color: "#2563eb" }}>派遣: {stats.dispH}h {stats.dispM}m</div>
-              <div style={{ fontSize: "1.1rem", fontWeight: "bold", color: "#16a34a" }}>バイト: {stats.partH}h {stats.partM}m</div>
-            </div>
-          ) : (
-            <div style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#374151" }}>
-              {Math.floor(((stats.dispH * 60 + stats.dispM) + (stats.partH * 60 + stats.partM)) / 60)}
-              <span style={{ fontSize: "1.5rem" }}>:</span>
-              {String(((stats.dispH * 60 + stats.dispM) + (stats.partH * 60 + stats.partM)) % 60).padStart(2, '0')}
-            </div>
-          )}
-        </div>
-        <div className="card" style={{ padding: "24px" }}>
-          <div style={{ fontSize: "0.85rem", color: "#6b7280", marginBottom: "8px" }}>平均勤務時間</div>
-          <div style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{stats.avgHours} 時間</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+            <div style={{ fontSize: "1.1rem", fontWeight: "bold", color: "#2563eb" }}>派遣: {stats.dispH}h {stats.dispM}m</div>
+            <div style={{ fontSize: "1.1rem", fontWeight: "bold", color: "#16a34a" }}>バイト: {stats.partH}h {stats.partM}m</div>
+          </div>
         </div>
         <div className="card" style={{ padding: "24px", background: lateCount > 0 ? "#fef2f2" : undefined }}>
           <div style={{ fontSize: "0.85rem", color: lateCount > 0 ? "#b91c1c" : "#6b7280", marginBottom: "8px" }}>遅刻</div>
@@ -1302,7 +1305,7 @@ export default function AttendanceRecord({ user: propUser }) {
       {expandedDate && (
         <>
           <div
-            ref={(el) => el && el.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+
             style={{
               position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
               width: "90%", maxWidth: "600px", zIndex: 1000,

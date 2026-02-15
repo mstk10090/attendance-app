@@ -125,17 +125,7 @@ const isWorkDay = (dateStr) => {
 };
 
 export default function HistoryReport({ user, items, baseDate, viewMode, shiftMap, onRowClick, onWithdraw }) {
-    // Auto-scroll to today
-    useEffect(() => {
-        const todayStr = format(new Date(), "yyyy-MM-dd");
-        // Delay slightly to ensure render
-        setTimeout(() => {
-            const row = document.getElementById(`row-${todayStr}`);
-            if (row) {
-                row.scrollIntoView({ behavior: "smooth", block: "center" });
-            }
-        }, 300);
-    }, [items, viewMode]);
+
 
     // Render Stats (理由別内訳は削除)
     const stats = useMemo(() => {
@@ -410,7 +400,7 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                                 <div>
                                                     <span>{formatTimeHHMM(item.clockIn)}</span>
                                                     {/* 遅刻判定：シフト開始より遅く出勤した場合 */}
-                                                    {shift && shift.start && toMin(item.clockIn) > toMin(shift.start) && (() => {
+                                                    {shift && shift.start && toMin(item.clockIn) >= toMin(shift.start) && (() => {
                                                         const parsed = parseComment(item.comment);
                                                         const lateCancelled = parsed?.application?.lateCancelled;
                                                         if (lateCancelled) {

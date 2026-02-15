@@ -68,9 +68,12 @@ const calcWorkMin = (e) => {
 };
 
 const calcRoundedWorkMin = (e) => {
-  const raw = calcWorkMin(e);
-  if (raw <= 0) return 0;
-  return Math.floor(raw / 30) * 30;
+  if (!e.clockIn || !e.clockOut) return 0;
+  // 出勤は30分切り上げ、退勤は30分切り捨てしてから実動時間を算出
+  const roundedIn = Math.ceil(toMin(e.clockIn) / 30) * 30;
+  const roundedOut = Math.floor(toMin(e.clockOut) / 30) * 30;
+  const brk = calcBreakTime(e);
+  return Math.max(0, roundedOut - roundedIn - brk);
 };
 
 const hasNightWork = (e) => {
@@ -100,7 +103,13 @@ const calcSplitDisplay = (item, shift) => {
   if (!item.clockIn) return "-";
   if (!item.clockOut) return `${item.clockIn} ~ (勤務中)`;
 
-  const totalWork = calcWorkMin(item);
+  // 申請時間がある場合はそちらを優先使用（承認済み・承認待ちなど）
+  const p = parseComment(item.comment);
+  const app = p.application || {};
+  const effectiveIn = app.appliedIn || item.clockIn;
+  const effectiveOut = app.appliedOut || item.clockOut;
+
+  const totalWork = Math.max(0, toMin(effectiveOut) - toMin(effectiveIn));
   let dispatchMin = 0;
   let partTimeMin = 0;
 
@@ -112,8 +121,8 @@ const calcSplitDisplay = (item, shift) => {
   if (isDispatch && shift && shift.start && shift.end) {
     const shiftStart = toMin(shift.start);
     const shiftEnd = toMin(shift.end);
-    const actualIn = toMin(item.clockIn);
-    const actualOut = toMin(item.clockOut);
+    const actualIn = toMin(effectiveIn);
+    const actualOut = toMin(effectiveOut);
 
     const start = Math.max(shiftStart, actualIn);
     const end = Math.min(shiftEnd, actualOut);
@@ -135,7 +144,7 @@ const calcSplitDisplay = (item, shift) => {
         }
       });
 
-      dispatchMin = Math.max(0, (end - start) - breakInOverlap);
+      dispatchMin = Math.min(Math.max(0, (end - start) - breakInOverlap), 8 * 60); // 派遣は最大8時間
     }
     partTimeMin = Math.max(0, totalWork - dispatchMin);
 
@@ -145,19 +154,19 @@ const calcSplitDisplay = (item, shift) => {
   }
 
   // Visual Display Logic
-  const splitPointMin = Math.min(toMin(shift.end), toMin(item.clockOut));
+  const splitPointMin = Math.min(toMin(shift.end), toMin(effectiveOut));
   const splitPoint = minToTime(splitPointMin);
 
   return (
     <div style={{ fontSize: "0.85rem", lineHeight: "1.4" }}>
       {dispatchMin > 0 && (
-        <div>{item.clockIn} - {splitPoint} (派遣)</div>
+        <div>{effectiveIn.slice(0, 5)} - {splitPoint} (派遣)</div>
       )}
       {partTimeMin > 0 && (
-        <div style={{ color: "#16a34a" }}>{splitPoint} - {item.clockOut} (バイト)</div>
+        <div style={{ color: "#16a34a" }}>{splitPoint} - {effectiveOut.slice(0, 5)} (バイト)</div>
       )}
       {dispatchMin === 0 && partTimeMin === 0 && (
-        <div>{item.clockIn} - {item.clockOut} (派遣)</div>
+        <div>{effectiveIn.slice(0, 5)} - {effectiveOut.slice(0, 5)} (派遣)</div>
       )}
     </div>
   );
@@ -504,6 +513,9 @@ export default function AdminAttendance() {
         body: JSON.stringify({
           userId: editingItem.userId,
           workDate: editingItem.workDate,
+          clockIn: editingItem.clockIn,
+          clockOut: editingItem.clockOut,
+          breaks: editingItem.breaks || [],
           comment: finalComment
         }),
       });
@@ -539,6 +551,9 @@ export default function AdminAttendance() {
         body: JSON.stringify({
           userId: item.userId,
           workDate: item.workDate,
+          clockIn: item.clockIn,
+          clockOut: item.clockOut,
+          breaks: item.breaks || [],
           comment: finalComment
         }),
       });
@@ -923,8 +938,8 @@ export default function AdminAttendance() {
                       const actualInMin = toMin(item.clockIn);
                       const actualOutMin = toMin(item.clockOut);
 
-                      const isLate = actualInMin > shiftStartMin + 5; // 5分の余裕
-                      const isEarly = actualOutMin < shiftEndMin - 5; // 5分の余裕
+                      const isLate = actualInMin >= shiftStartMin;
+                      const isEarly = actualOutMin < shiftEndMin;
 
                       if (!isLate && !isEarly) shiftCheck = "ok";
                       else if (isLate && isEarly) shiftCheck = "both";
@@ -993,28 +1008,56 @@ export default function AdminAttendance() {
                         </td>
                         <td style={{ padding: "10px 8px", fontSize: "14px", fontFamily: "monospace", fontWeight: "bold" }}>
                           {(() => {
-                            // 承認済みの場合は申請時間から計算
-                            if (rowAppStatus === "approved") {
-                              const app = item._application;
-                              if (app?.appliedIn && app?.appliedOut) {
-                                const toMinLocal = (t) => {
-                                  if (!t) return 0;
-                                  const [h, m] = t.split(":").map(Number);
-                                  return h * 60 + (m || 0);
-                                };
-                                const inMin = toMinLocal(app.appliedIn);
-                                const outMin = toMinLocal(app.appliedOut);
-                                const duration = outMin - inMin;
-                                const h = Math.floor(duration / 60);
-                                const m = (duration % 60) >= 30 ? 5 : 0;
-                                return <span style={{ color: "#16a34a" }}>{h}.{m}H</span>;
+                            // 申請時間がある場合はそちらを使用、なければ打刻時間
+                            const app = item._application || {};
+                            const effectiveIn = app.appliedIn || item.clockIn;
+                            const effectiveOut = app.appliedOut || item.clockOut;
+
+                            if (!effectiveIn || !effectiveOut) return "-";
+
+                            const effInMin = toMin(effectiveIn);
+                            const effOutMin = toMin(effectiveOut);
+                            const totalDuration = Math.max(0, effOutMin - effInMin);
+
+                            // 30分単位に丸める
+                            const min = Math.floor(totalDuration / 30) * 30;
+                            if (min <= 0) return "-";
+
+                            // 派遣ユーザーの場合は派遣/バイト分離表示
+                            const isDispatch = shift?.isDispatch || shift?.location === "派遣" || ["朝", "早", "遅", "中"].includes(shift?.type || "");
+                            if (isDispatch && shift && effectiveIn && effectiveOut) {
+                              const shiftStart = toMin(shift.start);
+                              const shiftEnd = toMin(shift.end);
+                              const start = Math.max(shiftStart, effInMin);
+                              const end = Math.min(shiftEnd, effOutMin);
+                              let dMin = 0;
+                              if (start < end) {
+                                dMin = Math.min(Math.max(0, end - start), 8 * 60); // 派遣は最大8時間
                               }
+                              const pMin = Math.max(0, min - dMin);
+                              const dH = Math.floor(dMin / 60);
+                              const dM = (dMin % 60) >= 30 ? 5 : 0;
+                              const pH = Math.floor(pMin / 60);
+                              const pM = (pMin % 60) >= 30 ? 5 : 0;
+                              return (
+                                <div style={{ fontSize: "12px", lineHeight: "1.3" }}>
+                                  {dMin > 0 ? (
+                                    <div style={{ color: "#2563eb" }}>派遣{dH}.{dM}H</div>
+                                  ) : (
+                                    <div style={{ color: "#9ca3af", fontSize: "11px" }}>派遣なし</div>
+                                  )}
+                                  {pMin > 0 ? (
+                                    <div style={{ color: "#16a34a" }}>バイト{pH}.{pM}H</div>
+                                  ) : (
+                                    <div style={{ color: "#9ca3af", fontSize: "11px" }}>バイトなし</div>
+                                  )}
+                                </div>
+                              );
                             }
-                            // 通常は実績から計算
-                            const min = calcRoundedWorkMin(item);
+
                             const h = Math.floor(min / 60);
                             const m = (min % 60) === 30 ? 5 : 0;
-                            return min > 0 ? `${h}.${m}H` : "-";
+                            return `${h}.${m}H`;
                           })()}
                         </td>
                         <td style={{ padding: "10px 8px" }}>
