@@ -248,28 +248,19 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                 let workTimeDisplay = <span style={{ color: "#e5e7eb" }}>-</span>;
                                 let workTimeColor = "#111827"; // デフォルトは黒
 
-                                // 承認済みの場合は申請時間から計算、なければ打刻時間から計算
-                                if (isApproved) {
-                                    const appliedTime = extractAppliedTime(item);
-                                    let appliedDuration = 0;
+                                // 申請時間がある場合はそちらで計算（ステータスに関係なく）
+                                const appliedTimeForCalc = extractAppliedTime(item);
+                                if (appliedTimeForCalc && appliedTimeForCalc.appliedIn && appliedTimeForCalc.appliedOut) {
+                                    const inMin = toMin(appliedTimeForCalc.appliedIn);
+                                    const outMin = toMin(appliedTimeForCalc.appliedOut);
+                                    const appliedDuration = outMin - inMin;
 
-                                    if (appliedTime && appliedTime.appliedIn && appliedTime.appliedOut) {
-                                        // 申請時間がある場合
-                                        const inMin = toMin(appliedTime.appliedIn);
-                                        const outMin = toMin(appliedTime.appliedOut);
-                                        appliedDuration = outMin - inMin;
-                                    } else if (item.clockIn && item.clockOut) {
-                                        // フォールバック：打刻時間から計算（休憩を引く）
-                                        appliedDuration = calcWorkMin(item);
-                                    }
-
-                                    // 30分単位に丸める（切り捨て）
                                     if (appliedDuration > 0) {
                                         const roundedDuration = Math.floor(appliedDuration / 30) * 30;
                                         const hours = Math.floor(roundedDuration / 60);
                                         const mins = roundedDuration % 60;
                                         workTimeDisplay = `${hours}:${String(mins).padStart(2, '0')}`;
-                                        workTimeColor = "#16a34a"; // 緑色（承認済み）
+                                        if (isApproved) workTimeColor = "#16a34a"; // 緑色（承認済み）
                                     }
                                 } else if (rounded > 0) {
                                     workTimeDisplay = `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, '0')}`;
