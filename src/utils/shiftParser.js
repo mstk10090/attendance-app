@@ -50,8 +50,15 @@ export const SPECIAL_SHIFTS = {
     "朝": { start: "07:00", end: "17:00", dispatchEnd: "15:00" },  // 派遣7-15、バイト15-17
     "早": { start: "09:00", end: "19:00", dispatchEnd: "17:00" },  // 派遣9-17、バイト17-19
     "中": { start: "10:00", end: "19:00", dispatchEnd: "17:00" },  // 派遣10-17、バイト17-19
-    "遅": { start: "12:00", end: "22:00", dispatchEnd: "20:00" },  // 派遣12-20、バイト20-22
+    "遅": { start: "12:00", end: "22:00", dispatchEnd: "20:00" },  // 派遣12-20、バイト20-22（デフォルト）
     "深": { start: "17:00", end: "03:00", dispatchEnd: "01:00" }   // 深夜シフト
+};
+
+// ユーザー固有のシフトオーバーライド（名前の部分一致で適用）
+const USER_SHIFT_OVERRIDES = {
+    "遅": [
+        { nameIncludes: ["鈴木", "平松"], start: "13:00", end: "22:00", dispatchEnd: "21:00" }
+    ]
 };
 
 export async function fetchShiftData(forceRefresh = false, additionalSources = []) {
@@ -177,7 +184,16 @@ export function parseCsv(csvText, config, year, month, shifts, locationName, spe
             // Check for special single-char codes first (for non-split, usually)
             let specialShiftCode = null;
             if (val1 && specialShifts && specialShifts[val1]) {
-                const spec = specialShifts[val1];
+                // ユーザー固有のオーバーライドが存在するか確認
+                let spec = specialShifts[val1];
+                if (USER_SHIFT_OVERRIDES[val1]) {
+                    for (const override of USER_SHIFT_OVERRIDES[val1]) {
+                        if (override.nameIncludes.some(n => name.includes(n))) {
+                            spec = { ...spec, ...override };
+                            break;
+                        }
+                    }
+                }
                 start = spec.start;
                 end = spec.end;
                 specialShiftCode = val1;
@@ -217,7 +233,16 @@ export function parseCsv(csvText, config, year, month, shifts, locationName, spe
 
                 if (isDispatch && !isOff && specialShiftCode && specialShifts[specialShiftCode]?.dispatchEnd) {
                     // 派遣シフト（朝・早・遅・中）の場合 - dispatchEndまでが派遣時間
-                    const spec = specialShifts[specialShiftCode];
+                    // ユーザー固有のオーバーライドを再適用
+                    let spec = { ...specialShifts[specialShiftCode] };
+                    if (USER_SHIFT_OVERRIDES[specialShiftCode]) {
+                        for (const override of USER_SHIFT_OVERRIDES[specialShiftCode]) {
+                            if (override.nameIncludes.some(n => name.includes(n))) {
+                                spec = { ...spec, ...override };
+                                break;
+                            }
+                        }
+                    }
                     dispatchRange = {
                         start: normalizeTime(spec.start),
                         end: normalizeTime(spec.dispatchEnd)
