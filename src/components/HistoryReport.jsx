@@ -203,8 +203,10 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                 const isPending = status === "pending";
                                 const isToday = dateStr === todayStr; // 本日かどうか
 
-                                // 本日は編集不可、承認済み・承認待ちも編集不可（取り下げ or 再申請で編集可能）
-                                const isInteractive = !isApproved && !isPending && !isToday && (!isFuture || status);
+                                // 承認済み・承認待ちは編集不可（取り下げ or 再申請で編集可能）
+                                // 本日は退勤済みの場合のみ編集可能
+                                const todayClockedOut = isToday && item.clockIn && item.clockOut;
+                                const isInteractive = !isApproved && !isPending && (!isToday || todayClockedOut) && (!isFuture || status);
 
                                 // Shift Lookup（背景色判定のために先に行う）
                                 let shift = null;
