@@ -546,7 +546,23 @@ export default function AdminShiftManagement() {
       }
 
       const allItems = results.flat();
-      const uniqueItems = Array.from(new Map(allItems.map(item => [item.userId + item.workDate, item])).values());
+      // userId + workDate で重複排除
+      const uniqueByUserId = Array.from(new Map(allItems.map(item => [item.userId + item.workDate, item])).values());
+      // userName + workDate でも重複排除（同一人物が異なるuserIdで存在するケース対応）
+      const nameMap = new Map();
+      uniqueByUserId.forEach(item => {
+        const key = (item.userName || item.userId) + item.workDate;
+        const existing = nameMap.get(key);
+        if (!existing) {
+          nameMap.set(key, item);
+        } else {
+          // より情報が充実しているレコードを優先（clockInがある方）
+          if (!existing.clockIn && item.clockIn) {
+            nameMap.set(key, item);
+          }
+        }
+      });
+      const uniqueItems = Array.from(nameMap.values());
 
       const processedItems = uniqueItems.map(item => {
         const p = parseComment(item.comment);
