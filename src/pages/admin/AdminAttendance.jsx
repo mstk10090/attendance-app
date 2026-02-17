@@ -911,6 +911,7 @@ export default function AdminAttendance() {
                     <th style={{ padding: "12px", fontSize: "14px", width: "80px" }}>状態</th>
                     <th style={{ padding: "12px", fontSize: "14px", width: "70px" }}>実働</th>
                     <th style={{ padding: "12px", fontSize: "14px", width: "100px" }}>判定</th>
+                    <th style={{ padding: "12px", fontSize: "14px", width: "120px" }}>理由</th>
                     <th style={{ padding: "12px", fontSize: "14px", width: "180px" }}>操作</th>
                   </tr>
                 </thead>
@@ -1139,6 +1140,25 @@ export default function AdminAttendance() {
                               return <span style={{ color: "#9ca3af", fontSize: "11px" }}>シフト未登録</span>;
                             }
                             return null;
+                          })()}
+                        </td>
+                        <td style={{ padding: "10px 8px", fontSize: "12px", color: "#374151", maxWidth: "120px" }}>
+                          {(() => {
+                            const appReason = item._application?.reason;
+                            const comment = item._parsedHtmlComment;
+                            if (!appReason || appReason === "-") {
+                              return <span style={{ color: "#d1d5db" }}>-</span>;
+                            }
+                            return (
+                              <div style={{ lineHeight: "1.3" }}>
+                                <div style={{ fontWeight: "bold", color: "#ef4444" }}>{appReason}</div>
+                                {comment && comment.trim() && (
+                                  <div style={{ color: "#6b7280", fontSize: "11px", marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={comment}>
+                                    {comment}
+                                  </div>
+                                )}
+                              </div>
+                            );
                           })()}
                         </td>
                         <td style={{ fontSize: "13px", padding: "10px 8px" }}>
