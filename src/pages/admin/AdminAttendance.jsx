@@ -217,6 +217,16 @@ export default function AdminAttendance() {
   const [editingItem, setEditingItem] = useState(null);
   const [resubmitReason, setResubmitReason] = useState("");
 
+  // 再提出理由選択用
+  const RESUBMIT_REASONS = [
+    "乖離理由未記入",
+    "申請時間の誤り",
+    "打刻漏れの確認",
+  ];
+  const [resubmitTarget, setResubmitTarget] = useState(null); // テーブルから再提出するアイテム
+  const [selectedResubmitReason, setSelectedResubmitReason] = useState("");
+  const [customResubmitReason, setCustomResubmitReason] = useState("");
+
 
 
 
@@ -1181,7 +1191,7 @@ export default function AdminAttendance() {
                             {(rowAppStatus === "pending" || rowAppStatus === "approved") && (
                               <button
                                 className="btn"
-                                onClick={() => handleRequestResubmission(item)}
+                                onClick={() => { setResubmitTarget(item); setSelectedResubmitReason(""); setCustomResubmitReason(""); }}
                                 style={{
                                   fontSize: "11px", padding: "4px 10px",
                                   background: "#f59e0b", color: "#fff", border: "none", borderRadius: "4px",
@@ -1401,6 +1411,129 @@ export default function AdminAttendance() {
                 }}
               >
                 OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 再提出理由選択モーダル */}
+      {resubmitTarget && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(0,0,0,0.5)", zIndex: 9999,
+          display: "flex", alignItems: "center", justifyContent: "center"
+        }}>
+          <div style={{
+            background: "#fff", borderRadius: "12px", padding: "24px",
+            maxWidth: "420px", width: "90%", boxShadow: "0 8px 32px rgba(0,0,0,0.2)"
+          }}>
+            <h3 style={{ margin: "0 0 8px", fontSize: "16px" }}>再提出依頼</h3>
+            <div style={{ fontSize: "13px", color: "#6b7280", marginBottom: "16px" }}>
+              {resubmitTarget.userName} ({format(new Date(resubmitTarget.workDate), "MM/dd")}) への再提出理由を選択してください
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
+              {RESUBMIT_REASONS.map(r => (
+                <button
+                  key={r}
+                  onClick={() => { setSelectedResubmitReason(r); setCustomResubmitReason(""); }}
+                  style={{
+                    padding: "10px 14px", borderRadius: "8px", cursor: "pointer",
+                    border: selectedResubmitReason === r ? "2px solid #f59e0b" : "1px solid #d1d5db",
+                    background: selectedResubmitReason === r ? "#fffbeb" : "#fff",
+                    fontWeight: selectedResubmitReason === r ? "bold" : "normal",
+                    fontSize: "14px", textAlign: "left"
+                  }}
+                >
+                  {r}
+                </button>
+              ))}
+              <button
+                onClick={() => { setSelectedResubmitReason("その他"); }}
+                style={{
+                  padding: "10px 14px", borderRadius: "8px", cursor: "pointer",
+                  border: selectedResubmitReason === "その他" ? "2px solid #f59e0b" : "1px solid #d1d5db",
+                  background: selectedResubmitReason === "その他" ? "#fffbeb" : "#fff",
+                  fontWeight: selectedResubmitReason === "その他" ? "bold" : "normal",
+                  fontSize: "14px", textAlign: "left"
+                }}
+              >
+                その他
+              </button>
+            </div>
+
+            {selectedResubmitReason === "その他" && (
+              <textarea
+                value={customResubmitReason}
+                onChange={e => setCustomResubmitReason(e.target.value)}
+                placeholder="理由を入力してください"
+                style={{
+                  width: "100%", padding: "8px", borderRadius: "6px",
+                  border: "1px solid #d1d5db", fontSize: "14px",
+                  marginBottom: "16px", minHeight: "60px", resize: "vertical",
+                  boxSizing: "border-box"
+                }}
+              />
+            )}
+
+            <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setResubmitTarget(null)}
+                style={{
+                  padding: "8px 16px", borderRadius: "8px",
+                  border: "1px solid #d1d5db", background: "#fff",
+                  cursor: "pointer", fontSize: "14px"
+                }}
+              >
+                キャンセル
+              </button>
+              <button
+                disabled={!selectedResubmitReason || (selectedResubmitReason === "その他" && !customResubmitReason.trim())}
+                onClick={async () => {
+                  const finalReason = selectedResubmitReason === "その他" ? customResubmitReason.trim() : selectedResubmitReason;
+                  setLoading(true);
+                  try {
+                    const p = parseComment(resubmitTarget.comment);
+                    const app = p.application || {};
+                    const newApp = {
+                      ...app,
+                      status: "resubmission_requested",
+                      reason: app.reason,
+                      adminComment: finalReason
+                    };
+                    const finalComment = JSON.stringify({
+                      segments: p.segments,
+                      text: (p.text || "") + `\n[再提出依頼]: ${finalReason}`,
+                      application: newApp
+                    });
+                    await fetch(`${API_BASE}/attendance/update`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        userId: resubmitTarget.userId,
+                        workDate: resubmitTarget.workDate,
+                        clockIn: resubmitTarget.clockIn,
+                        clockOut: resubmitTarget.clockOut,
+                        breaks: resubmitTarget.breaks || [],
+                        comment: finalComment
+                      }),
+                    });
+                    setResubmitTarget(null);
+                    fetchAttendances();
+                  } catch (e) {
+                    alert("エラーが発生しました");
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                style={{
+                  padding: "8px 16px", borderRadius: "8px",
+                  border: "none", background: (!selectedResubmitReason || (selectedResubmitReason === "その他" && !customResubmitReason.trim())) ? "#d1d5db" : "#f59e0b",
+                  color: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: "bold"
+                }}
+              >
+                再提出を依頼
               </button>
             </div>
           </div>
