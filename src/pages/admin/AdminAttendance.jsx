@@ -1177,9 +1177,20 @@ export default function AdminAttendance() {
                                 <CheckCircle size={12} /> 承認
                               </button>
                             )}
-                            <button className="btn btn-outline" onClick={() => openEdit(item)} style={{ fontSize: "11px", padding: "4px 8px" }}>
-                              詳細
-                            </button>
+                            {/* 承認待ち or 承認済み → 再提出依頼ボタン */}
+                            {(rowAppStatus === "pending" || rowAppStatus === "approved") && (
+                              <button
+                                className="btn"
+                                onClick={() => handleRequestResubmission(item)}
+                                style={{
+                                  fontSize: "11px", padding: "4px 10px",
+                                  background: "#f59e0b", color: "#fff", border: "none", borderRadius: "4px",
+                                  cursor: "pointer", fontWeight: "bold"
+                                }}
+                              >
+                                再提出
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
