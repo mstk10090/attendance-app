@@ -61,6 +61,35 @@ const USER_SHIFT_OVERRIDES = {
     ]
 };
 
+const SHIFT_CACHE_KEY = "shift_data_cache";
+
+// キャッシュの読み込み
+function loadShiftCache() {
+    try {
+        const raw = localStorage.getItem(SHIFT_CACHE_KEY);
+        if (!raw) return {};
+        return JSON.parse(raw);
+    } catch (e) {
+        console.warn("Shift cache parse error:", e);
+        return {};
+    }
+}
+
+// キャッシュの保存
+function saveShiftCache(cache) {
+    try {
+        localStorage.setItem(SHIFT_CACHE_KEY, JSON.stringify(cache));
+    } catch (e) {
+        console.warn("Shift cache save error:", e);
+    }
+}
+
+// 今日の日付を YYYY-MM-DD で取得
+function getTodayStr() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
 export async function fetchShiftData(forceRefresh = false, additionalSources = []) {
     const shifts = {};
 
@@ -123,7 +152,63 @@ export async function fetchShiftData(forceRefresh = false, additionalSources = [
         parseCsv(text, sheet, source.year, source.month, shifts, locationName, SPECIAL_SHIFTS);
     }
 
-    return shifts;
+    // --- キャッシュ確定ロジック ---
+    // 当日以前: キャッシュがあればキャッシュを優先（スプシの後日修正を無視）
+    // 翌日以降: スプシ最新データを使用し、キャッシュを更新
+    const todayStr = getTodayStr();
+    const cache = loadShiftCache();
+
+    const mergedShifts = {};
+
+    // まず、スプシから取得した最新データを基にする
+    for (const userName of Object.keys(shifts)) {
+        mergedShifts[userName] = {};
+
+        for (const dateKey of Object.keys(shifts[userName])) {
+            // prescribed_YYYY_MM 等のメタデータはそのまま通す
+            if (dateKey.startsWith("prescribed_")) {
+                mergedShifts[userName][dateKey] = shifts[userName][dateKey];
+                continue;
+            }
+
+            if (dateKey <= todayStr) {
+                // 当日以前: キャッシュがあればキャッシュを使用（確定済み）
+                if (cache[userName] && cache[userName][dateKey]) {
+                    mergedShifts[userName][dateKey] = cache[userName][dateKey];
+                } else {
+                    // キャッシュがない場合は初回読み込みとしてスプシ値を使用しキャッシュに保存
+                    mergedShifts[userName][dateKey] = shifts[userName][dateKey];
+                }
+            } else {
+                // 翌日以降: スプシ最新データを使用
+                mergedShifts[userName][dateKey] = shifts[userName][dateKey];
+            }
+        }
+    }
+
+    // キャッシュにあるが今回のスプシデータにない過去の日付も保持
+    for (const userName of Object.keys(cache)) {
+        if (!mergedShifts[userName]) mergedShifts[userName] = {};
+        for (const dateKey of Object.keys(cache[userName])) {
+            if (dateKey.startsWith("prescribed_")) continue;
+            if (dateKey <= todayStr && !mergedShifts[userName][dateKey]) {
+                mergedShifts[userName][dateKey] = cache[userName][dateKey];
+            }
+        }
+    }
+
+    // キャッシュを更新: 全データを保存（当日以前 = 確定値、翌日以降 = 最新値）
+    const newCache = {};
+    for (const userName of Object.keys(mergedShifts)) {
+        newCache[userName] = {};
+        for (const dateKey of Object.keys(mergedShifts[userName])) {
+            if (dateKey.startsWith("prescribed_")) continue;
+            newCache[userName][dateKey] = mergedShifts[userName][dateKey];
+        }
+    }
+    saveShiftCache(newCache);
+
+    return mergedShifts;
 }
 
 export function parseCsv(csvText, config, year, month, shifts, locationName, specialShifts) {
