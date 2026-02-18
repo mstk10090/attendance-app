@@ -246,8 +246,10 @@ export function parseCsv(csvText, config, year, month, shifts, locationName, spe
 
     for (let i = config.dataStartRowIndex; i < lines.length; i++) {
         const row = lines[i];
-        const name = row[config.nameColIndex]?.trim();
-        if (!name) continue;
+        const rawName = row[config.nameColIndex]?.trim();
+        if (!rawName) continue;
+        // 全角・半角スペースを除去して正規化（スプシ: "眞葛 澪" → "眞葛澪"）
+        const name = rawName.replace(/[\s\u3000]+/g, "");
 
         if (!shifts[name]) shifts[name] = {};
 
@@ -306,7 +308,10 @@ export function parseCsv(csvText, config, year, month, shifts, locationName, spe
             }
 
             if ((start && end) || isOff) {
-                // Construct YYYY-MM-DD key
+                // Construct YYYY-MM-DD key（無効な日付のスキップ）
+                const dayNum = parseInt(day);
+                const testDate = new Date(year, month - 1, dayNum);
+                if (testDate.getMonth() !== month - 1 || testDate.getDate() !== dayNum) return; // 無効な日付
                 const dateKey = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 
                 // Determine if Dispatch based on special code match or location
