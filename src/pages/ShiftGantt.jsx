@@ -9,6 +9,16 @@ import { fetchShiftData } from "../utils/shiftParser";
 const API_USER_URL = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com/users";
 
 // --- Utilities ---
+// ユーザーのシフトデータを検索（スペースあり/なし両対応）
+const getUserShifts = (shiftMap, user) => {
+    const ln = user.lastName || "";
+    const fn = user.firstName || "";
+    const noSpace = ln + fn;
+    const withSpace = ln + " " + fn;
+    const withWideSpace = ln + "　" + fn;
+    return shiftMap[noSpace] || shiftMap[withSpace] || shiftMap[withWideSpace] || shiftMap[user.userName] || {};
+};
+
 const toMin = (t) => {
     if (!t) return 0;
     const [h, m] = t.split(":").map(Number);
@@ -79,7 +89,7 @@ export default function ShiftGantt() {
     const filteredUsers = useMemo(() => {
         return users.filter(u => {
             const userName = `${u.lastName || ""} ${u.firstName || ""}`.trim();
-            const userShifts = shiftMap[userName];
+            const userShifts = getUserShifts(shiftMap, u);
             const shift = userShifts ? userShifts[baseDate] : null;
 
             // シフトがない人は除外（シフトがある人だけ表示）
@@ -107,7 +117,7 @@ export default function ShiftGantt() {
     const totalShiftCount = useMemo(() => {
         return users.filter(u => {
             const userName = `${u.lastName || ""} ${u.firstName || ""}`.trim();
-            const userShifts = shiftMap[userName];
+            const userShifts = getUserShifts(shiftMap, u);
             const shift = userShifts ? userShifts[baseDate] : null;
             return shift && shift.start && shift.end;
         }).length;
@@ -337,7 +347,7 @@ export default function ShiftGantt() {
                             <tbody>
                                 {filteredUsers.map(u => {
                                     const userName = `${u.lastName || ""} ${u.firstName || ""}`.trim();
-                                    const userShifts = shiftMap[userName];
+                                    const userShifts = getUserShifts(shiftMap, u);
                                     const shift = userShifts ? userShifts[baseDate] : null;
 
                                     // シフト時間をバーに変換

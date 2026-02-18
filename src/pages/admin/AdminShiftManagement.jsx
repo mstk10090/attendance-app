@@ -10,6 +10,16 @@ const API_BASE = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com";
 const API_USER_URL = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com/users";
 
 // --- Utilities ---
+// ユーザーのシフトデータを検索（スペースあり/なし両対応）
+const getUserShifts = (shiftMap, user) => {
+  const ln = user.lastName || "";
+  const fn = user.firstName || "";
+  const noSpace = ln + fn;
+  const withSpace = ln + " " + fn;
+  const withWideSpace = ln + "　" + fn;
+  return shiftMap[noSpace] || shiftMap[withSpace] || shiftMap[withWideSpace] || shiftMap[user.userName] || {};
+};
+
 const parseComment = (raw) => {
   try {
     if (!raw) return { segments: [], text: "" };
@@ -689,11 +699,11 @@ export default function AdminShiftManagement() {
       let dispatchMin = 0;
       let partTimeMin = 0;
 
-      // シフトマップからユーザーのシフトを取得するためのキー
+      // シフトマップからユーザーのシフトを取得
       const fullName = (u.lastName || "") + (u.firstName || "");
       const fullNameSpace = (u.lastName || "") + " " + (u.firstName || "");
       const fullNameWide = (u.lastName || "") + "　" + (u.firstName || "");
-      const uShiftData = shiftMap[fullName] || shiftMap[fullNameSpace] || shiftMap[fullNameWide] || shiftMap[u.userName] || {};
+      const uShiftData = getUserShifts(shiftMap, u);
 
       // 派遣ユーザーかどうかをチェック
       const isDispatchUser = u.employmentType === "派遣";
@@ -773,7 +783,7 @@ export default function AdminShiftManagement() {
       const m = new Date(baseDate);
       const pKey = `prescribed_${m.getFullYear()}_${m.getMonth() + 1}`;
       // uFullName等は既に上で定義済み
-      const sData = shiftMap[fullName] || shiftMap[fullNameSpace] || {};
+      const sData = getUserShifts(shiftMap, u);
       let prescribed = sData[pKey];
 
       // Temporary Hardcode per user request
@@ -835,7 +845,7 @@ export default function AdminShiftManagement() {
   const filteredShiftCheckUsers = useMemo(() => {
     return users.filter(u => {
       const userName = `${u.lastName} ${u.firstName}`;
-      const userShifts = shiftMap[userName];
+      const userShifts = getUserShifts(shiftMap, u);
       const shift = userShifts ? userShifts[baseDate] : null;
       // シフトに勤務地がある場合はそれを使用、なければデフォルト勤務地
       const rawLocation = (shift && !shift.isOff && shift.location) ? shift.location : (u.defaultLocation || "未記載");
@@ -1381,7 +1391,7 @@ export default function AdminShiftManagement() {
                   {filteredShiftCheckUsers.map(u => {
                     const userName = `${u.lastName} ${u.firstName}`;
                     // Get Shift
-                    const userShifts = shiftMap[userName];
+                    const userShifts = getUserShifts(shiftMap, u);
                     const shift = userShifts ? userShifts[baseDate] : null;
 
                     // Get Attendance
@@ -1567,7 +1577,7 @@ export default function AdminShiftManagement() {
                     if (filterShiftDepartment !== "all" && u.defaultDepartment !== filterShiftDepartment) return false;
                     // シフトがあるかチェック
                     const userName = `${u.lastName} ${u.firstName}`;
-                    const userShifts = shiftMap[userName];
+                    const userShifts = getUserShifts(shiftMap, u);
                     const shift = userShifts ? userShifts[baseDate] : null;
                     if (!shift || !shift.start || !shift.end) return false; // シフトがない人は除外
                     return true;
@@ -1575,7 +1585,7 @@ export default function AdminShiftManagement() {
 
                   return ganttUsers.map(u => {
                     const userName = `${u.lastName} ${u.firstName}`;
-                    const userShifts = shiftMap[userName];
+                    const userShifts = getUserShifts(shiftMap, u);
                     const shift = userShifts ? userShifts[baseDate] : null;
 
                     // シフト時間をバーに変換
