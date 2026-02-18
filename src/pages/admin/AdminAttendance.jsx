@@ -219,13 +219,21 @@ export default function AdminAttendance() {
 
   // 再提出理由選択用
   const RESUBMIT_REASONS = [
-    "乖離理由未記入",
-    "申請時間の誤り",
-    "打刻漏れの確認",
+    "乖離理由を教えてください",
+    "正しい勤怠時間で申請してください",
   ];
   const [resubmitTarget, setResubmitTarget] = useState(null); // テーブルから再提出するアイテム
   const [selectedResubmitReason, setSelectedResubmitReason] = useState("");
   const [customResubmitReason, setCustomResubmitReason] = useState("");
+
+  // 取消理由選択用
+  const CANCEL_REASONS = ["tapo確認済"];
+  const [cancelTarget, setCancelTarget] = useState(null); // { item, type }
+  const [selectedCancelReason, setSelectedCancelReason] = useState("");
+  const [customCancelReason, setCustomCancelReason] = useState("");
+
+  // 乖離理由展開用
+  const [expandedReasonId, setExpandedReasonId] = useState(null);
 
 
 
@@ -621,13 +629,16 @@ export default function AdminAttendance() {
     }
   };
 
-  // 遅刻取消ハンドラ
-  const handleCancelLate = async (item, type = "late") => {
+  // 遅刻取消ハンドラ（モーダルを開く）
+  const openCancelModal = (item, type = "late") => {
+    setCancelTarget({ item, type });
+    setSelectedCancelReason("");
+    setCustomCancelReason("");
+  };
+
+  const handleCancelLate = async (item, type = "late", reason = "") => {
     const typeLabel = type === "late" ? "遅刻" : type === "early" ? "早退" : "遅刻+早退";
 
-    // 理由の入力を求める
-    const reason = prompt(`${typeLabel}取消の理由を入力してください（例: 電車遅延、業務都合など）`);
-    if (reason === null) return; // キャンセルされた場合
     if (!reason.trim()) {
       alert("理由を入力してください");
       return;
@@ -1123,7 +1134,7 @@ export default function AdminAttendance() {
                                 <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                                   <span style={{ color: "#f59e0b", fontWeight: "bold", fontSize: "12px" }}>⚠️ 遅刻</span>
                                   <button
-                                    onClick={() => handleCancelLate(item, "late")}
+                                    onClick={() => openCancelModal(item, "late")}
                                     style={{ fontSize: "10px", padding: "2px 6px", background: "#f3f4f6", border: "1px solid #d1d5db", borderRadius: "4px", cursor: "pointer" }}
                                   >取消</button>
                                 </div>
@@ -1138,7 +1149,7 @@ export default function AdminAttendance() {
                                 <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                                   <span style={{ color: "#f59e0b", fontWeight: "bold", fontSize: "12px" }}>⚠️ 早退</span>
                                   <button
-                                    onClick={() => handleCancelLate(item, "early")}
+                                    onClick={() => openCancelModal(item, "early")}
                                     style={{ fontSize: "10px", padding: "2px 6px", background: "#f3f4f6", border: "1px solid #d1d5db", borderRadius: "4px", cursor: "pointer" }}
                                   >取消</button>
                                 </div>
@@ -1155,7 +1166,7 @@ export default function AdminAttendance() {
                                 <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                                   <span style={{ color: "#ef4444", fontWeight: "bold", fontSize: "12px" }}>⚠️ 遅刻+早退</span>
                                   <button
-                                    onClick={() => handleCancelLate(item, "both")}
+                                    onClick={() => openCancelModal(item, "both")}
                                     style={{ fontSize: "10px", padding: "2px 6px", background: "#f3f4f6", border: "1px solid #d1d5db", borderRadius: "4px", cursor: "pointer" }}
                                   >取消</button>
                                 </div>
@@ -1174,12 +1185,23 @@ export default function AdminAttendance() {
                             if (!appReason || appReason === "-") {
                               return <span style={{ color: "#d1d5db" }}>-</span>;
                             }
+                            const itemKey = `${item.userId}-${item.workDate}`;
+                            const isExpanded = expandedReasonId === itemKey;
                             return (
-                              <div style={{ lineHeight: "1.3" }}>
+                              <div
+                                style={{ lineHeight: "1.3", cursor: comment ? "pointer" : "default" }}
+                                onClick={() => comment && setExpandedReasonId(isExpanded ? null : itemKey)}
+                              >
                                 <div style={{ fontWeight: "bold", color: "#ef4444" }}>{appReason}</div>
                                 {comment && comment.trim() && (
-                                  <div style={{ color: "#6b7280", fontSize: "11px", marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={comment}>
+                                  <div style={{
+                                    color: "#6b7280", fontSize: "11px", marginTop: "2px",
+                                    ...(isExpanded
+                                      ? { whiteSpace: "pre-wrap", wordBreak: "break-word" }
+                                      : { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" })
+                                  }}>
                                     {comment}
+                                    {!isExpanded && <span style={{ color: "#3b82f6", marginLeft: "4px", fontSize: "10px" }}>▶詳細</span>}
                                   </div>
                                 )}
                               </div>
@@ -1549,6 +1571,100 @@ export default function AdminAttendance() {
                 }}
               >
                 再提出を依頼
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 取消理由選択モーダル */}
+      {cancelTarget && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(0,0,0,0.5)", zIndex: 9999,
+          display: "flex", alignItems: "center", justifyContent: "center"
+        }}>
+          <div style={{
+            background: "#fff", borderRadius: "12px", padding: "24px",
+            maxWidth: "420px", width: "90%", boxShadow: "0 8px 32px rgba(0,0,0,0.2)"
+          }}>
+            <h3 style={{ margin: "0 0 8px", fontSize: "16px" }}>
+              {cancelTarget.type === "late" ? "遅刻" : cancelTarget.type === "early" ? "早退" : "遅刻+早退"}取消
+            </h3>
+            <div style={{ fontSize: "13px", color: "#6b7280", marginBottom: "16px" }}>
+              取消理由を選択してください
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
+              {CANCEL_REASONS.map(r => (
+                <button
+                  key={r}
+                  onClick={() => { setSelectedCancelReason(r); setCustomCancelReason(""); }}
+                  style={{
+                    padding: "10px 14px", borderRadius: "8px", cursor: "pointer",
+                    border: selectedCancelReason === r ? "2px solid #6b7280" : "1px solid #d1d5db",
+                    background: selectedCancelReason === r ? "#f3f4f6" : "#fff",
+                    fontWeight: selectedCancelReason === r ? "bold" : "normal",
+                    fontSize: "14px", textAlign: "left"
+                  }}
+                >
+                  {r}
+                </button>
+              ))}
+              <button
+                onClick={() => { setSelectedCancelReason("その他"); }}
+                style={{
+                  padding: "10px 14px", borderRadius: "8px", cursor: "pointer",
+                  border: selectedCancelReason === "その他" ? "2px solid #6b7280" : "1px solid #d1d5db",
+                  background: selectedCancelReason === "その他" ? "#f3f4f6" : "#fff",
+                  fontWeight: selectedCancelReason === "その他" ? "bold" : "normal",
+                  fontSize: "14px", textAlign: "left"
+                }}
+              >
+                その他（記述式）
+              </button>
+            </div>
+
+            {selectedCancelReason === "その他" && (
+              <textarea
+                value={customCancelReason}
+                onChange={e => setCustomCancelReason(e.target.value)}
+                placeholder="理由を入力してください"
+                style={{
+                  width: "100%", padding: "8px", borderRadius: "6px",
+                  border: "1px solid #d1d5db", fontSize: "14px",
+                  marginBottom: "16px", minHeight: "60px", resize: "vertical",
+                  boxSizing: "border-box"
+                }}
+              />
+            )}
+
+            <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setCancelTarget(null)}
+                style={{
+                  padding: "8px 16px", borderRadius: "8px",
+                  border: "1px solid #d1d5db", background: "#fff",
+                  cursor: "pointer", fontSize: "14px"
+                }}
+              >
+                キャンセル
+              </button>
+              <button
+                disabled={!selectedCancelReason || (selectedCancelReason === "その他" && !customCancelReason.trim())}
+                onClick={async () => {
+                  const finalReason = selectedCancelReason === "その他" ? customCancelReason.trim() : selectedCancelReason;
+                  await handleCancelLate(cancelTarget.item, cancelTarget.type, finalReason);
+                  setCancelTarget(null);
+                }}
+                style={{
+                  padding: "8px 16px", borderRadius: "8px",
+                  border: "none",
+                  background: (!selectedCancelReason || (selectedCancelReason === "その他" && !customCancelReason.trim())) ? "#d1d5db" : "#6b7280",
+                  color: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: "bold"
+                }}
+              >
+                取消を実行
               </button>
             </div>
           </div>

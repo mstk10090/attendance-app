@@ -327,6 +327,14 @@ export default function AdminShiftManagement() {
   const [editingItem, setEditingItem] = useState(null);
   const [resubmitReason, setResubmitReason] = useState("");
 
+  // 再提出定型文
+  const RESUBMIT_REASONS = [
+    "乖離理由を教えてください",
+    "正しい勤怠時間で申請してください",
+  ];
+  const [selectedShiftResubmitReason, setSelectedShiftResubmitReason] = useState("");
+  const [customShiftResubmitReason, setCustomShiftResubmitReason] = useState("");
+
   // Drag & Drop State
   const [dragActive, setDragActive] = useState(false);
 
@@ -958,11 +966,14 @@ export default function AdminShiftManagement() {
   const openEdit = (item) => {
     setEditingItem(item);
     setResubmitReason("");
+    setSelectedShiftResubmitReason("");
+    setCustomShiftResubmitReason("");
   };
 
   const handleRequestResubmission = async () => {
-    if (!resubmitReason.trim()) {
-      alert("再提出依頼の理由を入力してください");
+    const finalReason = selectedShiftResubmitReason === "その他" ? customShiftResubmitReason.trim() : selectedShiftResubmitReason;
+    if (!finalReason) {
+      alert("再提出依頼の理由を選択してください");
       return;
     }
     if (!await showConfirm("このスタッフに再提出を依頼しますか？\n(通知が送られます)")) return;
@@ -975,12 +986,12 @@ export default function AdminShiftManagement() {
         ...app,
         status: "resubmission_requested",
         reason: app.reason,
-        adminComment: resubmitReason
+        adminComment: finalReason
       };
 
       const finalComment = JSON.stringify({
         segments: p.segments,
-        text: (p.text || "") + `\n[再提出依頼]: ${resubmitReason}`,
+        text: (p.text || "") + `\n[再提出依頼]: ${finalReason}`,
         application: newApp
       });
 
@@ -1913,16 +1924,57 @@ export default function AdminShiftManagement() {
 
               <h4>再提出依頼 (修正願い)</h4>
               <p style={{ fontSize: "0.85rem", color: "#666", marginBottom: "8px" }}>
-                承認できない場合は、理由を入力して再提出を依頼してください。
+                承認できない場合は、理由を選択して再提出を依頼してください。
               </p>
-              <textarea
-                className="input"
-                placeholder="例: 退勤時間の入力が間違っているようです"
-                value={resubmitReason}
-                onChange={e => setResubmitReason(e.target.value)}
-                style={{ width: "100%", height: "80px", marginBottom: "12px" }}
-              />
-              <button className="btn btn-outline" onClick={handleRequestResubmission} style={{ width: "100%", color: "#7c3aed", borderColor: "#7c3aed" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "12px" }}>
+                {RESUBMIT_REASONS.map(r => (
+                  <button
+                    key={r}
+                    onClick={() => { setSelectedShiftResubmitReason(r); setCustomShiftResubmitReason(""); setResubmitReason(r); }}
+                    className="btn"
+                    style={{
+                      padding: "10px 14px", borderRadius: "8px", cursor: "pointer",
+                      border: selectedShiftResubmitReason === r ? "2px solid #7c3aed" : "1px solid #d1d5db",
+                      background: selectedShiftResubmitReason === r ? "#f5f3ff" : "#fff",
+                      fontWeight: selectedShiftResubmitReason === r ? "bold" : "normal",
+                      fontSize: "14px", textAlign: "left", color: "#374151"
+                    }}
+                  >
+                    {r}
+                  </button>
+                ))}
+                <button
+                  onClick={() => { setSelectedShiftResubmitReason("その他"); setResubmitReason(""); }}
+                  className="btn"
+                  style={{
+                    padding: "10px 14px", borderRadius: "8px", cursor: "pointer",
+                    border: selectedShiftResubmitReason === "その他" ? "2px solid #7c3aed" : "1px solid #d1d5db",
+                    background: selectedShiftResubmitReason === "その他" ? "#f5f3ff" : "#fff",
+                    fontWeight: selectedShiftResubmitReason === "その他" ? "bold" : "normal",
+                    fontSize: "14px", textAlign: "left", color: "#374151"
+                  }}
+                >
+                  その他（記述式）
+                </button>
+              </div>
+              {selectedShiftResubmitReason === "その他" && (
+                <textarea
+                  className="input"
+                  placeholder="理由を入力してください"
+                  value={customShiftResubmitReason}
+                  onChange={e => setCustomShiftResubmitReason(e.target.value)}
+                  style={{ width: "100%", height: "80px", marginBottom: "12px" }}
+                />
+              )}
+              <button
+                className="btn btn-outline"
+                onClick={handleRequestResubmission}
+                disabled={!selectedShiftResubmitReason || (selectedShiftResubmitReason === "その他" && !customShiftResubmitReason.trim())}
+                style={{
+                  width: "100%", color: "#7c3aed", borderColor: "#7c3aed",
+                  opacity: (!selectedShiftResubmitReason || (selectedShiftResubmitReason === "その他" && !customShiftResubmitReason.trim())) ? 0.5 : 1
+                }}
+              >
                 <Send size={18} style={{ marginRight: 6 }} /> 再提出を依頼する
               </button>
 
