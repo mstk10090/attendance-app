@@ -49,7 +49,7 @@ export const SPECIAL_SHIFTS = {
     // 派遣シフト: dispatchEndは派遣先での終了時刻、endは全体の終了時刻
     "朝": { start: "07:00", end: "17:00", dispatchEnd: "15:00" },  // 派遣7-15、バイト15-17
     "早": { start: "09:00", end: "19:00", dispatchEnd: "17:00" },  // 派遣9-17、バイト17-19
-    "中": { start: "10:00", end: "19:00", dispatchEnd: "17:00" },  // 派遣10-17、バイト17-19
+    "中": { start: "10:00", end: "19:00", dispatchEnd: "18:00" },  // 派遣10-18、バイト18-19
     "遅": { start: "12:00", end: "22:00", dispatchEnd: "20:00" },  // 派遣12-20、バイト20-22（デフォルト）
     "深": { start: "17:00", end: "03:00", dispatchEnd: "01:00" }   // 深夜シフト
 };

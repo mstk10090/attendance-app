@@ -90,8 +90,8 @@ export default function App() {
     }
   }, []);
 
-  // 自動ログアウト（30分無操作）
-  const AUTO_LOGOUT_MS = 30 * 60 * 1000; // 30分
+  // 自動ログアウト（5分無操作）
+  const AUTO_LOGOUT_MS = 5 * 60 * 1000; // 5分
   const logoutTimerRef = useRef(null);
 
   const resetLogoutTimer = useCallback(() => {

@@ -251,6 +251,31 @@ export default function Login({ onLogin }) {
             {loading ? "ログイン中..." : "ログイン"}
           </button>
         </form>
+
+        {/* スプレッドシートリンク */}
+        <div style={{ marginTop: 20, textAlign: "center" }}>
+          <a
+            href="https://docs.google.com/spreadsheets/d/1Qg_uRrmKMhwRhfSGHfNq9bpeNGZJeFdyS0a0SHDKglE/edit?gid=0#gid=0"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "8px 16px",
+              borderRadius: 6,
+              background: "#f0fdf4",
+              border: "1px solid #bbf7d0",
+              color: "#15803d",
+              fontSize: "0.85rem",
+              fontWeight: "500",
+              textDecoration: "none",
+              transition: "background 0.2s"
+            }}
+          >
+            📊 シフト表（スプレッドシート）を開く
+          </a>
+        </div>
       </div>
     </div>
   );
