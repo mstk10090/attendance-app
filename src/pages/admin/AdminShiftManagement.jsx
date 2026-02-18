@@ -689,7 +689,13 @@ export default function AdminShiftManagement() {
 
     // 2. Map Users
     return users.map(u => {
-      const uItems = items.filter(i => i.userId === u.userId);
+      const uName = ((u.lastName || "") + (u.firstName || "")).replace(/\s/g, "");
+      const uItems = items.filter(i => {
+        if (i.userId === u.userId) return true;
+        // userId不一致の場合、userName（スペースなし）でフォールバック
+        const iName = (i.userName || "").replace(/\s/g, "");
+        return iName === uName && uName !== "";
+      });
       const attendedDates = new Set(uItems.filter(i => i.clockIn).map(i => i.workDate));
 
       let absent = 0;
@@ -1394,8 +1400,14 @@ export default function AdminShiftManagement() {
                     const userShifts = getUserShifts(shiftMap, u);
                     const shift = userShifts ? userShifts[baseDate] : null;
 
-                    // Get Attendance
-                    const item = items.find(i => i.userId === u.userId && i.workDate === baseDate);
+                    // Get Attendance (userId一致、なければuserNameフォールバック)
+                    const item = items.find(i => i.userId === u.userId && i.workDate === baseDate)
+                      || items.find(i => {
+                        if (i.workDate !== baseDate) return false;
+                        const iName = (i.userName || "").replace(/\s/g, "");
+                        const uName = ((u.lastName || "") + (u.firstName || "")).replace(/\s/g, "");
+                        return iName === uName && uName !== "";
+                      });
 
                     if (!shift && !item) return null; // Skip users with neither shift nor attendance
 
