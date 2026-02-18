@@ -1466,26 +1466,50 @@ export default function AdminShiftManagement() {
                           {shift ? (
                             <span style={{ fontWeight: shift.isOff ? "bold" : "normal", color: shift.isOff ? "#ef4444" : "inherit" }}>
                               {shift.isOff ? "休み" : (
-                                <>
-                                  {`${shift.start} - ${shift.end}`}
-                                  {/* 派遣シフトの場合はシフト種別を表示 */}
+                                <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                  {/* 派遣/バイト分離表示 */}
+                                  {(shift.dispatchRange || shift.partTimeRange) ? (
+                                    <>
+                                      {shift.dispatchRange && (
+                                        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                                          <span style={{
+                                            padding: "1px 5px", borderRadius: "3px", fontSize: "10px", fontWeight: "bold",
+                                            background: "#dbeafe", color: "#1d4ed8"
+                                          }}>派遣</span>
+                                          <span style={{ fontSize: "13px", color: "#1d4ed8" }}>
+                                            {shift.dispatchRange.start}-{shift.dispatchRange.end}
+                                          </span>
+                                        </div>
+                                      )}
+                                      {shift.partTimeRange && (
+                                        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                                          <span style={{
+                                            padding: "1px 5px", borderRadius: "3px", fontSize: "10px", fontWeight: "bold",
+                                            background: "#dcfce7", color: "#15803d"
+                                          }}>バイト</span>
+                                          <span style={{ fontSize: "13px", color: "#15803d" }}>
+                                            {shift.partTimeRange.start}-{shift.partTimeRange.end}
+                                          </span>
+                                        </div>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <span>{`${shift.start} - ${shift.end}`}</span>
+                                  )}
+                                  {/* 派遣シフトコードバッジ */}
                                   {shift.isDispatch && shift.original && (() => {
-                                    // originalから最初のシフトコード（朝・早・中・遅・深）を抽出
                                     const firstCode = shift.original.split(/[\s\/]/)[0]?.trim();
                                     if (["朝", "早", "中", "遅", "深"].includes(firstCode)) {
                                       return (
                                         <span style={{
-                                          marginLeft: "6px",
-                                          padding: "2px 6px",
-                                          borderRadius: "4px",
-                                          fontSize: "11px",
-                                          fontWeight: "bold",
+                                          padding: "2px 6px", borderRadius: "4px", fontSize: "11px", fontWeight: "bold",
                                           background: firstCode === "朝" ? "#fef3c7" :
                                             firstCode === "早" ? "#d1fae5" :
                                               firstCode === "中" ? "#dbeafe" :
                                                 firstCode === "遅" ? "#fce7f3" :
                                                   firstCode === "深" ? "#1e293b" : "#e5e7eb",
-                                          color: firstCode === "深" ? "#fff" : "#374151"
+                                          color: firstCode === "深" ? "#fff" : "#374151",
+                                          alignSelf: "flex-start"
                                         }}>
                                           {firstCode}
                                         </span>
@@ -1493,7 +1517,7 @@ export default function AdminShiftManagement() {
                                     }
                                     return null;
                                   })()}
-                                </>
+                                </div>
                               )}
                             </span>
                           ) : (
@@ -1601,29 +1625,26 @@ export default function AdminShiftManagement() {
                         <td style={{ padding: "8px", fontWeight: "500", borderRight: "1px solid #e5e7eb", position: "sticky", left: 0, background: "#fff", zIndex: 5 }}>
                           {userName}
                         </td>
-                        <td style={{ padding: "4px 8px", textAlign: "center", fontSize: "11px", color: shift ? "#2563eb" : "#9ca3af", borderRight: "1px solid #e5e7eb" }}>
+                        <td style={{ padding: "4px 6px", textAlign: "center", fontSize: "10px", borderRight: "1px solid #e5e7eb" }}>
                           {shift ? (
-                            <>
-                              {`${shift.start}-${shift.end}`}
-                              {/* 派遣シフトの場合はシフト種別を表示 */}
-                              {shift.isDispatch && shift.original && SPECIAL_SHIFTS[shift.original.trim()] && (
-                                <span style={{
-                                  marginLeft: "4px",
-                                  padding: "1px 4px",
-                                  borderRadius: "3px",
-                                  fontSize: "9px",
-                                  fontWeight: "bold",
-                                  background: shift.original.trim() === "朝" ? "#fef3c7" :
-                                    shift.original.trim() === "早" ? "#d1fae5" :
-                                      shift.original.trim() === "中" ? "#dbeafe" :
-                                        shift.original.trim() === "遅" ? "#fce7f3" :
-                                          shift.original.trim() === "深" ? "#1e293b" : "#e5e7eb",
-                                  color: shift.original.trim() === "深" ? "#fff" : "#374151"
-                                }}>
-                                  {shift.original.trim()}
-                                </span>
-                              )}
-                            </>
+                            (shift.dispatchRange || shift.partTimeRange) ? (
+                              <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
+                                {shift.dispatchRange && (
+                                  <div style={{ color: "#1d4ed8" }}>
+                                    <span style={{ fontSize: "8px", fontWeight: "bold", background: "#dbeafe", padding: "0 3px", borderRadius: "2px", marginRight: "2px" }}>派</span>
+                                    {shift.dispatchRange.start}-{shift.dispatchRange.end}
+                                  </div>
+                                )}
+                                {shift.partTimeRange && (
+                                  <div style={{ color: "#15803d" }}>
+                                    <span style={{ fontSize: "8px", fontWeight: "bold", background: "#dcfce7", padding: "0 3px", borderRadius: "2px", marginRight: "2px" }}>バ</span>
+                                    {shift.partTimeRange.start}-{shift.partTimeRange.end}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <span style={{ color: "#2563eb" }}>{`${shift.start}-${shift.end}`}</span>
+                            )
                           ) : "-"}
                         </td>
                         {/* 7時〜24時の各時間セル */}
@@ -1631,10 +1652,44 @@ export default function AdminShiftManagement() {
                           const cellStart = hour * 60;
                           const cellEnd = (hour + 1) * 60;
 
-                          // シフトがこの時間帯にあるかチェック
+                          // 派遣/バイト区間の色分け
+                          let isDispatchHour = false;
+                          let isPartTimeHour = false;
                           let hasShift = false;
+
                           if (shiftStart !== null && shiftEnd !== null) {
                             hasShift = shiftStart < cellEnd && shiftEnd > cellStart;
+
+                            if (hasShift && shift) {
+                              if (shift.dispatchRange) {
+                                const dStart = toMin(shift.dispatchRange.start);
+                                const dEnd = toMin(shift.dispatchRange.end);
+                                isDispatchHour = dStart < cellEnd && dEnd > cellStart;
+                              }
+                              if (shift.partTimeRange) {
+                                const pStart = toMin(shift.partTimeRange.start);
+                                const pEnd = toMin(shift.partTimeRange.end);
+                                isPartTimeHour = pStart < cellEnd && pEnd > cellStart;
+                              }
+                              // フォールバック: range情報がない場合
+                              if (!shift.dispatchRange && !shift.partTimeRange) {
+                                if (shift.isDispatch) isDispatchHour = true;
+                                else isPartTimeHour = true;
+                              }
+                            }
+                          }
+
+                          let bgColor = "#fff";
+                          if (isDispatchHour && isPartTimeHour) {
+                            const cellMid = (cellStart + cellEnd) / 2;
+                            const dispEnd = shift.dispatchRange ? toMin(shift.dispatchRange.end) : cellEnd;
+                            bgColor = cellMid < dispEnd ? "#3b82f6" : "#22c55e";
+                          } else if (isDispatchHour) {
+                            bgColor = "#3b82f6";
+                          } else if (isPartTimeHour) {
+                            bgColor = "#22c55e";
+                          } else if (hasShift) {
+                            bgColor = shift.isDispatch ? "#3b82f6" : "#22c55e";
                           }
 
                           return (
@@ -1643,7 +1698,7 @@ export default function AdminShiftManagement() {
                               style={{
                                 padding: "4px",
                                 borderRight: "1px solid #e5e7eb",
-                                background: hasShift ? "#60a5fa" : "#fff",
+                                background: bgColor,
                                 minHeight: "24px"
                               }}
                             />
@@ -1655,6 +1710,17 @@ export default function AdminShiftManagement() {
                 })()}
               </tbody>
             </table>
+          </div>
+          {/* 凡例 */}
+          <div style={{ marginTop: "12px", display: "flex", gap: "20px", justifyContent: "center", fontSize: "0.8rem", color: "#6b7280" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+              <div style={{ width: "20px", height: "12px", background: "#3b82f6", borderRadius: "2px" }} />
+              <span>派遣</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+              <div style={{ width: "20px", height: "12px", background: "#22c55e", borderRadius: "2px" }} />
+              <span>バイト</span>
+            </div>
           </div>
         </div>
 

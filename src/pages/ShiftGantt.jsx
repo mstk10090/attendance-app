@@ -362,31 +362,59 @@ export default function ShiftGantt() {
                                     const location = (shift && shift.location) || u.defaultLocation || "";
                                     const department = u.defaultDepartment || "";
 
+                                    const loggedInUserName = localStorage.getItem("userName") || "";
+                                    const isCurrentUser = userName === loggedInUserName ||
+                                        userName.replace(/\s/g, "") === loggedInUserName.replace(/\s/g, "");
+
                                     return (
-                                        <tr key={u.userId} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                                        <tr key={u.userId} style={{
+                                            borderBottom: "1px solid #f3f4f6",
+                                            background: isCurrentUser ? "#fefce8" : "transparent"
+                                        }}>
                                             <td style={{
                                                 padding: "8px",
-                                                fontWeight: "500",
+                                                fontWeight: isCurrentUser ? "700" : "500",
                                                 borderRight: "1px solid #e5e7eb",
                                                 position: "sticky",
                                                 left: 0,
-                                                background: "#fff",
+                                                background: isCurrentUser ? "#fefce8" : "#fff",
                                                 zIndex: 5
                                             }}>
-                                                <div style={{ fontSize: "13px", color: "#1f2937" }}>{userName}</div>
+                                                <div style={{ fontSize: "13px", color: isCurrentUser ? "#92400e" : "#1f2937" }}>
+                                                    {userName}
+                                                    {isCurrentUser && <span style={{ marginLeft: "4px", fontSize: "10px", color: "#d97706" }}>★</span>}
+                                                </div>
                                                 <div style={{ fontSize: "10px", color: "#9ca3af", marginTop: "2px" }}>
                                                     {[department, location].filter(Boolean).join(" / ")}
                                                 </div>
                                             </td>
                                             <td style={{
-                                                padding: "4px 8px",
+                                                padding: "4px 6px",
                                                 textAlign: "center",
-                                                fontSize: "11px",
-                                                color: shift ? "#2563eb" : "#9ca3af",
+                                                fontSize: "10px",
                                                 borderRight: "1px solid #e5e7eb",
                                                 fontWeight: shift ? "500" : "normal"
                                             }}>
-                                                {shift ? `${shift.start}-${shift.end}` : "-"}
+                                                {shift ? (
+                                                    (shift.dispatchRange || shift.partTimeRange) ? (
+                                                        <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
+                                                            {shift.dispatchRange && (
+                                                                <div style={{ color: "#1d4ed8" }}>
+                                                                    <span style={{ fontSize: "8px", fontWeight: "bold", background: "#dbeafe", padding: "0 3px", borderRadius: "2px", marginRight: "2px" }}>派</span>
+                                                                    {shift.dispatchRange.start}-{shift.dispatchRange.end}
+                                                                </div>
+                                                            )}
+                                                            {shift.partTimeRange && (
+                                                                <div style={{ color: "#15803d" }}>
+                                                                    <span style={{ fontSize: "8px", fontWeight: "bold", background: "#dcfce7", padding: "0 3px", borderRadius: "2px", marginRight: "2px" }}>バ</span>
+                                                                    {shift.partTimeRange.start}-{shift.partTimeRange.end}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <span style={{ color: "#2563eb" }}>{shift.start}-{shift.end}</span>
+                                                    )
+                                                ) : "-"}
                                             </td>
                                             {/* 7時〜24時の各時間セル */}
                                             {Array.from({ length: 18 }, (_, i) => i + 7).map(hour => {

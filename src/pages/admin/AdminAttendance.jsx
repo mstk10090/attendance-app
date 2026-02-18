@@ -996,6 +996,21 @@ export default function AdminAttendance() {
                           {shift ? (
                             shift.isOff ? (
                               <span style={{ color: "#ef4444", fontWeight: "bold" }}>休み</span>
+                            ) : (shift.dispatchRange || shift.partTimeRange) ? (
+                              <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
+                                {shift.dispatchRange && (
+                                  <div style={{ display: "flex", alignItems: "center", gap: "3px" }}>
+                                    <span style={{ padding: "0px 4px", borderRadius: "3px", fontSize: "9px", fontWeight: "bold", background: "#dbeafe", color: "#1d4ed8" }}>派遣</span>
+                                    <span style={{ color: "#1d4ed8", fontFamily: "monospace", fontSize: "12px" }}>{shift.dispatchRange.start}-{shift.dispatchRange.end}</span>
+                                  </div>
+                                )}
+                                {shift.partTimeRange && (
+                                  <div style={{ display: "flex", alignItems: "center", gap: "3px" }}>
+                                    <span style={{ padding: "0px 4px", borderRadius: "3px", fontSize: "9px", fontWeight: "bold", background: "#dcfce7", color: "#15803d" }}>バイト</span>
+                                    <span style={{ color: "#15803d", fontFamily: "monospace", fontSize: "12px" }}>{shift.partTimeRange.start}-{shift.partTimeRange.end}</span>
+                                  </div>
+                                )}
+                              </div>
                             ) : (
                               <span style={{ color: "#2563eb", fontFamily: "monospace" }}>{shift.start}-{shift.end}</span>
                             )
