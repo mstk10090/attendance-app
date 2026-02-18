@@ -227,7 +227,11 @@ export function parseCsv(csvText, config, year, month, shifts, locationName, spe
         // Match "1日" or just "1"
         const match = cell.match(/^(\d+)日?$/);
         if (match) {
-            dayMap[parseInt(match[1])] = i;
+            const day = parseInt(match[1]);
+            // 最初に見つかった位置を優先（集計エリアの重複を防止）
+            if (!(day in dayMap)) {
+                dayMap[day] = i;
+            }
         } else if (cell === "規定出勤日数" || cell === "規定日数") {
             prescribedDaysColIndex = i;
         }
