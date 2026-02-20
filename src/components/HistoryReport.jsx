@@ -1,8 +1,9 @@
-import React, { useMemo, useEffect } from "react";
+import React, { useMemo, useEffect, useState } from "react";
 import { format, startOfYear, endOfYear, eachDayOfInterval, isSaturday, isSunday } from "date-fns";
 import { ja } from "date-fns/locale";
 import { Calendar, Clock, PieChart, CheckCircle } from "lucide-react";
 import { HOLIDAYS } from "../constants";
+import { normalizeName } from "../utils/shiftParser";
 
 /* --- UTILS --- */
 const toMin = (t) => {
@@ -88,6 +89,17 @@ const extractReason = (item) => {
     }
 }
 
+// 理由の詳細テキスト（「その他」等で入力されたコメント）を取得
+const extractReasonText = (item) => {
+    if (!item.comment) return null;
+    try {
+        const p = JSON.parse(item.comment);
+        return p.text || null;
+    } catch {
+        return null;
+    }
+}
+
 const extractAppliedTime = (item) => {
     if (!item.comment) return null;
     try {
@@ -125,6 +137,7 @@ const isWorkDay = (dateStr) => {
 };
 
 export default function HistoryReport({ user, items, baseDate, viewMode, shiftMap, onRowClick, onWithdraw }) {
+    const [expandedReasonId, setExpandedReasonId] = useState(null);
 
 
     // Render Stats (理由別内訳は削除)
@@ -211,19 +224,9 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                 // Shift Lookup（背景色判定のために先に行う）
                                 let shift = null;
                                 if (shiftMap && user) {
-                                    const keysToTry = [
-                                        user.userName,
-                                        `${user.lastName || ""} ${user.firstName || ""}`.trim(),
-                                        `${user.firstName || ""} ${user.lastName || ""}`.trim(),
-                                        `${user.lastName || ""}　${user.firstName || ""}`.trim(),
-                                        `${user.firstName || ""}　${user.lastName || ""}`.trim(),
-                                        `${user.lastName || ""}${user.firstName || ""}`.trim()
-                                    ];
-                                    for (const k of keysToTry) {
-                                        if (k && shiftMap[k] && shiftMap[k][dateStr]) {
-                                            shift = shiftMap[k][dateStr];
-                                            break;
-                                        }
+                                    const normalized = normalizeName(user.userName);
+                                    if (shiftMap[normalized]?.[dateStr]) {
+                                        shift = shiftMap[normalized][dateStr];
                                     }
                                 }
 
@@ -431,11 +434,38 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                             {statusDisplay}
                                         </td>
                                         <td style={{ padding: "12px 16px", textAlign: "center" }}>
-                                            {reason && reason !== "欠勤" ? (
-                                                <span className="status-badge gray">{reason}</span>
-                                            ) : (
-                                                <span style={{ color: "#d1d5db" }}>-</span>
-                                            )}
+                                            {(() => {
+                                                if (!reason || reason === "欠勤") {
+                                                    return <span style={{ color: "#d1d5db" }}>-</span>;
+                                                }
+                                                const reasonText = extractReasonText(item);
+                                                const itemKey = `${dateStr}`;
+                                                const isExpanded = expandedReasonId === itemKey;
+                                                return (
+                                                    <div
+                                                        style={{ lineHeight: "1.3", cursor: reasonText ? "pointer" : "default" }}
+                                                        onClick={(e) => {
+                                                            if (reasonText) {
+                                                                e.stopPropagation();
+                                                                setExpandedReasonId(isExpanded ? null : itemKey);
+                                                            }
+                                                        }}
+                                                    >
+                                                        <span className="status-badge gray">{reason}</span>
+                                                        {reasonText && reasonText.trim() && (
+                                                            <div style={{
+                                                                color: "#6b7280", fontSize: "11px", marginTop: "2px",
+                                                                ...(isExpanded
+                                                                    ? { whiteSpace: "pre-wrap", wordBreak: "break-word", textAlign: "left" }
+                                                                    : { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "120px", display: "inline-block" })
+                                                            }}>
+                                                                {reasonText}
+                                                                {!isExpanded && <span style={{ color: "#3b82f6", marginLeft: "4px", fontSize: "10px" }}>▶詳細</span>}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })()}
                                         </td>
                                     </tr>
                                 );

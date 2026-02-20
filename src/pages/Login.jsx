@@ -165,6 +165,8 @@ export default function Login({ onLogin }) {
           borderRadius: 12,
           background: "#fff",
           boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
+          boxSizing: "border-box",
+          overflow: "hidden",
         }}
       >
         <h2 style={{ textAlign: "center", marginBottom: 8, fontSize: "1.5rem", color: "#1f2937" }}>勤怠管理システム</h2>
@@ -188,7 +190,8 @@ export default function Login({ onLogin }) {
                 padding: "10px 12px",
                 borderRadius: 6,
                 border: "1px solid #d1d5db",
-                fontSize: "1rem"
+                fontSize: "1rem",
+                boxSizing: "border-box"
               }}
             />
           </div>
@@ -207,7 +210,8 @@ export default function Login({ onLogin }) {
                 padding: "10px 12px",
                 borderRadius: 6,
                 border: "1px solid #d1d5db",
-                fontSize: "1rem"
+                fontSize: "1rem",
+                boxSizing: "border-box"
               }}
             />
             <p style={{ marginTop: 4, fontSize: "0.75rem", color: "#9ca3af" }}>

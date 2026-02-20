@@ -4,20 +4,23 @@ import { ja } from "date-fns/locale";
 import { Search, Filter, AlertTriangle, CheckCircle, Clock, MapPin, Download, Save, X, Briefcase, FileText, Send, PieChart, BarChart, ClipboardCheck } from "lucide-react";
 import "../../App.css";
 import { LOCATIONS, DEPARTMENTS, EMPLOYMENT_TYPES, HOLIDAYS } from "../../constants";
-import { fetchShiftData, parseCsv, SPECIAL_SHIFTS } from "../../utils/shiftParser";
+import { fetchShiftData, parseCsv, SPECIAL_SHIFTS, normalizeName } from "../../utils/shiftParser";
 
 const API_BASE = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com";
 const API_USER_URL = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com/users";
 
 // --- Utilities ---
-// ユーザーのシフトデータを検索（スペースあり/なし両対応）
+// ユーザーのシフトデータを検索（正規化済みキーで直接ルックアップ）
 const getUserShifts = (shiftMap, user) => {
-  const ln = user.lastName || "";
-  const fn = user.firstName || "";
-  const noSpace = ln + fn;
-  const withSpace = ln + " " + fn;
-  const withWideSpace = ln + "　" + fn;
-  return shiftMap[noSpace] || shiftMap[withSpace] || shiftMap[withWideSpace] || shiftMap[user.userName] || {};
+  const ln = (user.lastName || "").trim();
+  const fn = (user.firstName || "").trim();
+  const normalized = normalizeName(ln + fn);
+  // 正規化済みキーで直接一致
+  if (normalized && shiftMap[normalized]) return shiftMap[normalized];
+  // userName, loginIdでも試行
+  if (user.userName && shiftMap[normalizeName(user.userName)]) return shiftMap[normalizeName(user.userName)];
+  if (user.loginId && shiftMap[user.loginId]) return shiftMap[user.loginId];
+  return {};
 };
 
 const parseComment = (raw) => {
@@ -187,10 +190,40 @@ const calcSplitDisplay = (item, shift) => {
     }
   }
 
+  // シフトコード（朝/早/中/遅/深）を派遣開始時間から判定
+  const SHIFT_CODE_MAP = {
+    "07:00": "朝",
+    "09:00": "早",
+    "10:00": "中",
+    "12:00": "遅",
+    "13:00": "遅",  // 鈴木・平松さん等のオーバーライド
+    "17:00": "深"
+  };
+  let shiftCodeLabel = "派遣";
+  if (shift?.dispatchRange?.start) {
+    const code = SHIFT_CODE_MAP[shift.dispatchRange.start];
+    if (code) shiftCodeLabel = code;
+  } else if (shift?.start) {
+    // dispatchRangeがない場合はshift.startから判定（フォールバック）
+    const code = SHIFT_CODE_MAP[shift.start];
+    if (code) shiftCodeLabel = code;
+  }
+
+  // シフトコードごとの色を設定
+  const codeColors = {
+    "朝": "#d97706",  // amber
+    "早": "#059669",  // emerald
+    "中": "#2563eb",  // blue
+    "遅": "#db2777",  // pink
+    "深": "#6d28d9",  // purple
+    "派遣": "#2563eb"  // blue (デフォルト)
+  };
+  const dispatchColor = codeColors[shiftCodeLabel] || "#2563eb";
+
   return (
     <div style={{ fontSize: "0.85rem", lineHeight: "1.4" }}>
       {dispatchMin > 0 ? (
-        <div style={{ color: "#2563eb" }}>{dispatchStart} - {dispatchEnd} (派遣 {Math.floor(dispatchMin / 60)}h{dispatchMin % 60 > 0 ? dispatchMin % 60 + 'm' : ''})</div>
+        <div style={{ color: dispatchColor }}>{dispatchStart} - {dispatchEnd} ({shiftCodeLabel} {Math.floor(dispatchMin / 60)}h{dispatchMin % 60 > 0 ? dispatchMin % 60 + 'm' : ''})</div>
       ) : (
         <div style={{ color: "#9ca3af", fontSize: "0.8rem" }}>派遣なし</div>
       )}
@@ -712,6 +745,8 @@ export default function AdminShiftManagement() {
       let missingOut = 0;
       let dispatchMin = 0;
       let partTimeMin = 0;
+      const absentReasons = {};
+      const earlyReasons = {};
 
       // シフトマップからユーザーのシフトを取得
       const fullName = (u.lastName || "") + (u.firstName || "");
@@ -725,10 +760,18 @@ export default function AdminShiftManagement() {
       uItems.forEach(i => {
         const app = i._application || {};
         // 早退は理由ベース
-        if (app.reason && app.reason.includes("早退")) early++;
+        if (app.reason && app.reason.includes("早退")) {
+          early++;
+          const er = app.reason || "早退";
+          earlyReasons[er] = (earlyReasons[er] || 0) + 1;
+        }
         if (i.clockIn && !i.clockOut) missingOut++;
         // Check for explicit "absent" status
-        if (app.status === "absent") absent++;
+        if (app.status === "absent") {
+          absent++;
+          const ar = app.absentReason || "欠勤";
+          absentReasons[ar] = (absentReasons[ar] || 0) + 1;
+        }
 
         // 遅刻チェック: シフト開始時刻と実際の出勤時刻を比較
         const workDate = i.displayDate || i.workDate;
@@ -793,18 +836,18 @@ export default function AdminShiftManagement() {
         }
       });
 
-      // Prescribed Days
+      // Prescribed Days（学生バイト=16日固定、その他=月の平日数）
       const m = new Date(baseDate);
-      const pKey = `prescribed_${m.getFullYear()}_${m.getMonth() + 1}`;
-      // uFullName等は既に上で定義済み
-      const sData = getUserShifts(shiftMap, u);
-      let prescribed = sData[pKey];
-
-      // Temporary Hardcode per user request
-      if (!prescribed && pKey === "prescribed_2026_2") {
-        prescribed = "18";
+      let prescribed;
+      if (u.employmentType === "学生バイト") {
+        prescribed = "16";
+      } else {
+        const mStart = startOfMonth(m);
+        const mEnd = endOfMonth(m);
+        const allDays = eachDayOfInterval({ start: mStart, end: mEnd });
+        const weekdays = allDays.filter(d => !isSaturday(d) && !isSunday(d) && !HOLIDAYS.includes(format(d, "yyyy-MM-dd"))).length;
+        prescribed = String(weekdays);
       }
-      prescribed = prescribed || "-";
 
       return {
         user: u,
@@ -815,6 +858,8 @@ export default function AdminShiftManagement() {
         prescribed,
         dispatchMin,
         partTimeMin,
+        absentReasons,
+        earlyReasons,
         dispatchHours: `${Math.floor(dispatchMin / 60)}:${String(dispatchMin % 60).padStart(2, '0')}`,
         partTimeHours: `${Math.floor(partTimeMin / 60)}:${String(partTimeMin % 60).padStart(2, '0')}`
       };
@@ -857,22 +902,47 @@ export default function AdminShiftManagement() {
 
   // 勤務地・勤務部署フィルタ適用後のユーザーリスト
   const filteredShiftCheckUsers = useMemo(() => {
-    return users.filter(u => {
-      const userName = `${u.lastName} ${u.firstName}`;
+    const DEPT_ORDER = ["即日", "買取", "広告", "CEO", "アビエス", "未記載"];
+    const filtered = users.filter(u => {
       const userShifts = getUserShifts(shiftMap, u);
       const shift = userShifts ? userShifts[baseDate] : null;
-      // シフトに勤務地がある場合はそれを使用、なければデフォルト勤務地
       const rawLocation = (shift && !shift.isOff && shift.location) ? shift.location : (u.defaultLocation || "未記載");
-      // デフォルト勤務部署
       const department = u.defaultDepartment || "未記載";
 
-      // 勤務地フィルター（部分一致でチェック：「即日・派遣」は「即日」でも「派遣」でもヒット）
       if (filterShiftLocation !== "all" && !rawLocation.includes(filterShiftLocation)) return false;
-      // 勤務部署フィルター
       if (filterShiftDepartment !== "all" && department !== filterShiftDepartment) return false;
 
       return true;
     });
+
+    // フルネームベースで重複排除（同一人物が複数レコードで存在する場合の対策）
+    const seen = new Set();
+    const deduped = filtered.filter(u => {
+      const fullName = ((u.lastName || "") + (u.firstName || "")).replace(/\s/g, "");
+      const key = fullName || u.userId;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    // ソート: 勤務部署順 → シフト開始時刻順
+    deduped.sort((a, b) => {
+      const deptA = a.defaultDepartment || "未記載";
+      const deptB = b.defaultDepartment || "未記載";
+      const deptIdxA = DEPT_ORDER.indexOf(deptA) === -1 ? DEPT_ORDER.length : DEPT_ORDER.indexOf(deptA);
+      const deptIdxB = DEPT_ORDER.indexOf(deptB) === -1 ? DEPT_ORDER.length : DEPT_ORDER.indexOf(deptB);
+      if (deptIdxA !== deptIdxB) return deptIdxA - deptIdxB;
+
+      const shiftsA = getUserShifts(shiftMap, a);
+      const shiftsB = getUserShifts(shiftMap, b);
+      const shiftA = shiftsA ? shiftsA[baseDate] : null;
+      const shiftB = shiftsB ? shiftsB[baseDate] : null;
+      const startA = shiftA && shiftA.start ? toMin(shiftA.start) : 9999;
+      const startB = shiftB && shiftB.start ? toMin(shiftB.start) : 9999;
+      return startA - startB;
+    });
+
+    return deduped;
   }, [users, filterShiftLocation, filterShiftDepartment, shiftMap, baseDate]);
 
   /* Mark Absent Logic */
@@ -1198,6 +1268,12 @@ export default function AdminShiftManagement() {
               <div style={{ fontSize: "1.8rem", fontWeight: "bold", color: "#111827" }}>{users.length}<span style={{ fontSize: "1rem", fontWeight: "normal" }}>名</span></div>
             </div>
             <div className="card" style={{ textAlign: "center", padding: "20px" }}>
+              <div style={{ fontSize: "0.9rem", color: "#6b7280", marginBottom: "4px" }}>総欠勤数</div>
+              <div style={{ fontSize: "1.8rem", fontWeight: "bold", color: "#ef4444" }}>
+                {reportData.reduce((acc, curr) => acc + curr.absent, 0)}<span style={{ fontSize: "1rem", fontWeight: "normal" }}>件</span>
+              </div>
+            </div>
+            <div className="card" style={{ textAlign: "center", padding: "20px" }}>
               <div style={{ fontSize: "0.9rem", color: "#6b7280", marginBottom: "4px" }}>総遅刻数</div>
               <div style={{ fontSize: "1.8rem", fontWeight: "bold", color: "#f59e0b" }}>
                 {reportData.reduce((acc, curr) => acc + curr.late, 0)}<span style={{ fontSize: "1rem", fontWeight: "normal" }}>件</span>
@@ -1226,7 +1302,6 @@ export default function AdminShiftManagement() {
                       <th onClick={() => requestSort('name')} style={{ cursor: "pointer", background: "#f9fafb", padding: "12px 16px", borderBottom: "2px solid #e5e7eb" }}>
                         氏名 {sortConfig.key === 'name' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
                       </th>
-                      <th style={{ background: "#f9fafb", padding: "12px 16px", borderBottom: "2px solid #e5e7eb" }}>雇用形態</th>
                       <th style={{ background: "#f9fafb", padding: "12px 16px", borderBottom: "2px solid #e5e7eb" }}>部署/拠点</th>
                       <th style={{ background: "#f9fafb", padding: "12px 16px", borderBottom: "2px solid #e5e7eb", textAlign: "center" }}>規定日数</th>
                       <th onClick={() => requestSort('dispatchMin')} style={{ cursor: "pointer", background: "#eff6ff", padding: "12px 16px", borderBottom: "2px solid #e5e7eb", textAlign: "center", color: "#2563eb" }}>
@@ -1255,7 +1330,6 @@ export default function AdminShiftManagement() {
                         <td style={{ fontWeight: "bold", padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>
                           {r.user.lastName} {r.user.firstName}
                         </td>
-                        <td style={{ padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>{r.user.employmentType || "-"}</td>
                         <td style={{ padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>{r.user.defaultDepartment}/{r.user.defaultLocation}</td>
                         <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", fontWeight: "bold", color: "#374151" }}>
                           {r.prescribed || "-"}
@@ -1278,14 +1352,36 @@ export default function AdminShiftManagement() {
                             )
                           ) : <span style={{ color: "#d1d5db" }}>-</span>}
                         </td>
-                        <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>
-                          {r.absent > 0 ? <span className="status-badge red" style={{ minWidth: "30px", display: "inline-block" }}>{r.absent}</span> : <span style={{ color: "#d1d5db" }}>-</span>}
+                        <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", position: "relative" }}>
+                          {r.absent > 0 ? (
+                            <div style={{ position: "relative", display: "inline-block" }} title={Object.entries(r.absentReasons || {}).map(([reason, count]) => `${reason}: ${count}件`).join('\n')}>
+                              <span className="status-badge red" style={{ minWidth: "30px", display: "inline-block", cursor: "help" }}>{r.absent}</span>
+                              {Object.keys(r.absentReasons || {}).length > 0 && (
+                                <div style={{ fontSize: "0.7rem", color: "#6b7280", marginTop: "4px" }}>
+                                  {Object.entries(r.absentReasons).map(([reason, count]) => (
+                                    <div key={reason}>{reason}: {count}</div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ) : <span style={{ color: "#d1d5db" }}>-</span>}
                         </td>
                         <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>
                           {r.late > 0 ? <span className="status-badge orange" style={{ minWidth: "30px", display: "inline-block" }}>{r.late}</span> : <span style={{ color: "#d1d5db" }}>-</span>}
                         </td>
                         <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>
-                          {r.early > 0 ? <span className="status-badge orange" style={{ minWidth: "30px", display: "inline-block" }}>{r.early}</span> : <span style={{ color: "#d1d5db" }}>-</span>}
+                          {r.early > 0 ? (
+                            <div style={{ position: "relative", display: "inline-block" }} title={Object.entries(r.earlyReasons || {}).map(([reason, count]) => `${reason}: ${count}件`).join('\n')}>
+                              <span className="status-badge orange" style={{ minWidth: "30px", display: "inline-block", cursor: "help" }}>{r.early}</span>
+                              {Object.keys(r.earlyReasons || {}).length > 0 && (
+                                <div style={{ fontSize: "0.7rem", color: "#6b7280", marginTop: "4px" }}>
+                                  {Object.entries(r.earlyReasons).map(([reason, count]) => (
+                                    <div key={reason}>{reason}: {count}</div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ) : <span style={{ color: "#d1d5db" }}>-</span>}
                         </td>
                         <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>
                           {r.missingOut > 0 ? <span className="status-badge red" style={{ minWidth: "30px", display: "inline-block" }}>{r.missingOut}</span> : <span style={{ color: "#d1d5db" }}>-</span>}

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
-import { User, Wallet, Clock, Calendar, LogOut, Home, Gift, Award, Pencil, Lock, ChevronLeft, ChevronRight, PieChart, CheckCircle } from "lucide-react";
+import { User, Wallet, Clock, Calendar, LogOut, Home, Pencil, Lock, ChevronLeft, ChevronRight, PieChart, CheckCircle } from "lucide-react";
 import { format, getDaysInMonth, isSaturday, isSunday, parseISO, differenceInYears, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths } from "date-fns";
 import { ja } from "date-fns/locale";
 import { HOLIDAYS, LOCATIONS, DEPARTMENTS } from "../constants";
@@ -44,8 +44,6 @@ export default function MyPage({ onLogout }) {
     defaultDepartment: localStorage.getItem("defaultDepartment") || "",
   });
   const [loading, setLoading] = useState(true);
-  const [bonuses, setBonuses] = useState([]);
-  const [totalBonus, setTotalBonus] = useState(0);
   const [scheduledDays, setScheduledDays] = useState(0);
 
   // New States
@@ -219,10 +217,6 @@ export default function MyPage({ onLogout }) {
 
       let days = 0;
       const attendedDates = new Set();
-      let hasAnyNightWork = false;
-      let weekendWorkCount = 0;
-      let firstDayBonusAmount = 0;
-      let firstDayHasNightWork = false;
       const savedType = localStorage.getItem("employmentType");
       const currentType = fetchedUser?.employmentType || savedType;
       const isDispatchUser = currentType === "派遣";
@@ -230,17 +224,7 @@ export default function MyPage({ onLogout }) {
       currentItems.forEach(item => {
         const workMin = calcWorkMin(item);
         if (workMin > 0) {
-          // アリアちゃん1日出勤ボーナス (全ユーザー対象)
-          const d = new Date(item.workDate);
-          if (d.getDate() === 1) {
-            // 30分単位で¥500、最低¥1,000
-            const units = Math.floor(workMin / 30);
-            firstDayBonusAmount += Math.max(1000, units * 500);
-            // 1日に深夜勤務(22時以降)があるかチェック
-            if (hasNightWork(item)) {
-              firstDayHasNightWork = true;
-            }
-          }
+
 
           // 給与対象時間 & 派遣時間計算
           let paidMin = 0;
@@ -296,11 +280,6 @@ export default function MyPage({ onLogout }) {
 
           days++;
           attendedDates.add(item.workDate);
-          if (hasNightWork(item)) hasAnyNightWork = true;
-
-          if (isWeekendOrHoliday(new Date(item.workDate))) {
-            weekendWorkCount++;
-          }
         }
       });
 
@@ -316,92 +295,17 @@ export default function MyPage({ onLogout }) {
         estimatedSalary: Math.floor(paidHours * hourlyWage)
       });
 
-      // 規定出勤日数(平日数)計算
-      const start = startOfMonth(currentDate);
-      const end = endOfMonth(currentDate);
-      const allDays = eachDayOfInterval({ start, end });
-      const workDays = allDays.filter(d => !isWeekendOrHoliday(d)).length;
-      setScheduledDays(workDays);
-
-      // --- ボーナスロジック ---
-      // 計算用日数定義
-      // const start = startOfMonth(now);
-      // const end = endOfMonth(now);
-      // const allDays = eachDayOfInterval({ start, end });
-
-      let weekdayCount = 0;
-      let weekendHolidayCount = 0;
-
-      allDays.forEach(d => {
-        if (isWeekendOrHoliday(d)) weekendHolidayCount++;
-        else weekdayCount++;
-      });
-
-      const bonusList = [];
-      let bTotal = 0;
-
-      // 条件変数
-      const livingAlone = fetchedUser?.livingAlone === true;
-
-
-
-      const isDispatch = currentType === "派遣";
-      const isRegular = currentType === "正社員"; // 常勤扱い
-      const yearsOfService = fetchedUser?.startDate
-        ? differenceInYears(currentDate, new Date(fetchedUser.startDate))
-        : 0;
-
-      // 1. 常勤判定 (派遣でも規定日数(平日数)出勤で常勤扱い)
-      // 「平日分の日数（規定日数）を月に出社していたら常勤とします」
-      const isFullTimeEquivalent = days >= weekdayCount;
-      const isTargetForHousing = isDispatch || isRegular || isFullTimeEquivalent;
-
-      // --- 家賃手当ボーナス ---
-      // 派遣or常勤(相当) で...
-      if (isTargetForHousing && livingAlone) {
-        if (yearsOfService >= 3) {
-          bonusList.push({ name: "家賃手当 (3年以上)", amount: 50000 });
-          bTotal += 50000;
-        } else {
-          bonusList.push({ name: "家賃手当 (3年未満)", amount: 30000 });
-          bTotal += 30000;
-        }
+      // 規定出勤日数計算（学生バイト=16日固定、その他=平日数）
+      if (currentType === "学生バイト") {
+        setScheduledDays(16);
+      } else {
+        const start = startOfMonth(currentDate);
+        const end = endOfMonth(currentDate);
+        const allDays = eachDayOfInterval({ start, end });
+        const workDays = allDays.filter(d => !isWeekendOrHoliday(d)).length;
+        setScheduledDays(workDays);
       }
 
-      // 深夜勤務手当は1日出勤ボーナス（夜勤）に統合のため削除
-
-      // --- 派遣限定ボーナス ---
-      if (isDispatch) {
-        // 土日祝手当
-        if (weekendWorkCount === weekendHolidayCount && weekendHolidayCount > 0) {
-          bonusList.push({ name: "土日祝全出勤", amount: 20000 });
-          bTotal += 20000;
-        } else if (weekendWorkCount >= 5) {
-          bonusList.push({ name: "土日祝手当 (5日以上)", amount: 10000 });
-          bTotal += 10000;
-        }
-
-        // 18日出勤手当
-        if (days >= 18) {
-          bonusList.push({ name: "18日出勤手当", amount: 10000 });
-          bTotal += 10000;
-        }
-      }
-
-      // アリアちゃん1日出勤ボーナス（時給）
-      if (firstDayBonusAmount > 0) {
-        bonusList.push({ name: "アリアちゃん1日出勤ボーナス（時給）", amount: firstDayBonusAmount });
-        bTotal += firstDayBonusAmount;
-      }
-
-      // アリアちゃん1日出勤ボーナス（夜勤）- 1日に22時以降の勤務があれば¥10,000
-      if (firstDayHasNightWork) {
-        bonusList.push({ name: "アリアちゃん1日出勤ボーナス（夜勤）", amount: 10000 });
-        bTotal += 10000;
-      }
-
-      setBonuses(bonusList);
-      setTotalBonus(bTotal);
       setLoading(false);
     };
 
@@ -513,20 +417,7 @@ export default function MyPage({ onLogout }) {
 
 
 
-        {/* Bonus Section */}
-        {bonuses.length > 0 && (
-          <div className="bonus-section">
-            <h3 className="section-title"><Gift size={16} /> 対象ボーナス</h3>
-            <div className="bonus-list">
-              {bonuses.map((b, i) => (
-                <div key={i} className="bonus-item">
-                  <div className="bonus-name"><Award size={14} className="icon-award" /> {b.name}</div>
-                  <div className="bonus-val">+{b.amount.toLocaleString()}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+
 
         {/* Stats Grid */}
         <div className="stats-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
@@ -548,11 +439,11 @@ export default function MyPage({ onLogout }) {
           </div>
         </div>
 
-        {/* --- 遅刻件数セクション --- */}
+        {/* --- 遅刻・欠勤・早退件数セクション --- */}
         <div className="bonus-section" style={{ background: "rgba(255,255,255,0.9)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
             <h3 className="section-title" style={{ margin: 0 }}>
-              <Clock size={16} /> 遅刻件数
+              <Clock size={16} /> 遅刻・欠勤・早退
             </h3>
             <div style={{ display: "flex", gap: "4px" }}>
               <button
@@ -588,22 +479,18 @@ export default function MyPage({ onLogout }) {
             </div>
           </div>
           {(() => {
-            // 遅刻件数の計算
             const currentYearPrefix = format(currentDate, "yyyy");
+            const currentMonthPrefix = format(currentDate, "yyyy-MM");
             const targetItems = lateViewMode === "month" ? currentItems : allItems.filter(item =>
               item.workDate && item.workDate.startsWith(currentYearPrefix)
             );
 
-            // シフト開始時刻と出勤時刻を比較して遅刻をカウント
+            // 遅刻件数の計算
             const lateCount = targetItems.filter(item => {
               if (!item.clockIn) return false;
-
-              // 管理者が遅刻取消済みの場合はカウントしない
               const parsed = safeJsonParse(item.comment);
               if (parsed?.application?.lateCancelled) return false;
-
               const workDate = item.displayDate || item.workDate;
-              // ユーザー名でシフトを検索
               const keysToTry = [
                 userName,
                 userInfo?.lastName && userInfo?.firstName ? `${userInfo.lastName} ${userInfo.firstName}` : null,
@@ -616,35 +503,109 @@ export default function MyPage({ onLogout }) {
                   break;
                 }
               }
-              if (shift && shift.start && toMin(item.clockIn) >= toMin(shift.start)) {
-                return true;
-              }
+              if (shift && shift.start && toMin(item.clockIn) >= toMin(shift.start)) return true;
               return false;
             }).length;
 
+            // 欠勤件数の計算（理由別）
+            let absentCount = 0;
+            const absentReasons = {};
+            targetItems.forEach(item => {
+              const parsed = safeJsonParse(item.comment);
+              if (parsed?.application?.status === "absent") {
+                absentCount++;
+                const r = parsed?.application?.absentReason || "欠勤";
+                absentReasons[r] = (absentReasons[r] || 0) + 1;
+              }
+            });
+
+            // 早退件数の計算（理由別）
+            let earlyCount = 0;
+            const earlyReasons = {};
+            targetItems.forEach(item => {
+              const parsed = safeJsonParse(item.comment);
+              const app = parsed?.application || {};
+              if (app.earlyCancelled) return;
+              if (app.reason && app.reason.includes("早退")) {
+                earlyCount++;
+                const r = app.reason || "早退";
+                earlyReasons[r] = (earlyReasons[r] || 0) + 1;
+              }
+            });
+
+            const periodLabel = lateViewMode === "month" ? format(currentDate, "M月") : format(currentDate, "yyyy年");
+
+            const circleStyle = (count, colorHigh, colorLow, bgHigh, bgLow, borderHigh, borderLow) => ({
+              width: "56px",
+              height: "56px",
+              borderRadius: "50%",
+              background: count > 0 ? bgHigh : bgLow,
+              border: count > 0 ? `2px solid ${borderHigh}` : `2px solid ${borderLow}`,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "1.3rem",
+              fontWeight: "bold",
+              color: count > 0 ? colorHigh : colorLow,
+              flexShrink: 0
+            });
+
             return (
-              <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-                <div style={{
-                  width: "60px",
-                  height: "60px",
-                  borderRadius: "50%",
-                  background: lateCount > 0 ? "#fef2f2" : "#f0fdf4",
-                  border: lateCount > 0 ? "2px solid #fecaca" : "2px solid #bbf7d0",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: "1.5rem",
-                  fontWeight: "bold",
-                  color: lateCount > 0 ? "#ef4444" : "#16a34a"
-                }}>
-                  {lateCount}
-                </div>
-                <div>
-                  <div style={{ fontSize: "0.9rem", fontWeight: "bold", color: "#374151" }}>
-                    {lateViewMode === "month" ? format(currentDate, "M月") : format(currentDate, "yyyy年")}の遅刻
+              <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                {/* 遅刻 */}
+                <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+                  <div style={circleStyle(lateCount, "#f59e0b", "#16a34a", "#fffbeb", "#f0fdf4", "#fcd34d", "#bbf7d0")}>
+                    {lateCount}
                   </div>
-                  <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>
-                    {lateCount === 0 ? "遅刻なし！素晴らしいです" : `${lateCount}件の遅刻があります`}
+                  <div>
+                    <div style={{ fontSize: "0.9rem", fontWeight: "bold", color: "#374151" }}>{periodLabel}の遅刻</div>
+                    <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>
+                      {lateCount === 0 ? "遅刻なし！" : `${lateCount}件の遅刻`}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 欠勤 */}
+                <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+                  <div style={circleStyle(absentCount, "#ef4444", "#16a34a", "#fef2f2", "#f0fdf4", "#fecaca", "#bbf7d0")}>
+                    {absentCount}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: "0.9rem", fontWeight: "bold", color: "#374151" }}>{periodLabel}の欠勤</div>
+                    <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>
+                      {absentCount === 0 ? "欠勤なし！" : `${absentCount}件の欠勤`}
+                    </div>
+                    {Object.keys(absentReasons).length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "4px" }}>
+                        {Object.entries(absentReasons).map(([r, c]) => (
+                          <span key={r} style={{ fontSize: "0.7rem", background: "#fef2f2", color: "#991b1b", padding: "2px 8px", borderRadius: "12px", border: "1px solid #fecaca" }}>
+                            {r}: {c}件
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* 早退 */}
+                <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+                  <div style={circleStyle(earlyCount, "#f59e0b", "#16a34a", "#fffbeb", "#f0fdf4", "#fcd34d", "#bbf7d0")}>
+                    {earlyCount}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: "0.9rem", fontWeight: "bold", color: "#374151" }}>{periodLabel}の早退</div>
+                    <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>
+                      {earlyCount === 0 ? "早退なし！" : `${earlyCount}件の早退`}
+                    </div>
+                    {Object.keys(earlyReasons).length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "4px" }}>
+                        {Object.entries(earlyReasons).map(([r, c]) => (
+                          <span key={r} style={{ fontSize: "0.7rem", background: "#fffbeb", color: "#92400e", padding: "2px 8px", borderRadius: "12px", border: "1px solid #fde68a" }}>
+                            {r}: {c}件
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

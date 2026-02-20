@@ -1,3 +1,10 @@
+/* === グローバルリセット（全要素にborder-box適用） === */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 /* === FullCalendar の土日色 === */
 /* 日付数字 */
 .fc .fc-day-sun a {

@@ -104,14 +104,48 @@ export default function AdminUser() {
         else if (data && Array.isArray(data.Items)) list = data.Items;
         else if (data && data.success && Array.isArray(data.items)) list = data.items;
 
-        // loginIdに基づいて重複を排除（最新のエントリを保持）
-        const uniqueMap = new Map();
+        // 重複排除（3段階）
+        // スコア関数: データの完全度を評価（高い方を優先）
+        const completenessScore = (u) => {
+          let score = 0;
+          if (u.lastName || u.firstName) score += 2;
+          if (u.defaultLocation && u.defaultLocation !== "未記載") score += 1;
+          if (u.defaultDepartment && u.defaultDepartment !== "未記載") score += 1;
+          if (u.startDate) score += 1;
+          if (u.employmentType) score += 1;
+          if (u.hourlyWage) score += 1;
+          return score;
+        };
+
+        // Step 1: loginId（大文字小文字を区別せず）で重複排除
+        const loginIdMap = new Map();
         list.forEach(user => {
-          if (user.loginId) {
-            uniqueMap.set(user.loginId, user);
+          if (!user.loginId) return;
+          const key = user.loginId.toLowerCase();
+          const existing = loginIdMap.get(key);
+          if (!existing || completenessScore(user) > completenessScore(existing)) {
+            loginIdMap.set(key, user);
           }
         });
-        const uniqueList = Array.from(uniqueMap.values());
+
+        // Step 2: 同じ氏名（lastName + firstName）で重複排除
+        const nameMap = new Map();
+        Array.from(loginIdMap.values()).forEach(user => {
+          const ln = (user.lastName || "").trim();
+          const fn = (user.firstName || "").trim();
+          if (!ln && !fn) {
+            // 氏名未登録はそのまま保持（loginIdで一意）
+            nameMap.set(`__no_name__${user.loginId}`, user);
+            return;
+          }
+          const nameKey = `${ln}${fn}`;
+          const existing = nameMap.get(nameKey);
+          if (!existing || completenessScore(user) > completenessScore(existing)) {
+            nameMap.set(nameKey, user);
+          }
+        });
+
+        const uniqueList = Array.from(nameMap.values());
 
         setUsers(uniqueList);
       } catch (e) {

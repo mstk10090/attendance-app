@@ -4,7 +4,7 @@ import { ja } from "date-fns/locale";
 import { Search, Filter, AlertTriangle, CheckCircle, Clock, MapPin, Download, Save, X, Briefcase, FileText, Send, PieChart, BarChart, ClipboardCheck } from "lucide-react";
 import "../../App.css";
 import { LOCATIONS, DEPARTMENTS, EMPLOYMENT_TYPES, HOLIDAYS } from "../../constants";
-import { fetchShiftData } from "../../utils/shiftParser";
+import { fetchShiftData, normalizeName } from "../../utils/shiftParser";
 
 
 const API_BASE = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com";
@@ -490,23 +490,13 @@ export default function AdminAttendance() {
   // モーダル用シフト検索（variant対応）
   const findShiftForItem = (item) => {
     if (!shiftMap || !item) return null;
-    let s = shiftMap[item.userName]?.[item.workDate] || null;
+    // 正規化キーで検索
+    let s = shiftMap[normalizeName(item.userName)]?.[item.workDate] || null;
     if (!s) {
       const user = users.find(u => u.userId === item.userId);
       if (user) {
-        const nameVariants = [
-          user.lastName + user.firstName,
-          user.lastName + " " + user.firstName,
-          user.firstName + user.lastName,
-          user.lastName,
-          user.firstName,
-        ].filter(Boolean);
-        for (const variant of nameVariants) {
-          if (shiftMap[variant]?.[item.workDate]) {
-            s = shiftMap[variant][item.workDate];
-            break;
-          }
-        }
+        const normalized = normalizeName((user.lastName || "") + (user.firstName || ""));
+        s = shiftMap[normalized]?.[item.workDate] || null;
       }
     }
     return s;
@@ -566,7 +556,8 @@ export default function AdminAttendance() {
   };
 
   const handleApprove = async (targetItem = null) => {
-    if (!await showConfirm("承認しますか？")) return;
+    // 確認ダイアログなし・ポップアップなしで即時承認
+    const scrollY = window.scrollY;
     setLoading(true);
     try {
       const item = targetItem || editingItem;
@@ -592,9 +583,18 @@ export default function AdminAttendance() {
         }),
       });
 
-      alert("承認しました");
       setEditingItem(null);
-      fetchAttendances();
+      // ローカルstateを即時更新（スクロールリセット防止）
+      setItems(prev => prev.map(i =>
+        (i.userId === item.userId && i.workDate === item.workDate)
+          ? { ...i, comment: finalComment, _application: newApp }
+          : i
+      ));
+      // バックグラウンドでデータ再取得（スクロール位置を維持）
+      fetchAttendances().then(() => {
+        requestAnimationFrame(() => window.scrollTo(0, scrollY));
+      });
+      requestAnimationFrame(() => window.scrollTo(0, scrollY));
     } catch (e) {
       alert("処理に失敗しました");
     } finally {
@@ -944,27 +944,15 @@ export default function AdminAttendance() {
                     const isUnapplied = item.clockIn && item.clockOut && !rowAppStatus;
                     const isIncomplete = item.clockIn && !item.clockOut && !isToday;
 
-                    // シフト情報を取得（複数の名前パターンで検索）
-                    let shift = shiftMap?.[item.userName]?.[item.workDate] || null;
+                    // シフト情報を取得（正規化済みキーで検索）
+                    let shift = shiftMap?.[normalizeName(item.userName)]?.[item.workDate] || null;
 
-                    // 見つからない場合は、姓名を分けて検索
+                    // 見つからない場合は、姓名連結で検索
                     if (!shift) {
                       const user = users.find(u => u.userId === item.userId);
                       if (user) {
-                        const nameVariants = [
-                          user.lastName + user.firstName,           // 姓名連結
-                          user.lastName + " " + user.firstName,     // 姓 名（スペース）
-                          user.firstName + user.lastName,           // 名姓連結
-                          user.lastName,                            // 姓のみ
-                          user.firstName,                           // 名のみ
-                        ].filter(Boolean);
-
-                        for (const variant of nameVariants) {
-                          if (shiftMap?.[variant]?.[item.workDate]) {
-                            shift = shiftMap[variant][item.workDate];
-                            break;
-                          }
-                        }
+                        const normalized = normalizeName((user.lastName || "") + (user.firstName || ""));
+                        shift = shiftMap?.[normalized]?.[item.workDate] || null;
                       }
                     }
 
@@ -1079,23 +1067,48 @@ export default function AdminAttendance() {
                             // 派遣ユーザーの場合は派遣/バイト分離表示
                             const isDispatch = shift?.isDispatch || shift?.location === "派遣" || ["朝", "早", "遅", "中"].includes(shift?.type || "");
                             if (isDispatch && shift && effectiveIn && effectiveOut) {
-                              const shiftStart = toMin(shift.start);
-                              const shiftEnd = toMin(shift.end);
-                              const start = Math.max(shiftStart, effInMin);
-                              const end = Math.min(shiftEnd, effOutMin);
+                              // dispatchRangeがあればそれを使用、なければshift.start/endにフォールバック
                               let dMin = 0;
-                              if (start < end) {
-                                dMin = Math.min(Math.max(0, end - start), 8 * 60); // 派遣は最大8時間
+                              if (shift.dispatchRange) {
+                                const dispStart = toMin(shift.dispatchRange.start);
+                                const dispEnd = toMin(shift.dispatchRange.end);
+                                const overlapStart = Math.max(effInMin, dispStart);
+                                const overlapEnd = Math.min(effOutMin, dispEnd);
+                                if (overlapStart < overlapEnd) {
+                                  dMin = Math.min(overlapEnd - overlapStart, 8 * 60);
+                                }
+                              } else {
+                                const shiftStart = toMin(shift.start);
+                                const shiftEnd = toMin(shift.end);
+                                const start = Math.max(shiftStart, effInMin);
+                                const end = Math.min(shiftEnd, effOutMin);
+                                if (start < end) {
+                                  dMin = Math.min(Math.max(0, end - start), 8 * 60);
+                                }
                               }
                               const pMin = Math.max(0, min - dMin);
                               const dH = Math.floor(dMin / 60);
                               const dM = (dMin % 60) >= 30 ? 5 : 0;
                               const pH = Math.floor(pMin / 60);
                               const pM = (pMin % 60) >= 30 ? 5 : 0;
+
+                              // シフトコード判定（朝/早/中/遅/深）
+                              const SHIFT_CODE_MAP = {
+                                "07:00": "朝", "09:00": "早", "10:00": "中",
+                                "12:00": "遅", "13:00": "遅", "17:00": "深"
+                              };
+                              const codeColors = {
+                                "朝": "#d97706", "早": "#059669", "中": "#2563eb",
+                                "遅": "#db2777", "深": "#6d28d9", "派遣": "#2563eb"
+                              };
+                              const dispatchStartTime = shift.dispatchRange?.start || shift.start;
+                              const shiftCodeLabel = SHIFT_CODE_MAP[dispatchStartTime] || "派遣";
+                              const dispatchColor = codeColors[shiftCodeLabel] || "#2563eb";
+
                               return (
                                 <div style={{ fontSize: "12px", lineHeight: "1.3" }}>
                                   {dMin > 0 ? (
-                                    <div style={{ color: "#2563eb" }}>派遣{dH}.{dM}H</div>
+                                    <div style={{ color: dispatchColor }}>{shiftCodeLabel}{dH}.{dM}H</div>
                                   ) : (
                                     <div style={{ color: "#9ca3af", fontSize: "11px" }}>派遣なし</div>
                                   )}

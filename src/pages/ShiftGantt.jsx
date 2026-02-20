@@ -4,19 +4,15 @@ import { ja } from "date-fns/locale";
 import { ChevronLeft, ChevronRight, Calendar, MapPin, Briefcase } from "lucide-react";
 import "../App.css";
 import { LOCATIONS, DEPARTMENTS } from "../constants";
-import { fetchShiftData } from "../utils/shiftParser";
+import { fetchShiftData, normalizeName } from "../utils/shiftParser";
 
 const API_USER_URL = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com/users";
 
 // --- Utilities ---
-// ユーザーのシフトデータを検索（スペースあり/なし両対応）
+// ユーザーのシフトデータを検索（normalizeName正規化対応）
 const getUserShifts = (shiftMap, user) => {
-    const ln = user.lastName || "";
-    const fn = user.firstName || "";
-    const noSpace = ln + fn;
-    const withSpace = ln + " " + fn;
-    const withWideSpace = ln + "　" + fn;
-    return shiftMap[noSpace] || shiftMap[withSpace] || shiftMap[withWideSpace] || shiftMap[user.userName] || {};
+    const key = normalizeName((user.lastName || "") + (user.firstName || ""));
+    return shiftMap[key] || {};
 };
 
 const toMin = (t) => {
@@ -59,7 +55,27 @@ export default function ShiftGantt() {
                     const outer = JSON.parse(text);
                     const data = (outer.body && typeof outer.body === "string") ? JSON.parse(outer.body) : outer;
                     const list = Array.isArray(data) ? data : (data.items || []);
-                    setUsers(list);
+
+                    // loginIdベースで重複排除
+                    const deduped = new Map();
+                    list.forEach(u => {
+                        const key = u.loginId || u.userId;
+                        const existing = deduped.get(key);
+                        if (!existing || (!existing.defaultLocation && u.defaultLocation)) {
+                            deduped.set(key, u);
+                        }
+                    });
+                    // フルネームベースでも重複排除
+                    const nameDeduped = new Map();
+                    Array.from(deduped.values()).forEach(u => {
+                        const fullName = ((u.lastName || "") + (u.firstName || "")).replace(/\s/g, "");
+                        if (!fullName) { nameDeduped.set(u.userId, u); return; }
+                        const existing = nameDeduped.get(fullName);
+                        if (!existing || (!existing.defaultLocation && u.defaultLocation)) {
+                            nameDeduped.set(fullName, u);
+                        }
+                    });
+                    setUsers(Array.from(nameDeduped.values()));
                 }
             } catch (e) {
                 console.error(e);
@@ -85,38 +101,65 @@ export default function ShiftGantt() {
         setBaseDate(format(new Date(), "yyyy-MM-dd"));
     };
 
-    // フィルタリングされたユーザー
+    // フィルタリングされたユーザー（重複排除・ソート済み）
     const filteredUsers = useMemo(() => {
-        return users.filter(u => {
-            const userName = `${u.lastName || ""} ${u.firstName || ""}`.trim();
+        const DEPT_ORDER = ["即日", "買取", "広告", "CEO", "アビエス", "未記載"];
+
+        const filtered = users.filter(u => {
             const userShifts = getUserShifts(shiftMap, u);
             const shift = userShifts ? userShifts[baseDate] : null;
 
-            // シフトがない人は除外（シフトがある人だけ表示）
             if (!shift || !shift.start || !shift.end) return false;
 
-            // シフトに勤務地がある場合はそれを使用、なければデフォルト勤務地
             const rawLocation = (shift && !shift.isOff && shift.location)
                 ? shift.location
                 : (u.defaultLocation || "未記載");
-
-            // デフォルト勤務部署
             const department = u.defaultDepartment || "未記載";
 
-            // 勤務地フィルター（部分一致でチェック）
             if (filterLocation !== "all" && !rawLocation.includes(filterLocation)) return false;
-
-            // 勤務部署フィルター
             if (filterDepartment !== "all" && department !== filterDepartment) return false;
 
             return true;
         });
+
+        // フルネームベースで重複排除（表示レベル）
+        const seen = new Set();
+        const deduped = filtered.filter(u => {
+            const fullName = ((u.lastName || "") + (u.firstName || "")).replace(/\s/g, "");
+            const key = fullName || u.userId;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+
+        // ソート: 部署順 → シフト開始時刻順
+        deduped.sort((a, b) => {
+            const deptA = a.defaultDepartment || "未記載";
+            const deptB = b.defaultDepartment || "未記載";
+            const deptIdxA = DEPT_ORDER.indexOf(deptA) === -1 ? DEPT_ORDER.length : DEPT_ORDER.indexOf(deptA);
+            const deptIdxB = DEPT_ORDER.indexOf(deptB) === -1 ? DEPT_ORDER.length : DEPT_ORDER.indexOf(deptB);
+            if (deptIdxA !== deptIdxB) return deptIdxA - deptIdxB;
+
+            const shiftsA = getUserShifts(shiftMap, a);
+            const shiftsB = getUserShifts(shiftMap, b);
+            const shiftA = shiftsA ? shiftsA[baseDate] : null;
+            const shiftB = shiftsB ? shiftsB[baseDate] : null;
+            const startA = shiftA && shiftA.start ? toMin(shiftA.start) : 9999;
+            const startB = shiftB && shiftB.start ? toMin(shiftB.start) : 9999;
+            return startA - startB;
+        });
+
+        return deduped;
     }, [users, filterLocation, filterDepartment, shiftMap, baseDate]);
 
-    // シフトある人数のカウント
+    // シフトある人数のカウント（重複排除済み）
     const totalShiftCount = useMemo(() => {
+        const seen = new Set();
         return users.filter(u => {
-            const userName = `${u.lastName || ""} ${u.firstName || ""}`.trim();
+            const fullName = ((u.lastName || "") + (u.firstName || "")).replace(/\s/g, "");
+            const key = fullName || u.userId;
+            if (seen.has(key)) return false;
+            seen.add(key);
             const userShifts = getUserShifts(shiftMap, u);
             const shift = userShifts ? userShifts[baseDate] : null;
             return shift && shift.start && shift.end;
@@ -384,9 +427,7 @@ export default function ShiftGantt() {
                                                     {userName}
                                                     {isCurrentUser && <span style={{ marginLeft: "4px", fontSize: "10px", color: "#d97706" }}>★</span>}
                                                 </div>
-                                                <div style={{ fontSize: "10px", color: "#9ca3af", marginTop: "2px" }}>
-                                                    {[department, location].filter(Boolean).join(" / ")}
-                                                </div>
+
                                             </td>
                                             <td style={{
                                                 padding: "4px 6px",

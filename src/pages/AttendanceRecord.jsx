@@ -17,8 +17,9 @@ import {
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSaturday, isSunday, addDays, isSameDay, addMonths, subMonths } from "date-fns";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { ja } from "date-fns/locale";
-import { HOLIDAYS, LOCATIONS, DEPARTMENTS, REASON_OPTIONS } from "../constants";
+import { HOLIDAYS, LOCATIONS, DEPARTMENTS, REASON_OPTIONS, REASON_SUB_OPTIONS, ABSENT_REASONS } from "../constants";
 import HistoryReport from "../components/HistoryReport";
+import { normalizeName } from "../utils/shiftParser";
 import "../App.css";
 
 const isHoliday = (d) => {
@@ -125,7 +126,8 @@ export default function AttendanceRecord({ user: propUser }) {
       userId: uid,
       userName: localStorage.getItem("userName"),
       defaultLocation: localStorage.getItem("defaultLocation") || "未記載",
-      defaultDepartment: localStorage.getItem("defaultDepartment") || "未記載"
+      defaultDepartment: localStorage.getItem("defaultDepartment") || "未記載",
+      employmentType: localStorage.getItem("employmentType") || ""
     };
   }, [propUser]);
 
@@ -150,7 +152,11 @@ export default function AttendanceRecord({ user: propUser }) {
   const [formBreaks, setFormBreaks] = useState([]);
   const [formSegments, setFormSegments] = useState([]);
   const [reason, setReason] = useState(REASON_OPTIONS[0]);
-  const [formText, setFormText] = useState(""); // Detailed reason text
+  const [subReason, setSubReason] = useState(""); // サブ理由（早退/欠勤/遅刻の詳細理由）
+  const [subReasonText, setSubReasonText] = useState(""); // サブ理由がその他の場合のテキスト
+  const [formText, setFormText] = useState(""); // 出張場所/残業理由等のテキスト
+  const [absentReason, setAbsentReason] = useState(ABSENT_REASONS[0]); // 後方互換用
+  const [absentReasonText, setAbsentReasonText] = useState(""); // 後方互換用
   const [loading, setLoading] = useState(false);
 
   // Resubmission Context
@@ -181,8 +187,17 @@ export default function AttendanceRecord({ user: propUser }) {
   }, []);
 
   const getShift = (uName, dateStr) => {
-    if (!uName || !shiftMap[uName]) return null;
-    return shiftMap[uName][dateStr] || null;
+    if (!uName || !shiftMap) return null;
+
+    // normalizeName で正規化してルックアップ（parseCsv/キャッシュ側も正規化済み）
+    const normalized = normalizeName(uName);
+    if (shiftMap[normalized]?.[dateStr]) return shiftMap[normalized][dateStr];
+
+    // loginIdで試行
+    const loginId = localStorage.getItem("loginId");
+    if (loginId && shiftMap[loginId]?.[dateStr]) return shiftMap[loginId][dateStr];
+
+    return null;
   };
   // -----------------------------
 
@@ -683,8 +698,18 @@ export default function AttendanceRecord({ user: propUser }) {
 
       setFormText(p.text || ""); // Set text
       // Set Reason: Use existing or default to "-"
-      if (app.reason && REASON_OPTIONS.includes(app.reason)) setReason(app.reason);
-      else setReason(REASON_OPTIONS[0]);
+      if (app.reason && REASON_OPTIONS.includes(app.reason)) {
+        setReason(app.reason);
+        // サブ理由復元
+        if (app.subReason) setSubReason(app.subReason);
+        else setSubReason("");
+        if (app.subReasonText) setSubReasonText(app.subReasonText);
+        else setSubReasonText("");
+      } else {
+        setReason(REASON_OPTIONS[0]);
+        setSubReason("");
+        setSubReasonText("");
+      }
 
     } else {
       setFormIn(shift?.start || "");
@@ -694,6 +719,8 @@ export default function AttendanceRecord({ user: propUser }) {
       setFormSegments([{ location: user.defaultLocation || LOCATIONS[0], department: user.defaultDepartment || DEPARTMENTS[0], hours: "" }]);
       setFormText("");
       setReason(REASON_OPTIONS[0]); // Default to "-"
+      setSubReason("");
+      setSubReasonText("");
     }
     // setModalOpen(true); // Removed
   };
@@ -740,27 +767,57 @@ export default function AttendanceRecord({ user: propUser }) {
         return;
       }
 
-      // 1. Reason Check for "Other"
-      if (reason === "その他" && (!formText || !formText.trim())) {
-        alert("修正理由が「その他」の場合は、詳細な理由（コメント）の入力が必須です。");
+      // 1. サブ理由が必要なカテゴリのバリデーション
+      const subOptions = REASON_SUB_OPTIONS[reason] || [];
+      if (subOptions.length > 0 && !subReason) {
+        alert(`${reason}の詳細理由を選択してください`);
+        setLoading(false);
+        return;
+      }
+      if (subReason === "その他" && (!subReasonText || !subReasonText.trim())) {
+        alert("「その他」の場合は具体的な理由を入力してください");
         setLoading(false);
         return;
       }
 
-      // 2. Lateness/Early Check
-      // Logic removed as Reason is now mandatory.
-      // const isDiscrepancy = ...
+      // 2. 出張・残業のテキスト入力バリデーション
+      if (reason === "出張" && (!formText || !formText.trim())) {
+        alert("出張場所を入力してください");
+        setLoading(false);
+        return;
+      }
+      if (reason === "残業" && (!formText || !formText.trim())) {
+        alert("残業理由を入力してください");
+        setLoading(false);
+        return;
+      }
 
       // --- VALIDATION END ---
+
+      // 最終的な理由文字列を組み立て
+      let finalReason = reason;
+      if (subOptions.length > 0 && subReason) {
+        if (subReason === "その他") {
+          finalReason = `${reason}（${subReasonText.trim()}）`;
+        } else {
+          finalReason = `${reason}（${subReason}）`;
+        }
+      } else if (reason === "出張") {
+        finalReason = `出張（${formText.trim()}）`;
+      } else if (reason === "残業") {
+        finalReason = `残業（${formText.trim()}）`;
+      }
 
       const p = parseComment(originalItem?.comment);
 
       const application = {
-        status: "pending",
+        status: reason === "欠勤" ? "absent" : "pending",
         appliedAt: new Date().toISOString(),
-        appliedIn: formIn,
-        appliedOut: formOut,
-        reason: reason,
+        appliedIn: reason === "欠勤" ? "" : formIn,
+        appliedOut: reason === "欠勤" ? "" : formOut,
+        reason: finalReason,
+        subReason: subReason || null,
+        subReasonText: subReasonText || null,
         adminComment: null
       };
 
@@ -861,6 +918,13 @@ export default function AttendanceRecord({ user: propUser }) {
   const handleAbsentRequest = async () => {
     if (!expandedDate) return;
 
+    // 理由バリデーション
+    const finalAbsentReason = absentReason === "その他" ? absentReasonText.trim() : absentReason;
+    if (!finalAbsentReason) {
+      alert("欠勤理由を入力してください");
+      return;
+    }
+
     setLoading(true);
     try {
       // 完全なペイロードを送信（ドキュメントのCorrect Patternに従う）
@@ -874,8 +938,8 @@ export default function AttendanceRecord({ user: propUser }) {
         department: user.defaultDepartment || "",
         comment: JSON.stringify({
           segments: [],
-          text: "スタッフによる欠勤申請",
-          application: { status: "absent", reason: "欠勤" }
+          text: `スタッフによる欠勤申請（理由: ${finalAbsentReason}）`,
+          application: { status: "absent", reason: "欠勤", absentReason: finalAbsentReason }
         })
       };
 
@@ -893,6 +957,8 @@ export default function AttendanceRecord({ user: propUser }) {
 
       fetchData();
       setExpandedDate(null);
+      setAbsentReason(ABSENT_REASONS[0]);
+      setAbsentReasonText("");
     } catch (e) {
       console.error(e);
       alert("エラーが発生しました");
@@ -995,8 +1061,10 @@ export default function AttendanceRecord({ user: propUser }) {
     const totalMin = dispatchMin + partTimeMin;
     const avgMin = days > 0 ? Math.floor(totalMin / days) : 0;
     const avgHours = Math.floor(avgMin / 60);
+    const totalH = Math.floor(totalMin / 60);
+    const totalM = totalMin % 60;
 
-    return { days, dispH, dispM, partH, partM, avgHours };
+    return { days, dispH, dispM, partH, partM, totalH, totalM, avgHours };
   }, [items, currentDate, shiftMap, user]);
 
   const unappliedCount = items.filter(i => {
@@ -1033,22 +1101,8 @@ export default function AttendanceRecord({ user: propUser }) {
       if (!dDate.startsWith(currentMonth)) return false;
       if (!item.clockIn) return false;
 
-      // シフトを取得
-      const keysToTry = [
-        user.userName,
-        `${user.lastName || ""} ${user.firstName || ""}`.trim(),
-        `${user.firstName || ""} ${user.lastName || ""}`.trim(),
-        `${user.lastName || ""}　${user.firstName || ""}`.trim(),
-        `${user.firstName || ""}　${user.lastName || ""}`.trim(),
-        `${user.lastName || ""}${user.firstName || ""}`.trim()
-      ];
-      let shift = null;
-      for (const k of keysToTry) {
-        if (k && shiftMap[k] && shiftMap[k][dDate]) {
-          shift = shiftMap[k][dDate];
-          break;
-        }
-      }
+      // シフトを取得（正規化済み getShift を使用）
+      const shift = getShift(user.userName, dDate);
 
 
       // シフトがあり、開始時刻より遅く出勤した場合（取消済みの場合は除外）
@@ -1062,6 +1116,42 @@ export default function AttendanceRecord({ user: propUser }) {
     }).length;
   }, [items, user, shiftMap, currentMonth]);
 
+  // 欠勤のカウント（今月）
+  const absentData = useMemo(() => {
+    let count = 0;
+    const reasons = {};
+    items.forEach(item => {
+      const dDate = item.displayDate || item.workDate;
+      if (!dDate.startsWith(currentMonth)) return;
+      const p = parseComment(item.comment);
+      if (p.application?.status === "absent") {
+        count++;
+        const r = p.application?.absentReason || "欠勤";
+        reasons[r] = (reasons[r] || 0) + 1;
+      }
+    });
+    return { count, reasons };
+  }, [items, currentMonth]);
+
+  // 早退のカウント（今月）
+  const earlyData = useMemo(() => {
+    let count = 0;
+    const reasons = {};
+    items.forEach(item => {
+      const dDate = item.displayDate || item.workDate;
+      if (!dDate.startsWith(currentMonth)) return;
+      const p = parseComment(item.comment);
+      const app = p.application || {};
+      if (app.earlyCancelled) return;
+      if (app.reason && app.reason.includes("早退")) {
+        count++;
+        const r = app.reason || "早退";
+        reasons[r] = (reasons[r] || 0) + 1;
+      }
+    });
+    return { count, reasons };
+  }, [items, currentMonth]);
+
   return (
     <div className="record-container" style={{ width: "100%", margin: "0 auto" }}> {/* RESTORED FULL WIDTH */}
 
@@ -1073,7 +1163,7 @@ export default function AttendanceRecord({ user: propUser }) {
             <Clock size={24} />
             出退勤入力
             <span style={{ fontSize: "0.9rem", color: "#6b7280", fontWeight: "normal", marginLeft: "12px" }}>
-              ({format(currentDate, "M")}月の規定日数: {(currentDate.getFullYear() === 2026 && currentDate.getMonth() === 1) ? (user?.employmentType === "学生バイト" ? 16 : 18) : 19}日)
+              ({format(currentDate, "M")}月の規定日数: {user?.employmentType === "学生バイト" ? 16 : (() => { const s = startOfMonth(currentDate); const e = endOfMonth(currentDate); return eachDayOfInterval({ start: s, end: e }).filter(d => !isSaturday(d) && !isSunday(d) && !HOLIDAYS.includes(format(d, "yyyy-MM-dd"))).length; })()}日)
               {todayShift && (
                 <span style={{ marginLeft: "12px", color: "#2563eb", fontWeight: "bold" }}>
                   本日のシフト: {todayShift.isOff ? "休み" : `${todayShift.start} - ${todayShift.end}`}
@@ -1245,21 +1335,49 @@ export default function AttendanceRecord({ user: propUser }) {
       </div>
 
       {/* 3. STATS CARDS */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "20px", marginBottom: "32px" }}>
-        <div className="card" style={{ padding: "24px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "16px", marginBottom: "32px" }}>
+        <div className="card" style={{ padding: "20px" }}>
           <div style={{ fontSize: "0.85rem", color: "#6b7280", marginBottom: "8px" }}>今月の出勤日数</div>
           <div style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{stats.days} 日</div>
         </div>
-        <div className="card" style={{ padding: "24px" }}>
+        <div className="card" style={{ padding: "20px" }}>
           <div style={{ fontSize: "0.85rem", color: "#6b7280", marginBottom: "8px" }}>今月の勤務時間</div>
           <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-            <div style={{ fontSize: "1.1rem", fontWeight: "bold", color: "#2563eb" }}>派遣: {stats.dispH}h {stats.dispM}m</div>
-            <div style={{ fontSize: "1.1rem", fontWeight: "bold", color: "#16a34a" }}>バイト: {stats.partH}h {stats.partM}m</div>
+            {user?.employmentType === "派遣" ? (
+              <>
+                <div style={{ fontSize: "1rem", fontWeight: "bold", color: "#2563eb" }}>派遣: {stats.dispH}h {stats.dispM}m</div>
+                <div style={{ fontSize: "1rem", fontWeight: "bold", color: "#16a34a" }}>バイト: {stats.partH}h {stats.partM}m</div>
+              </>
+            ) : (
+              <div style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{stats.totalH}h {stats.totalM}m</div>
+            )}
           </div>
         </div>
-        <div className="card" style={{ padding: "24px", background: lateCount > 0 ? "#fef2f2" : undefined }}>
+        <div className="card" style={{ padding: "20px", background: lateCount > 0 ? "#fef2f2" : undefined }}>
           <div style={{ fontSize: "0.85rem", color: lateCount > 0 ? "#b91c1c" : "#6b7280", marginBottom: "8px" }}>遅刻</div>
           <div style={{ fontSize: "1.5rem", fontWeight: "bold", color: lateCount > 0 ? "#dc2626" : "#374151" }}>{lateCount} 件</div>
+        </div>
+        <div className="card" style={{ padding: "20px", background: absentData.count > 0 ? "#fef2f2" : undefined }}>
+          <div style={{ fontSize: "0.85rem", color: absentData.count > 0 ? "#b91c1c" : "#6b7280", marginBottom: "8px" }}>欠勤</div>
+          <div style={{ fontSize: "1.5rem", fontWeight: "bold", color: absentData.count > 0 ? "#dc2626" : "#374151" }}>{absentData.count} 件</div>
+          {Object.keys(absentData.reasons).length > 0 && (
+            <div style={{ marginTop: "8px", fontSize: "0.75rem", color: "#6b7280" }}>
+              {Object.entries(absentData.reasons).map(([r, c]) => (
+                <div key={r}>{r}: {c}件</div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="card" style={{ padding: "20px", background: earlyData.count > 0 ? "#fffbeb" : undefined }}>
+          <div style={{ fontSize: "0.85rem", color: earlyData.count > 0 ? "#b45309" : "#6b7280", marginBottom: "8px" }}>早退</div>
+          <div style={{ fontSize: "1.5rem", fontWeight: "bold", color: earlyData.count > 0 ? "#f59e0b" : "#374151" }}>{earlyData.count} 件</div>
+          {Object.keys(earlyData.reasons).length > 0 && (
+            <div style={{ marginTop: "8px", fontSize: "0.75rem", color: "#6b7280" }}>
+              {Object.entries(earlyData.reasons).map(([r, c]) => (
+                <div key={r}>{r}: {c}件</div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1429,21 +1547,83 @@ export default function AttendanceRecord({ user: propUser }) {
             <div style={{ marginBottom: "24px" }}>
               <label style={{ display: "block", fontSize: "0.9rem", fontWeight: "bold", marginBottom: "8px", color: "#374151" }}>
                 修正・申請理由
-                {((formIn && shiftMap[user.userName]?.[expandedDate]?.start && toMin(formIn) > toMin(shiftMap[user.userName]?.[expandedDate]?.start)) || (formOut && shiftMap[user.userName]?.[expandedDate]?.end && toMin(formOut) < toMin(shiftMap[user.userName]?.[expandedDate]?.end))) &&
+                {((formIn && getShift(user.userName, expandedDate)?.start && toMin(formIn) > toMin(getShift(user.userName, expandedDate)?.start)) || (formOut && getShift(user.userName, expandedDate)?.end && toMin(formOut) < toMin(getShift(user.userName, expandedDate)?.end))) &&
                   <span style={{ color: "#ef4444", fontSize: "0.8rem", marginLeft: "6px", background: "#fef2f2", padding: "2px 6px", borderRadius: "4px", border: "1px solid #fecaca" }}>遅刻/早退 (必須)</span>
                 }
               </label>
-              <select value={reason} onChange={e => setReason(e.target.value)} style={{ width: "100%", padding: "12px", borderRadius: "8px", border: "1px solid #d1d5db", marginBottom: "12px", fontSize: "0.95rem" }}>
+
+              {/* カテゴリ選択 */}
+              <select
+                value={reason}
+                onChange={e => { setReason(e.target.value); setSubReason(""); setSubReasonText(""); setFormText(""); }}
+                style={{ width: "100%", padding: "12px", borderRadius: "8px", border: "1px solid #d1d5db", marginBottom: "12px", fontSize: "0.95rem" }}
+              >
                 <option value="">理由を選択してください</option>
                 {REASON_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
               </select>
-              {reason === "その他" && (
-                <textarea
-                  value={formText}
-                  onChange={e => setFormText(e.target.value)}
-                  placeholder="具体的な理由を入力してください（必須）"
-                  style={{ width: "100%", padding: "12px", borderRadius: "8px", border: "1px solid #d1d5db", minHeight: "80px", fontSize: "0.95rem", boxSizing: "border-box" }}
-                />
+
+              {/* サブ理由: 早退/欠勤/遅刻 */}
+              {reason && REASON_SUB_OPTIONS[reason] && REASON_SUB_OPTIONS[reason].length > 0 && (
+                <div style={{ background: "#f0f9ff", padding: "12px", borderRadius: "8px", border: "1px solid #bae6fd", marginBottom: "12px" }}>
+                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "bold", color: "#0369a1", marginBottom: "6px" }}>
+                    {reason}の詳細理由
+                  </label>
+                  <select
+                    value={subReason}
+                    onChange={e => { setSubReason(e.target.value); setSubReasonText(""); }}
+                    style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.9rem", marginBottom: subReason === "その他" ? "8px" : "0" }}
+                  >
+                    <option value="">選択してください</option>
+                    {REASON_SUB_OPTIONS[reason].map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                  {subReason === "その他" && (
+                    <input
+                      type="text"
+                      placeholder="具体的な理由を入力してください"
+                      value={subReasonText}
+                      onChange={e => setSubReasonText(e.target.value)}
+                      style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.9rem", boxSizing: "border-box" }}
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* 出張: 場所入力 */}
+              {reason === "出張" && (
+                <div style={{ background: "#f5f3ff", padding: "12px", borderRadius: "8px", border: "1px solid #ddd6fe", marginBottom: "12px" }}>
+                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "bold", color: "#6d28d9", marginBottom: "6px" }}>
+                    出張場所
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="出張場所を入力してください"
+                    value={formText}
+                    onChange={e => setFormText(e.target.value)}
+                    style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.9rem", boxSizing: "border-box" }}
+                  />
+                </div>
+              )}
+
+              {/* 残業: 理由入力 */}
+              {reason === "残業" && (
+                <div style={{ background: "#fff7ed", padding: "12px", borderRadius: "8px", border: "1px solid #fed7aa", marginBottom: "12px" }}>
+                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "bold", color: "#c2410c", marginBottom: "6px" }}>
+                    残業理由
+                  </label>
+                  <textarea
+                    placeholder="残業理由を入力してください"
+                    value={formText}
+                    onChange={e => setFormText(e.target.value)}
+                    style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.9rem", minHeight: "60px", boxSizing: "border-box" }}
+                  />
+                </div>
+              )}
+
+              {/* 欠勤選択時の注意表示 */}
+              {reason === "欠勤" && (
+                <div style={{ fontSize: "0.8rem", color: "#991b1b", background: "#fef2f2", padding: "8px 12px", borderRadius: "6px", border: "1px solid #fecaca" }}>
+                  ⚠ 欠勤申請として処理されます（出退勤時刻は空で送信されます）
+                </div>
               )}
             </div>
 
@@ -1463,10 +1643,6 @@ export default function AttendanceRecord({ user: propUser }) {
                   取り下げ
                 </button>
               )}
-              {/* Also show withdraw if status is pending generally, not just with feedback? 
-                  The user request said "Withdraw pending application". 
-                  Let's show it if status is pending. 
-              */}
               {!adminFeedback && items.find(i => i.workDate === expandedDate)?._application?.status === "pending" && (
                 <button
                   type="button"
@@ -1482,31 +1658,18 @@ export default function AttendanceRecord({ user: propUser }) {
                 </button>
               )}
 
-              {/* 欠勤申請ボタン */}
-              <button
-                type="button"
-                onClick={handleAbsentRequest}
-                disabled={loading}
-                style={{
-                  flex: 1, padding: "14px", borderRadius: "8px", border: "none",
-                  background: "#ef4444", color: "#fff", fontWeight: "bold", cursor: loading ? "default" : "pointer",
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: "8px"
-                }}
-              >
-                欠勤申請
-              </button>
-
               <button
                 onClick={handleUpdate}
                 disabled={loading}
                 style={{
                   flex: 2, padding: "14px", borderRadius: "8px", border: "none",
-                  background: loading ? "#93c5fd" : "#2563eb", color: "#fff", fontWeight: "bold", cursor: loading ? "default" : "pointer",
+                  background: loading ? "#93c5fd" : reason === "欠勤" ? "#ef4444" : "#2563eb",
+                  color: "#fff", fontWeight: "bold", cursor: loading ? "default" : "pointer",
                   display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
-                  boxShadow: "0 4px 6px rgba(37, 99, 235, 0.2)"
+                  boxShadow: reason === "欠勤" ? "0 4px 6px rgba(239, 68, 68, 0.2)" : "0 4px 6px rgba(37, 99, 235, 0.2)"
                 }}
               >
-                {loading ? "送信中..." : <><CheckCircle size={20} /> 申請を保存</>}
+                {loading ? "送信中..." : <><CheckCircle size={20} /> {reason === "欠勤" ? "欠勤申請" : "申請を保存"}</>}
               </button>
             </div>
           </div>

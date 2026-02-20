@@ -63,12 +63,54 @@ const USER_SHIFT_OVERRIDES = {
 
 const SHIFT_CACHE_KEY = "shift_data_cache";
 
-// キャッシュの読み込み
+// 漢字異体字の正規化（スプレッドシートとDB間の名前不一致を解消）
+export function normalizeName(name) {
+    if (!name) return "";
+    return name
+        .replace(/[\s\u3000]+/g, "")  // スペース除去
+        .replace(/髙/g, "高")
+        .replace(/凜/g, "凛")
+        .replace(/穩/g, "穏")
+        .replace(/栁/g, "柳")
+        .replace(/﨑/g, "崎")
+        .replace(/邉/g, "辺")
+        .replace(/邊/g, "辺")
+        .replace(/齊/g, "斉")
+        .replace(/齋/g, "斉")
+        .replace(/龍/g, "竜")
+        .replace(/嶋/g, "島")
+        .replace(/塚/g, "塚")
+        .replace(/德/g, "徳")
+        .replace(/惠/g, "恵")
+        .replace(/瀨/g, "瀬")
+        .replace(/澤/g, "沢")
+        .replace(/櫻/g, "桜")
+        .replace(/眞/g, "真")
+        .replace(/廣/g, "広")
+        .replace(/藝/g, "芸")
+        .replace(/學/g, "学")
+        .replace(/國/g, "国")
+        .replace(/鷗/g, "鷹");
+}
+
+// キャッシュの読み込み（キー名を正規化してマイグレーション）
 function loadShiftCache() {
     try {
         const raw = localStorage.getItem(SHIFT_CACHE_KEY);
         if (!raw) return {};
-        return JSON.parse(raw);
+        const parsed = JSON.parse(raw);
+        // キー名を正規化（古い非正規化キーを新しい正規化キーに変換）
+        const normalized = {};
+        for (const key of Object.keys(parsed)) {
+            const nKey = normalizeName(key);
+            if (!normalized[nKey]) {
+                normalized[nKey] = parsed[key];
+            } else {
+                // 同じ正規化名のエントリがあればマージ
+                normalized[nKey] = { ...normalized[nKey], ...parsed[key] };
+            }
+        }
+        return normalized;
     } catch (e) {
         console.warn("Shift cache parse error:", e);
         return {};
@@ -114,10 +156,7 @@ export async function fetchShiftData(forceRefresh = false, additionalSources = [
         for (const sheet of source.sheets) {
             tasks.push(async () => {
                 try {
-                    let url = `https://docs.google.com/spreadsheets/d/${source.id}/export?format=csv&gid=${sheet.gid}`;
-                    if (forceRefresh) {
-                        url += `&t=${Date.now()}`;
-                    }
+                    let url = `https://docs.google.com/spreadsheets/d/${source.id}/export?format=csv&gid=${sheet.gid}&t=${Date.now()}`;
 
                     // 30s Timeout (延長してAbortError対策)
                     const controller = new AbortController();
@@ -160,9 +199,20 @@ export async function fetchShiftData(forceRefresh = false, additionalSources = [
 
     const mergedShifts = {};
 
-    // まず、スプシから取得した最新データを基にする
-    for (const userName of Object.keys(shifts)) {
+    // 1. まずキャッシュの当日以前データをすべてコピー（確定値として保持）
+    for (const userName of Object.keys(cache)) {
         mergedShifts[userName] = {};
+        for (const dateKey of Object.keys(cache[userName])) {
+            if (dateKey.startsWith("prescribed_")) continue;
+            if (dateKey <= todayStr) {
+                mergedShifts[userName][dateKey] = cache[userName][dateKey];
+            }
+        }
+    }
+
+    // 2. スプシデータを処理
+    for (const userName of Object.keys(shifts)) {
+        if (!mergedShifts[userName]) mergedShifts[userName] = {};
 
         for (const dateKey of Object.keys(shifts[userName])) {
             // prescribed_YYYY_MM 等のメタデータはそのまま通す
@@ -171,28 +221,15 @@ export async function fetchShiftData(forceRefresh = false, additionalSources = [
                 continue;
             }
 
-            if (dateKey <= todayStr) {
-                // 当日以前: キャッシュがあればキャッシュを使用（確定済み）
-                if (cache[userName] && cache[userName][dateKey]) {
-                    mergedShifts[userName][dateKey] = cache[userName][dateKey];
-                } else {
-                    // キャッシュがない場合は初回読み込みとしてスプシ値を使用しキャッシュに保存
+            if (dateKey > todayStr) {
+                // 翌日以降: スプシ最新データで上書き
+                mergedShifts[userName][dateKey] = shifts[userName][dateKey];
+            } else {
+                // 当日以前: キャッシュにない場合のみスプシ値を使用（初回読み込み）
+                if (!mergedShifts[userName][dateKey]) {
                     mergedShifts[userName][dateKey] = shifts[userName][dateKey];
                 }
-            } else {
-                // 翌日以降: スプシ最新データを使用
-                mergedShifts[userName][dateKey] = shifts[userName][dateKey];
-            }
-        }
-    }
-
-    // キャッシュにあるが今回のスプシデータにない過去の日付も保持
-    for (const userName of Object.keys(cache)) {
-        if (!mergedShifts[userName]) mergedShifts[userName] = {};
-        for (const dateKey of Object.keys(cache[userName])) {
-            if (dateKey.startsWith("prescribed_")) continue;
-            if (dateKey <= todayStr && !mergedShifts[userName][dateKey]) {
-                mergedShifts[userName][dateKey] = cache[userName][dateKey];
+                // キャッシュにあればそのまま（上書きしない = 確定済み）
             }
         }
     }
@@ -252,8 +289,8 @@ export function parseCsv(csvText, config, year, month, shifts, locationName, spe
         const row = lines[i];
         const rawName = row[config.nameColIndex]?.trim();
         if (!rawName) continue;
-        // 全角・半角スペースを除去して正規化（スプシ: "眞葛 澪" → "眞葛澪"）
-        const name = rawName.replace(/[\s\u3000]+/g, "");
+        // 漢字異体字・スペースを正規化（スプシ: "眞葛 澪" → "真葛澪", "髙木最哉" → "高木最哉"）
+        const name = normalizeName(rawName);
 
         if (!shifts[name]) shifts[name] = {};
 

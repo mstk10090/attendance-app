@@ -95,6 +95,13 @@ export default function App() {
   const logoutTimerRef = useRef(null);
 
   const resetLogoutTimer = useCallback(() => {
+    // 管理者は自動ログアウトしない
+    if (localStorage.getItem("role") === "admin") {
+      if (logoutTimerRef.current) {
+        clearTimeout(logoutTimerRef.current);
+      }
+      return;
+    }
     if (logoutTimerRef.current) {
       clearTimeout(logoutTimerRef.current);
     }
@@ -121,6 +128,9 @@ export default function App() {
       }
       return;
     }
+
+    // 管理者は自動ログアウトしない
+    if (localStorage.getItem("role") === "admin") return;
 
     // 他タブでのログアウトチェック
     const lastActivity = localStorage.getItem("lastActivity");

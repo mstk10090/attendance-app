@@ -40,7 +40,21 @@ export const HOLIDAYS = [
 
 export const LOCATIONS = ["未記載", "呉羽", "山葉", "東洋", "細川", "出張"];
 export const DEPARTMENTS = ["未記載", "即日", "買取", "広告", "CEO", "アビエス"];
-export const REASON_OPTIONS = ["-", "寝坊", "電車遅延", "体調不良", "打刻忘れ", "出張", "その他"];
+export const REASON_OPTIONS = ["-", "早退", "欠勤", "遅刻", "出張", "残業", "打刻忘れ"];
+
+// カテゴリごとのサブ理由定義
+export const REASON_SUB_OPTIONS = {
+    "早退": ["体調不良", "私用", "その他"],
+    "欠勤": ["体調不良", "私用", "その他"],
+    "遅刻": ["体調不良", "私用", "電車遅延", "寝坊", "その他"],
+    "出張": [],   // 出張場所を記入
+    "残業": [],   // 理由を記入
+    "打刻忘れ": [] // 追加入力なし
+};
 
 // 雇用形態定数
 export const EMPLOYMENT_TYPES = ["派遣", "常駐", "学生バイト", "バイト"];
+
+// 欠勤理由定数（後方互換性のため残す）
+export const ABSENT_REASONS = ["体調不良", "家庭の事情", "私用", "その他"];
+
