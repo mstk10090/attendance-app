@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
-import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addDays, startOfYear, endOfYear, isSaturday, isSunday } from "date-fns";
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addDays, addMonths, subMonths, startOfYear, endOfYear, isSaturday, isSunday } from "date-fns";
 import { ja } from "date-fns/locale";
 import { Search, Filter, AlertTriangle, CheckCircle, Clock, MapPin, Download, Save, X, Briefcase, FileText, Send, PieChart, BarChart, ClipboardCheck } from "lucide-react";
 import "../../App.css";
@@ -227,7 +227,7 @@ export default function AdminAttendance() {
   const [customResubmitReason, setCustomResubmitReason] = useState("");
 
   // 取消理由選択用
-  const CANCEL_REASONS = ["tapo確認済"];
+  const CANCEL_REASONS = ["tapo確認済", "遅延証確認済"];
   const [cancelTarget, setCancelTarget] = useState(null); // { item, type }
   const [selectedCancelReason, setSelectedCancelReason] = useState("");
   const [customCancelReason, setCustomCancelReason] = useState("");
@@ -376,7 +376,7 @@ export default function AdminAttendance() {
 
   useEffect(() => {
     fetchAttendances();
-  }, [fetchRange]);
+  }, [fetchRange.start, fetchRange.end]);
 
   /* Filtering Logic */
   const filteredItems = useMemo(() => {
@@ -555,14 +555,44 @@ export default function AdminAttendance() {
     }
   };
 
-  const handleApprove = async (targetItem = null) => {
+  const handleApprove = async (targetItem = null, approveReason = null) => {
     // 確認ダイアログなし・ポップアップなしで即時承認
     const scrollY = window.scrollY;
     setLoading(true);
     try {
       const item = targetItem || editingItem;
       const p = parseComment(item.comment);
-      const newApp = { ...p.application, status: 'approved' };
+
+      // 申請がない場合（未申請）でも承認できるように、新規にapplicationを作成
+      const existingApp = p.application || {};
+
+      // 未申請の場合、打刻時間を30分単位に丸めて申請時間とする
+      let appliedIn = existingApp.appliedIn || '';
+      let appliedOut = existingApp.appliedOut || '';
+      if (!existingApp.appliedIn && item.clockIn) {
+        // 出勤は30分切り上げ
+        const inMin = Math.ceil(toMin(item.clockIn) / 30) * 30;
+        const inH = String(Math.floor(inMin / 60)).padStart(2, '0');
+        const inM = String(inMin % 60).padStart(2, '0');
+        appliedIn = `${inH}:${inM}`;
+      }
+      if (!existingApp.appliedOut && item.clockOut) {
+        // 退勤は30分切り捨て
+        const outMin = Math.floor(toMin(item.clockOut) / 30) * 30;
+        const outH = String(Math.floor(outMin / 60)).padStart(2, '0');
+        const outM = String(outMin % 60).padStart(2, '0');
+        appliedOut = `${outH}:${outM}`;
+      }
+
+      const newApp = {
+        ...existingApp,
+        status: 'approved',
+        appliedIn,
+        appliedOut,
+        appliedAt: existingApp.appliedAt || new Date().toISOString(),
+        reason: existingApp.reason || '-',
+        adminComment: approveReason || existingApp.adminComment || null
+      };
 
       const finalComment = JSON.stringify({
         segments: p.segments,
@@ -736,7 +766,7 @@ export default function AdminAttendance() {
               const d = new Date(baseDate);
               if (viewMode === "daily") setBaseDate(format(addDays(d, -1), "yyyy-MM-dd"));
               if (viewMode === "weekly") setBaseDate(format(addDays(d, -7), "yyyy-MM-dd"));
-              if (viewMode === "monthly" || viewMode === "report") setBaseDate(format(addDays(d, -30), "yyyy-MM-dd"));
+              if (viewMode === "monthly" || viewMode === "report") setBaseDate(format(subMonths(d, 1), "yyyy-MM-dd"));
             }}>{"<"}</button>
 
             <span style={{ fontWeight: "bold", fontSize: "1.1rem" }}>
@@ -748,8 +778,22 @@ export default function AdminAttendance() {
               const d = new Date(baseDate);
               if (viewMode === "daily") setBaseDate(format(addDays(d, 1), "yyyy-MM-dd"));
               if (viewMode === "weekly") setBaseDate(format(addDays(d, 7), "yyyy-MM-dd"));
-              if (viewMode === "monthly" || viewMode === "report") setBaseDate(format(addDays(d, 30), "yyyy-MM-dd"));
+              if (viewMode === "monthly" || viewMode === "report") setBaseDate(format(addMonths(d, 1), "yyyy-MM-dd"));
             }}>{">"}</button>
+
+            {/* 今日ボタン */}
+            {baseDate !== format(new Date(), "yyyy-MM-dd") && (
+              <button
+                onClick={() => setBaseDate(format(new Date(), "yyyy-MM-dd"))}
+                style={{
+                  padding: "6px 14px", borderRadius: "6px", border: "1px solid #3b82f6",
+                  background: "#eff6ff", color: "#2563eb", fontSize: "13px", fontWeight: "bold",
+                  cursor: "pointer", display: "flex", alignItems: "center", gap: "4px"
+                }}
+              >
+                今日
+              </button>
+            )}
           </div>
         )}
 
@@ -957,7 +1001,7 @@ export default function AdminAttendance() {
                     }
 
                     // シフトとの比較判定
-                    let shiftCheck = null; // null=判定不可, "ok"=問題なし, "late"=遅刻, "early"=早退, "both"=両方
+                    let shiftCheck = null; // null=判定不可, "ok"=問題なし, "late"=遅刻, "early"=早退, "both"=遅刻+早退, "overtime"=残業, "late_overtime"=遅刻+残業
                     if (shift && !shift.isOff && item.clockIn && item.clockOut) {
                       const shiftStartMin = toMin(shift.start);
                       const shiftEndMin = toMin(shift.end);
@@ -966,11 +1010,14 @@ export default function AdminAttendance() {
 
                       const isLate = actualInMin >= shiftStartMin;
                       const isEarly = actualOutMin < shiftEndMin;
+                      const isOvertime = actualOutMin >= shiftEndMin + 30; // シフト終了30分以上で残業判定
 
-                      if (!isLate && !isEarly) shiftCheck = "ok";
-                      else if (isLate && isEarly) shiftCheck = "both";
+                      if (isLate && isEarly) shiftCheck = "both";
+                      else if (isLate && isOvertime) shiftCheck = "late_overtime";
                       else if (isLate) shiftCheck = "late";
                       else if (isEarly) shiftCheck = "early";
+                      else if (isOvertime) shiftCheck = "overtime";
+                      else shiftCheck = "ok";
                     }
 
                     let bg = "#fff";
@@ -978,6 +1025,7 @@ export default function AdminAttendance() {
                     else if (rowAppStatus === "pending") bg = "#fff7ed"; // Orange
                     else if (rowAppStatus === "resubmission_requested") bg = "#fcf4ff"; // Purple
                     else if (isIncomplete) bg = "#fee2e2"; // Red (Forgot Clockout)
+                    else if ((shiftCheck === "overtime" || shiftCheck === "late_overtime") && isUnapplied) bg = "#eff6ff"; // Light blue for overtime unapplied
                     else if (shiftCheck === "ok" && isUnapplied) bg = "#f0fdf4"; // Light green for auto-approvable
                     else if (isUnapplied) bg = "#fef2f2"; // Red (Unapplied)
                     else if (isWorking) bg = "#ffffff"; // White (Working)
@@ -1030,10 +1078,18 @@ export default function AdminAttendance() {
                           {(() => {
                             const app = item._application;
                             if (app?.appliedIn && app?.appliedOut) {
+                              const breakDur = app.breakDuration || 0;
                               return (
-                                <span style={{ fontFamily: "monospace", color: "#2563eb" }}>
-                                  {app.appliedIn.slice(0, 5)}-{app.appliedOut.slice(0, 5)}
-                                </span>
+                                <>
+                                  <span style={{ fontFamily: "monospace", color: "#2563eb" }}>
+                                    {app.appliedIn.slice(0, 5)}-{app.appliedOut.slice(0, 5)}
+                                  </span>
+                                  {breakDur > 0 && (
+                                    <div style={{ fontSize: "10px", color: "#9ca3af" }}>
+                                      休憩{breakDur >= 60 ? `${Math.floor(breakDur / 60)}h` : ''}{breakDur % 60 > 0 ? `${breakDur % 60}m` : ''}
+                                    </div>
+                                  )}
+                                </>
                               );
                             }
                             return <span style={{ color: "#9ca3af" }}>-</span>;
@@ -1060,9 +1116,17 @@ export default function AdminAttendance() {
                             const effOutMin = toMin(effectiveOut);
                             const totalDuration = Math.max(0, effOutMin - effInMin);
 
+                            // 申請に休憩時間がある場合はそれを差し引く
+                            const breakDuration = app.breakDuration || 0;
+                            const netDuration = Math.max(0, totalDuration - breakDuration);
+
                             // 30分単位に丸める
-                            const min = Math.floor(totalDuration / 30) * 30;
+                            let min = Math.floor(netDuration / 30) * 30;
                             if (min <= 0) return "-";
+
+                            // 遅刻ペナルティ判定: 遅刻時は30分削り（遅刻取消済みの場合は除外）
+                            const lateCancelled = item._application?.lateCancelled;
+                            const isLateForPenalty = (shiftCheck === "late" || shiftCheck === "both" || shiftCheck === "late_overtime") && !lateCancelled;
 
                             // 派遣ユーザーの場合は派遣/バイト分離表示
                             const isDispatch = shift?.isDispatch || shift?.location === "派遣" || ["朝", "早", "遅", "中"].includes(shift?.type || "");
@@ -1086,7 +1150,11 @@ export default function AdminAttendance() {
                                   dMin = Math.min(Math.max(0, end - start), 8 * 60);
                                 }
                               }
-                              const pMin = Math.max(0, min - dMin);
+                              let pMin = Math.max(0, min - dMin);
+                              // 派遣の遅刻ペナルティ: バイト分から30分削り
+                              if (isLateForPenalty) {
+                                pMin = Math.max(0, pMin - 30);
+                              }
                               const dH = Math.floor(dMin / 60);
                               const dM = (dMin % 60) >= 30 ? 5 : 0;
                               const pH = Math.floor(pMin / 60);
@@ -1121,6 +1189,11 @@ export default function AdminAttendance() {
                               );
                             }
 
+                            // 非派遣の遅刻ペナルティ: minから30分削り
+                            if (isLateForPenalty) {
+                              min = Math.max(0, min - 30);
+                              if (min <= 0) return "-";
+                            }
                             const h = Math.floor(min / 60);
                             const m = (min % 60) === 30 ? 5 : 0;
                             return `${h}.${m}H`;
@@ -1185,37 +1258,90 @@ export default function AdminAttendance() {
                                 </div>
                               );
                             }
+                            if (shiftCheck === "overtime") {
+                              return (
+                                <span style={{ color: "#2563eb", fontWeight: "bold", fontSize: "12px", display: "flex", alignItems: "center", gap: "4px" }}>
+                                  🕐 残業
+                                </span>
+                              );
+                            }
+                            if (shiftCheck === "late_overtime") {
+                              if (lateCancelled) {
+                                return (
+                                  <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                    <span style={{ color: "#6b7280", fontSize: "11px" }}>遅刻取消済</span>
+                                    <span style={{ color: "#2563eb", fontWeight: "bold", fontSize: "12px" }}>🕐 残業</span>
+                                  </div>
+                                );
+                              }
+                              return (
+                                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                                  <span style={{ color: "#f59e0b", fontWeight: "bold", fontSize: "12px" }}>⚠️ 遅刻+残業</span>
+                                  <button
+                                    onClick={() => openCancelModal(item, "late")}
+                                    style={{ fontSize: "10px", padding: "2px 6px", background: "#f3f4f6", border: "1px solid #d1d5db", borderRadius: "4px", cursor: "pointer" }}
+                                  >遅刻取消</button>
+                                </div>
+                              );
+                            }
                             if (!shiftCheck && item.clockIn && item.clockOut && !shift) {
                               return <span style={{ color: "#9ca3af", fontSize: "11px" }}>シフト未登録</span>;
                             }
                             return null;
                           })()}
                         </td>
-                        <td style={{ padding: "10px 8px", fontSize: "12px", color: "#374151", maxWidth: "120px" }}>
+                        <td style={{ padding: "10px 8px", fontSize: "12px", color: "#374151", maxWidth: "160px" }}>
                           {(() => {
                             const appReason = item._application?.reason;
-                            const comment = item._parsedHtmlComment;
                             if (!appReason || appReason === "-") {
                               return <span style={{ color: "#d1d5db" }}>-</span>;
                             }
+                            // 大枠のみ（括弧部分を除去）
+                            let mainReason = appReason;
+                            const parenIdx = appReason.indexOf('（');
+                            if (parenIdx > 0) mainReason = appReason.substring(0, parenIdx);
+                            const parenIdx2 = appReason.indexOf('(');
+                            if (parenIdx2 > 0 && parenIdx <= 0) mainReason = appReason.substring(0, parenIdx2).trim();
+
+                            // 詳細を取得
+                            const parts = [];
+                            const subR = item._application?.subReason;
+                            if (subR && subR !== '-') {
+                              if (subR === 'その他' && item._application?.subReasonText) {
+                                parts.push(item._application.subReasonText);
+                              } else {
+                                parts.push(subR);
+                              }
+                            }
+                            // 既存データ: reasonに括弧が含まれている場合
+                            if (parts.length === 0) {
+                              const match = appReason.match(/[（(](.+?)[）)]/);
+                              if (match) parts.push(match[1]);
+                            }
+                            // textフィールド
+                            const comment = item._parsedHtmlComment;
+                            if (comment && comment.trim() && !parts.includes(comment.trim())) {
+                              parts.push(comment.trim());
+                            }
+                            const detail = parts.join(' / ');
+
                             const itemKey = `${item.userId}-${item.workDate}`;
                             const isExpanded = expandedReasonId === itemKey;
                             return (
                               <div
-                                style={{ lineHeight: "1.3", cursor: comment ? "pointer" : "default" }}
-                                onClick={() => comment && setExpandedReasonId(isExpanded ? null : itemKey)}
+                                style={{ display: "flex", alignItems: "flex-start", gap: "6px", lineHeight: "1.3", cursor: detail ? "pointer" : "default" }}
+                                onClick={() => detail && setExpandedReasonId(isExpanded ? null : itemKey)}
                               >
-                                <div style={{ fontWeight: "bold", color: "#ef4444" }}>{appReason}</div>
-                                {comment && comment.trim() && (
-                                  <div style={{
-                                    color: "#6b7280", fontSize: "11px", marginTop: "2px",
+                                <span style={{ fontWeight: "bold", color: "#ef4444", flexShrink: 0 }}>{mainReason}</span>
+                                {detail && (
+                                  <span style={{
+                                    color: "#6b7280", fontSize: "11px",
                                     ...(isExpanded
                                       ? { whiteSpace: "pre-wrap", wordBreak: "break-word" }
-                                      : { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" })
+                                      : { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100px" })
                                   }}>
-                                    {comment}
-                                    {!isExpanded && <span style={{ color: "#3b82f6", marginLeft: "4px", fontSize: "10px" }}>▶詳細</span>}
-                                  </div>
+                                    {detail}
+                                  </span>
                                 )}
                               </div>
                             );
@@ -1223,8 +1349,8 @@ export default function AdminAttendance() {
                         </td>
                         <td style={{ fontSize: "13px", padding: "10px 8px" }}>
                           <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                            {/* 問題なし + 未申請 or 承認待ち → 即時承認ボタン */}
-                            {((shiftCheck === "ok" && isUnapplied) || rowAppStatus === "pending") && (
+                            {/* 承認ボタン（常時表示） */}
+                            {rowAppStatus !== "approved" && (
                               <button
                                 className="btn"
                                 onClick={() => handleApprove(item)}
@@ -1237,20 +1363,32 @@ export default function AdminAttendance() {
                                 <CheckCircle size={12} /> 承認
                               </button>
                             )}
-                            {/* 承認待ち or 承認済み → 再提出依頼ボタン */}
-                            {(rowAppStatus === "pending" || rowAppStatus === "approved") && (
+                            {rowAppStatus === "approved" && (
                               <button
                                 className="btn"
-                                onClick={() => { setResubmitTarget(item); setSelectedResubmitReason(""); setCustomResubmitReason(""); }}
+                                onClick={() => handleApprove(item)}
                                 style={{
                                   fontSize: "11px", padding: "4px 10px",
-                                  background: "#f59e0b", color: "#fff", border: "none", borderRadius: "4px",
-                                  cursor: "pointer", fontWeight: "bold"
+                                  background: "#d1fae5", color: "#065f46", border: "1px solid #6ee7b7", borderRadius: "4px",
+                                  cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", gap: "4px"
                                 }}
                               >
-                                再提出
+                                <CheckCircle size={12} /> 承認済
                               </button>
                             )}
+
+                            {/* 再提出依頼ボタン（常時表示） */}
+                            <button
+                              className="btn"
+                              onClick={() => { setResubmitTarget(item); setSelectedResubmitReason(""); setCustomResubmitReason(""); }}
+                              style={{
+                                fontSize: "11px", padding: "4px 10px",
+                                background: "#f59e0b", color: "#fff", border: "none", borderRadius: "4px",
+                                cursor: "pointer", fontWeight: "bold"
+                              }}
+                            >
+                              再提出
+                            </button>
                           </div>
                         </td>
                       </tr>
