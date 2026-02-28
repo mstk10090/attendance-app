@@ -439,7 +439,7 @@ export default function AttendanceRecord({ user: propUser }) {
     }
   };
 
-  // 退勤ボタン押下時：乖離チェック → 乖離あればモーダル、なければ即退勤
+  // 退勤ボタン押下時：乖離チェック → 「問題なし」の場合のみ即退勤、それ以外は全て申請モーダル表示
   const handleClockOut = async () => {
     if (!user || !activeItem) {
       alert("出勤していません");
@@ -451,7 +451,7 @@ export default function AttendanceRecord({ user: propUser }) {
     const shift = getShift(user.userName, lookupDate);
     const clockInTime = activeItem.clockIn;
 
-    // シフトがある場合に乖離チェック
+    // シフトがある場合：シフト通りかチェック
     if (shift && shift.start && shift.end && clockInTime) {
       const shiftStartMin = toMin(shift.start);
       const shiftEndMin = toMin(shift.end);
@@ -464,26 +464,42 @@ export default function AttendanceRecord({ user: propUser }) {
       const isClockInOk = clockInMin < shiftStartMin;
       const isClockOutOk = clockOutMin >= shiftEndMin && clockOutMin < shiftEndMin + 30;
       const isOnTime = isClockInOk && isClockOutOk;
-      if (!isOnTime) {
-        // 乖離モーダルを表示
-        setDiscrepancyInfo({
-          shiftStart: shift.start,
-          shiftEnd: shift.end,
-          clockIn: clockInTime,
-          clockOutTime: nowTime
-        });
-        setDiscrepancyReason("");
-        setDiscrepancySubReason("");
-        setDiscrepancySubReasonText("");
-        setDiscrepancyText("");
-        setDiscrepancyMode("clockOut");
-        setDiscrepancyModalOpen(true);
-        return; // モーダルでの入力を待つ
+
+      if (isOnTime) {
+        // 問題なし → 即退勤
+        await executeClockOut(nowTime);
+        return;
       }
+
+      // 乖離あり → モーダルを表示
+      setDiscrepancyInfo({
+        shiftStart: shift.start,
+        shiftEnd: shift.end,
+        clockIn: clockInTime,
+        clockOutTime: nowTime
+      });
+      setDiscrepancyReason("");
+      setDiscrepancySubReason("");
+      setDiscrepancySubReasonText("");
+      setDiscrepancyText("");
+      setDiscrepancyMode("clockOut");
+      setDiscrepancyModalOpen(true);
+      return;
     }
 
-    // 乖離なし or シフトなし → 従来通り処理
-    await executeClockOut(nowTime);
+    // シフトなし → 申請モーダルを表示（シフト未登録として理由入力を求める）
+    setDiscrepancyInfo({
+      shiftStart: null,
+      shiftEnd: null,
+      clockIn: clockInTime,
+      clockOutTime: nowTime
+    });
+    setDiscrepancyReason("");
+    setDiscrepancySubReason("");
+    setDiscrepancySubReasonText("");
+    setDiscrepancyText("");
+    setDiscrepancyMode("clockOut");
+    setDiscrepancyModalOpen(true);
   };
 
   // 実際の退勤処理（乖離なしの場合 or モーダル入力後に呼ばれる）
@@ -1496,13 +1512,26 @@ export default function AttendanceRecord({ user: propUser }) {
               background: "#fff", borderRadius: "16px", padding: "28px", width: "90%", maxWidth: "440px",
               boxShadow: "0 20px 60px rgba(0,0,0,0.3)"
             }}>
-              <h3 style={{ margin: "0 0 8px", fontSize: "1.1rem", color: "#1f2937" }}>⚠️ シフトとの乖離が検出されました</h3>
+              <h3 style={{ margin: "0 0 8px", fontSize: "1.1rem", color: "#1f2937" }}>
+                {discrepancyInfo.shiftStart ? "⚠️ シフトとの乖離が検出されました" : "📋 退勤申請"}
+              </h3>
               <p style={{ margin: "0 0 16px", fontSize: "0.85rem", color: "#6b7280" }}>
-                退勤前に乖離理由を入力してください。
+                {discrepancyInfo.shiftStart
+                  ? "退勤前に乖離理由を入力してください。"
+                  : "シフトが未登録のため、退勤時に理由を入力してください。"}
               </p>
-              <div style={{ background: "#fef3c7", borderRadius: "8px", padding: "12px", marginBottom: "16px", fontSize: "0.85rem" }}>
-                <div><strong>シフト:</strong> {discrepancyInfo.shiftStart} 〜 {discrepancyInfo.shiftEnd}</div>
-                <div><strong>実打刻:</strong> {discrepancyInfo.clockIn} 〜 {discrepancyInfo.clockOutTime}</div>
+              <div style={{ background: discrepancyInfo.shiftStart ? "#fef3c7" : "#e0e7ff", borderRadius: "8px", padding: "12px", marginBottom: "16px", fontSize: "0.85rem" }}>
+                {discrepancyInfo.shiftStart ? (
+                  <>
+                    <div><strong>シフト:</strong> {discrepancyInfo.shiftStart} 〜 {discrepancyInfo.shiftEnd}</div>
+                    <div><strong>実打刻:</strong> {discrepancyInfo.clockIn} 〜 {discrepancyInfo.clockOutTime}</div>
+                  </>
+                ) : (
+                  <>
+                    <div><strong>シフト:</strong> <span style={{ color: "#6366f1" }}>未登録</span></div>
+                    <div><strong>実打刻:</strong> {discrepancyInfo.clockIn} 〜 {discrepancyInfo.clockOutTime}</div>
+                  </>
+                )}
               </div>
 
               {/* 理由選択 */}
