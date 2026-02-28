@@ -1,5 +1,34 @@
 const SOURCES = [
     {
+        monthLabel: "2026-03",
+        year: 2026,
+        month: 3,
+        id: "1dVNnALFuubY1YTVVfVbGHO-I5USXtvy6ODSlru9w3SA",
+        sheets: [
+            {
+                name: "sokujitsu",
+                gid: "1824179107",
+                nameColIndex: 0,
+                dateRowIndex: 1,
+                dataStartRowIndex: 3,
+            },
+            {
+                name: "kaitori",
+                gid: "102139393",
+                nameColIndex: 1,
+                dateRowIndex: 2,
+                dataStartRowIndex: 4
+            },
+            {
+                name: "haken",
+                gid: "841582142",
+                nameColIndex: 0,
+                dateRowIndex: 0,
+                dataStartRowIndex: 2
+            }
+        ]
+    },
+    {
         monthLabel: "2026-02",
         year: 2026,
         month: 2,
@@ -390,7 +419,9 @@ export function parseCsv(csvText, config, year, month, shifts, locationName, spe
 
                 const newShift = {
                     start: isOff ? "" : normalizeTime(start),
-                    end: isOff ? "" : normalizeTime(end),
+                    // 派遣シフト（特殊コード）でバイトがまだマージされていない場合、
+                    // endはdispatchEnd（派遣終了時刻）を使用。バイトマージ時に正しいendに更新される
+                    end: isOff ? "" : (dispatchRange && !partTimeRange ? dispatchRange.end : normalizeTime(end)),
                     original: isSplit ? `${val1} ${row[colIdx + 1] || ""}` : val1,
                     location: locationName,
                     isOff: isOff,
@@ -408,9 +439,8 @@ export function parseCsv(csvText, config, year, month, shifts, locationName, spe
                     } else if (!existing.isOff && newShift.isOff) {
                         // Keep Work (ignore Off)
                     } else if (!existing.isOff && !newShift.isOff) {
-                        // Both Work: Extend Range and preserve dispatch/partTime ranges
+                        // Both Work: Merge dispatch and parttime ranges
                         const mergedStart = (existing.start < newShift.start) ? existing.start : newShift.start;
-                        const mergedEnd = (existing.end > newShift.end) ? existing.end : newShift.end;
                         const mergedLoc = existing.location === newShift.location ? existing.location : `${existing.location}・${newShift.location}`;
 
                         // Merge dispatchRange: 既存または新規の派遣区間を保持
@@ -432,6 +462,25 @@ export function parseCsv(csvText, config, year, month, shifts, locationName, spe
                                 start: existing.partTimeRange.start < newShift.partTimeRange.start ? existing.partTimeRange.start : newShift.partTimeRange.start,
                                 end: existing.partTimeRange.end > newShift.partTimeRange.end ? existing.partTimeRange.end : newShift.partTimeRange.end
                             };
+                        }
+
+                        // 全体のendを正しく計算：
+                        // 派遣+バイトがマージされた場合、endはバイトのend（バイトが後に来る）
+                        // 派遣のみの場合はdispatchEndを使うべきだが、SPECIAL_SHIFTSの固定endではなく
+                        // 実際の各区間のendの最大値を使う
+                        let mergedEnd;
+                        if (mergedDispatchRange && mergedPartTimeRange) {
+                            // 派遣+バイト: バイトが後なのでバイトのendが全体の終了
+                            mergedEnd = mergedPartTimeRange.end > mergedDispatchRange.end
+                                ? mergedPartTimeRange.end : mergedDispatchRange.end;
+                        } else if (mergedDispatchRange) {
+                            // 派遣のみ: dispatchRangeのendを使用
+                            mergedEnd = mergedDispatchRange.end;
+                        } else if (mergedPartTimeRange) {
+                            // バイトのみ: partTimeRangeのendを使用
+                            mergedEnd = mergedPartTimeRange.end;
+                        } else {
+                            mergedEnd = (existing.end > newShift.end) ? existing.end : newShift.end;
                         }
 
                         shifts[name][dateKey] = {
