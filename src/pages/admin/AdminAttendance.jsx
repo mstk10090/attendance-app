@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addDays, addMonths, subMonths, startOfYear, endOfYear, isSaturday, isSunday } from "date-fns";
 import { ja } from "date-fns/locale";
-import { Search, Filter, AlertTriangle, CheckCircle, Clock, MapPin, Download, Save, X, Briefcase, FileText, Send, PieChart, BarChart, ClipboardCheck } from "lucide-react";
+import { Search, Filter, AlertTriangle, CheckCircle, XCircle, Clock, MapPin, Download, Save, X, Briefcase, FileText, Send, PieChart, BarChart, ClipboardCheck } from "lucide-react";
 import "../../App.css";
 import { LOCATIONS, DEPARTMENTS, EMPLOYMENT_TYPES, HOLIDAYS } from "../../constants";
 import { fetchShiftData, normalizeName } from "../../utils/shiftParser";
@@ -210,9 +210,24 @@ export default function AdminAttendance() {
 
   // Filter States
   const [filterName, setFilterName] = useState("");
-  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterStatus, setFilterStatus] = useState(new Set());
+  const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+  const statusDropdownRef = React.useRef(null);
   const [filterLocation, setFilterLocation] = useState("all");
   const [filterDepartment, setFilterDepartment] = useState("all");
+
+  // 外クリックでステータスドロップダウンを閉じる
+  React.useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target)) {
+        setShowStatusDropdown(false);
+      }
+    };
+    if (showStatusDropdown) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showStatusDropdown]);
 
   const [editingItem, setEditingItem] = useState(null);
   const [resubmitReason, setResubmitReason] = useState("");
@@ -365,6 +380,43 @@ export default function AdminAttendance() {
         return a.userId.localeCompare(b.userId);
       });
 
+      // シフト予定者の仮レコード追加（出勤前でもシフトがあれば表示）
+      if (shiftMap && Object.keys(shiftMap).length > 0) {
+        const existingKeys = new Set(processedItems.map(i => `${normalizeName(i.userName)}_${i.workDate}`));
+        for (const day of days) {
+          const dateStr = format(day, "yyyy-MM-dd");
+          for (const shiftUserName of Object.keys(shiftMap)) {
+            const shiftData = shiftMap[shiftUserName]?.[dateStr];
+            if (!shiftData || shiftData.isOff) continue;
+            const normalizedShiftName = normalizeName(shiftUserName);
+            if (existingKeys.has(`${normalizedShiftName}_${dateStr}`)) continue;
+            // ユーザー情報をusersから検索
+            const matchedUser = users.find(u => normalizeName((u.lastName || "") + (u.firstName || "")) === normalizedShiftName);
+            processedItems.push({
+              userId: matchedUser?.userId || `shift_${shiftUserName}_${dateStr}`,
+              userName: shiftUserName,
+              workDate: dateStr,
+              clockIn: "",
+              clockOut: "",
+              breaks: [],
+              comment: "",
+              location: shiftData.location || "",
+              department: matchedUser?.department || "",
+              segments: [],
+              _parsedHtmlComment: "",
+              _application: null,
+              _shiftOnly: true // シフトのみフラグ
+            });
+            existingKeys.add(`${normalizedShiftName}_${dateStr}`);
+          }
+        }
+        // 再ソート
+        processedItems.sort((a, b) => {
+          if (a.workDate !== b.workDate) return a.workDate.localeCompare(b.workDate);
+          return (a.userName || "").localeCompare(b.userName || "");
+        });
+      }
+
       setItems(processedItems);
     } catch (e) {
       console.error(e);
@@ -377,6 +429,36 @@ export default function AdminAttendance() {
   useEffect(() => {
     fetchAttendances();
   }, [fetchRange.start, fetchRange.end]);
+
+  // shiftMapがロードされたらシフト予定者を追加するために再取得
+  useEffect(() => {
+    if (shiftMap && Object.keys(shiftMap).length > 0) {
+      fetchAttendances();
+    }
+  }, [shiftMap]);
+
+  // アイテムのステータスカテゴリを返す
+  const getItemCategory = (item) => {
+    const appStatus = item._application?.status;
+    const isToday = item.workDate === format(new Date(), "yyyy-MM-dd");
+    if (appStatus === "pending") return "pending";
+    if (appStatus === "approved") return "approved";
+    if (appStatus === "resubmission_requested") return "resubmission";
+    if (appStatus === "absent") return "absent";
+    if (item.clockIn && item.clockOut) {
+      if (toMin(item.clockIn) > toMin(item.clockOut)) return "error";
+      if (calcWorkMin(item) <= 0) return "error";
+    }
+    if (item.clockIn && !item.clockOut && !isToday) return "incomplete";
+    if (item.clockIn && !item.clockOut && isToday) return "working";
+    if (hasNightWork(item)) return "night";
+    const app = item._application || {};
+    if (app.reason && (app.reason === "寝坊" || app.reason.includes("早退"))) return "discrepancy";
+    if (item.clockIn && app.appliedIn && toMin(item.clockIn) > toMin(app.appliedIn)) return "discrepancy";
+    if (item.clockOut && app.appliedOut && toMin(item.clockOut) < toMin(app.appliedOut)) return "discrepancy";
+    if (!item.clockIn) return "noshift";
+    return "other";
+  };
 
   /* Filtering Logic */
   const filteredItems = useMemo(() => {
@@ -397,45 +479,11 @@ export default function AdminAttendance() {
         if (!hasDept) return false;
       }
 
-      const appStatus = item._application?.status;
-
-      if (filterStatus === "incomplete") {
-        const isToday = item.workDate === format(new Date(), "yyyy-MM-dd");
-        if (item.clockIn && !item.clockOut && !isToday) return true;
-        return false;
+      // Set-based filter: empty = all, otherwise check category
+      if (filterStatus.size > 0) {
+        const cat = getItemCategory(item);
+        if (!filterStatus.has(cat)) return false;
       }
-      if (filterStatus === "unapplied") {
-        // Clocked In (and maybe Out) but NO status
-        return item.clockIn && !appStatus;
-      }
-      if (filterStatus === "approved") return appStatus === "approved";
-
-      if (filterStatus === "discrepancy") {
-        // Late or Early check
-        // If application exists, compare appliedIn/Out vs clockIn/Out
-        // OR check if reason contains "寝坊" or "早退"
-        const app = item._application || {};
-        if (app.reason && (app.reason === "寝坊" || app.reason.includes("早退"))) return true;
-
-        // Also check raw time diff if reason missing?
-        // Using same logic as AttendanceRecord:
-        // Late: clockIn > appliedIn
-        // Early: clockOut < appliedOut
-        if (item.clockIn && app.appliedIn && toMin(item.clockIn) > toMin(app.appliedIn)) return true;
-        if (item.clockOut && app.appliedOut && toMin(item.clockOut) < toMin(app.appliedOut)) return true;
-
-        return false;
-      }
-
-      if (filterStatus === "error") {
-        if (item.clockIn && item.clockOut && toMin(item.clockIn) > toMin(item.clockOut)) return true;
-        const work = calcWorkMin(item);
-        if (item.clockIn && item.clockOut && work <= 0) return true;
-        return false;
-      }
-      if (filterStatus === "night") return hasNightWork(item);
-      if (filterStatus === "pending") return appStatus === "pending";
-      if (filterStatus === "resubmission") return appStatus === "resubmission_requested";
 
       return true;
     });
@@ -812,19 +860,45 @@ export default function AdminAttendance() {
               />
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            <div ref={statusDropdownRef} style={{ position: "relative", display: "flex", alignItems: "center", gap: "4px" }}>
               <Filter size={16} color="#6b7280" />
-              <select className="input" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-                <option value="all">全ステータス</option>
-                <option value="unapplied">⚠️ 未申請</option>
-                <option value="pending">⏳ 承認待ち</option>
-                <option value="approved">✅ 承認済み</option>
-                <option value="incomplete">🚫 未退勤 (打刻忘れ)</option>
-                <option value="discrepancy">🕒 勤怠時間ずれ</option>
-                <option value="resubmission">↩️ 再提出依頼中</option>
-                <option value="error">❌ 時間異常</option>
-                <option value="night">🌙 深夜勤務あり</option>
-              </select>
+              <button
+                className="input"
+                onClick={() => setShowStatusDropdown(!showStatusDropdown)}
+                style={{ cursor: "pointer", textAlign: "left", minWidth: "130px", background: "#fff", border: "1px solid #d1d5db", borderRadius: "6px", padding: "6px 10px", fontSize: "0.85rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "220px" }}
+              >
+                {(() => {
+                  if (filterStatus.size === 0) return "全ステータス ▼";
+                  const labels = { pending: "承認待ち", approved: "承認済み", working: "勤務中", incomplete: "未退勤", discrepancy: "時間ずれ", resubmission: "再提出", error: "時間異常", night: "深夜勤務", noshift: "未出勤" };
+                  const selected = [...filterStatus].map(k => labels[k] || k);
+                  return selected.join(", ") + " ▼";
+                })()}
+              </button>
+              {showStatusDropdown && (
+                <div style={{
+                  position: "absolute", top: "100%", left: 0, zIndex: 1000,
+                  background: "#fff", border: "1px solid #d1d5db", borderRadius: "8px",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.1)", minWidth: "180px", padding: "8px 0"
+                }}>
+                  {[{ key: "pending", label: "承認待ち" }, { key: "approved", label: "承認済み" }, { key: "working", label: "勤務中" }, { key: "incomplete", label: "未退勤" }, { key: "discrepancy", label: "時間ずれ" }, { key: "resubmission", label: "再提出" }, { key: "error", label: "時間異常" }, { key: "night", label: "深夜勤務" }, { key: "noshift", label: "未出勤" }].map(opt => (
+                    <label key={opt.key} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "6px 12px", cursor: "pointer", fontSize: "0.85rem" }}
+                      onMouseOver={e => e.currentTarget.style.background = '#f3f4f6'}
+                      onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
+                      <input type="checkbox" checked={filterStatus.has(opt.key)} onChange={() => {
+                        setFilterStatus(prev => {
+                          const next = new Set(prev);
+                          if (next.has(opt.key)) next.delete(opt.key); else next.add(opt.key);
+                          return next;
+                        });
+                      }} />
+                      {opt.label}
+                    </label>
+                  ))}
+                  <div style={{ borderTop: "1px solid #e5e7eb", marginTop: "4px", paddingTop: "4px" }}>
+                    <button onClick={() => setFilterStatus(new Set())} style={{ width: "100%", padding: "6px", background: "none", border: "none", color: "#6b7280", cursor: "pointer", fontSize: "0.8rem" }}>クリア</button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
@@ -1020,8 +1094,11 @@ export default function AdminAttendance() {
                       else shiftCheck = "ok";
                     }
 
+                    const isShiftOnly = item._shiftOnly && !item.clockIn;
+
                     let bg = "#fff";
-                    if (rowAppStatus === "approved") bg = "#ecfdf5"; // Green
+                    if (isShiftOnly) bg = "#fef2f2"; // Red (未出勤)
+                    else if (rowAppStatus === "approved") bg = "#d1fae5"; // Stronger green for approved
                     else if (rowAppStatus === "pending") bg = "#fff7ed"; // Orange
                     else if (rowAppStatus === "resubmission_requested") bg = "#fcf4ff"; // Purple
                     else if (isIncomplete) bg = "#fee2e2"; // Red (Forgot Clockout)
@@ -1079,6 +1156,7 @@ export default function AdminAttendance() {
                             const app = item._application;
                             if (app?.appliedIn && app?.appliedOut) {
                               const breakDur = app.breakDuration || 0;
+                              const adminEdited = app?.adminEdited;
                               return (
                                 <>
                                   <span style={{ fontFamily: "monospace", color: "#2563eb" }}>
@@ -1089,6 +1167,9 @@ export default function AdminAttendance() {
                                       休憩{breakDur >= 60 ? `${Math.floor(breakDur / 60)}h` : ''}{breakDur % 60 > 0 ? `${breakDur % 60}m` : ''}
                                     </div>
                                   )}
+                                  {adminEdited && (
+                                    <div style={{ fontSize: "9px", color: "#f59e0b", fontWeight: "bold" }}>✏️ 管理者編集</div>
+                                  )}
                                 </>
                               );
                             }
@@ -1096,12 +1177,13 @@ export default function AdminAttendance() {
                           })()}
                         </td>
                         <td style={{ padding: "10px 8px" }}>
-                          {isWorking && <span className="status-badge green" style={{ background: "#dcfce7", color: "#166534", border: "1px solid #bbf7d0", fontSize: "11px" }}>出勤中</span>}
-                          {isIncomplete && <span className="status-badge red" style={{ fontSize: "11px" }}>未退勤</span>}
-                          {rowAppStatus === "pending" && <span className="status-badge orange" style={{ fontSize: "11px" }}>承認待</span>}
-                          {rowAppStatus === "approved" && <span className="status-badge green" style={{ fontSize: "11px" }}>済</span>}
-                          {rowAppStatus === "resubmission_requested" && <span className="status-badge purple" style={{ fontSize: "11px" }}>再提出</span>}
-                          {isUnapplied && !isWorking && !isIncomplete && <span className="status-badge gray" style={{ fontSize: "11px" }}>未申請</span>}
+                          {isShiftOnly && <span className="status-badge" style={{ background: "#fee2e2", color: "#991b1b", border: "1px solid #fca5a5", fontSize: "11px", fontWeight: "bold" }}>未出勤</span>}
+                          {!isShiftOnly && isWorking && <span className="status-badge green" style={{ background: "#dcfce7", color: "#166534", border: "1px solid #bbf7d0", fontSize: "11px" }}>出勤中</span>}
+                          {!isShiftOnly && isIncomplete && <span className="status-badge red" style={{ fontSize: "11px" }}>未退勤</span>}
+                          {!isShiftOnly && rowAppStatus === "pending" && <span className="status-badge orange" style={{ fontSize: "11px" }}>承認待</span>}
+                          {!isShiftOnly && rowAppStatus === "approved" && <span className="status-badge" style={{ background: "#059669", color: "#fff", fontSize: "11px", fontWeight: "bold", padding: "3px 8px" }}>✅ 承認済{item._application?.adminEdited && <span style={{ fontSize: "9px", opacity: 0.8 }}> (管理者)</span>}</span>}
+                          {!isShiftOnly && rowAppStatus === "resubmission_requested" && <span className="status-badge purple" style={{ fontSize: "11px" }}>再提出</span>}
+                          {!isShiftOnly && isUnapplied && !isWorking && !isIncomplete && <span className="status-badge gray" style={{ fontSize: "11px" }}>未申請</span>}
                         </td>
                         <td style={{ padding: "10px 8px", fontSize: "14px", fontFamily: "monospace", fontWeight: "bold" }}>
                           {(() => {
@@ -1349,46 +1431,101 @@ export default function AdminAttendance() {
                         </td>
                         <td style={{ fontSize: "13px", padding: "10px 8px" }}>
                           <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                            {/* 承認ボタン（常時表示） */}
-                            {rowAppStatus !== "approved" && (
-                              <button
-                                className="btn"
-                                onClick={() => handleApprove(item)}
-                                style={{
-                                  fontSize: "11px", padding: "4px 10px",
-                                  background: "#10b981", color: "#fff", border: "none", borderRadius: "4px",
-                                  cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", gap: "4px"
-                                }}
-                              >
-                                <CheckCircle size={12} /> 承認
-                              </button>
-                            )}
+                            {/* 承認済み → 承認取消のみ */}
                             {rowAppStatus === "approved" && (
                               <button
                                 className="btn"
-                                onClick={() => handleApprove(item)}
+                                onClick={async () => {
+                                  if (!await showConfirm(`${item.userName}さんの承認を取り消しますか？`)) return;
+                                  try {
+                                    const p = parseComment(item.comment);
+                                    const app = p.application || {};
+                                    const newApp = { ...app, status: "pending", approvedAt: null };
+                                    const finalComment = JSON.stringify({ segments: p.segments, text: p.text, application: newApp });
+                                    await fetch(`${API_BASE}/attendance/update`, {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ userId: item.userId, workDate: item.workDate, comment: finalComment })
+                                    });
+                                    fetchAttendances();
+                                  } catch (e) { console.error(e); alert("承認取消に失敗しました"); }
+                                }}
                                 style={{
                                   fontSize: "11px", padding: "4px 10px",
-                                  background: "#d1fae5", color: "#065f46", border: "1px solid #6ee7b7", borderRadius: "4px",
+                                  background: "#fee2e2", color: "#991b1b", border: "1px solid #fca5a5", borderRadius: "4px",
                                   cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", gap: "4px"
                                 }}
                               >
-                                <CheckCircle size={12} /> 承認済
+                                <XCircle size={12} /> 承認取消
                               </button>
                             )}
 
-                            {/* 再提出依頼ボタン（常時表示） */}
-                            <button
-                              className="btn"
-                              onClick={() => { setResubmitTarget(item); setSelectedResubmitReason(""); setCustomResubmitReason(""); }}
-                              style={{
-                                fontSize: "11px", padding: "4px 10px",
-                                background: "#f59e0b", color: "#fff", border: "none", borderRadius: "4px",
-                                cursor: "pointer", fontWeight: "bold"
-                              }}
-                            >
-                              再提出
-                            </button>
+                            {/* 未承認（clockInあり）→ 承認 + 修正 + 再提出 */}
+                            {!isShiftOnly && rowAppStatus !== "approved" && (
+                              <>
+                                <button
+                                  className="btn"
+                                  onClick={() => handleApprove(item)}
+                                  style={{
+                                    fontSize: "11px", padding: "4px 10px",
+                                    background: "#10b981", color: "#fff", border: "none", borderRadius: "4px",
+                                    cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", gap: "4px"
+                                  }}
+                                >
+                                  <CheckCircle size={12} /> 承認
+                                </button>
+                                <button
+                                  className="btn"
+                                  onClick={() => openEdit(item)}
+                                  style={{
+                                    fontSize: "11px", padding: "4px 10px",
+                                    background: "#3b82f6", color: "#fff", border: "none", borderRadius: "4px",
+                                    cursor: "pointer", fontWeight: "bold"
+                                  }}
+                                >
+                                  修正
+                                </button>
+                                <button
+                                  className="btn"
+                                  onClick={() => { setResubmitTarget(item); setSelectedResubmitReason(""); setCustomResubmitReason(""); }}
+                                  style={{
+                                    fontSize: "11px", padding: "4px 10px",
+                                    background: "#f59e0b", color: "#fff", border: "none", borderRadius: "4px",
+                                    cursor: "pointer", fontWeight: "bold"
+                                  }}
+                                >
+                                  再提出
+                                </button>
+                              </>
+                            )}
+
+                            {/* 未出勤 → 修正 + 欠勤登録 */}
+                            {isShiftOnly && (
+                              <>
+                                <button
+                                  className="btn"
+                                  onClick={() => openEdit(item)}
+                                  style={{
+                                    fontSize: "11px", padding: "4px 10px",
+                                    background: "#3b82f6", color: "#fff", border: "none", borderRadius: "4px",
+                                    cursor: "pointer", fontWeight: "bold"
+                                  }}
+                                >
+                                  修正
+                                </button>
+                                <button
+                                  className="btn"
+                                  onClick={() => handleMarkAbsent(item.userId, item.userName, item.workDate)}
+                                  style={{
+                                    fontSize: "11px", padding: "4px 10px",
+                                    background: "#6b7280", color: "#fff", border: "none", borderRadius: "4px",
+                                    cursor: "pointer", fontWeight: "bold"
+                                  }}
+                                >
+                                  欠勤登録
+                                </button>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1513,6 +1650,96 @@ export default function AdminAttendance() {
                   </button>
                 </div>
               )}
+
+              {/* 管理者による申請時間の編集 */}
+              <div style={{ marginBottom: "20px", padding: "20px", background: "#fff", border: "1px solid #3b82f6", borderRadius: "8px" }}>
+                <h4 style={{ margin: "0 0 12px 0", fontSize: "1rem", color: "#1d4ed8", display: "flex", alignItems: "center", gap: "6px" }}>
+                  ✏️ 申請時間の編集 (管理者)
+                </h4>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px", marginBottom: "12px" }}>
+                  <div>
+                    <label style={{ fontSize: "12px", color: "#6b7280", display: "block", marginBottom: "4px" }}>出勤時間</label>
+                    <input
+                      type="time"
+                      id="adminEditIn"
+                      defaultValue={editingItem._application?.appliedIn || editingItem.clockIn || ""}
+                      className="input"
+                      style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "6px" }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: "12px", color: "#6b7280", display: "block", marginBottom: "4px" }}>退勤時間</label>
+                    <input
+                      type="time"
+                      id="adminEditOut"
+                      defaultValue={editingItem._application?.appliedOut || editingItem.clockOut || ""}
+                      className="input"
+                      style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "6px" }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: "12px", color: "#6b7280", display: "block", marginBottom: "4px" }}>休憩(分)</label>
+                    <input
+                      type="number"
+                      id="adminEditBreak"
+                      defaultValue={editingItem._application?.breakDuration || 0}
+                      min="0"
+                      step="30"
+                      className="input"
+                      style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "6px" }}
+                    />
+                  </div>
+                </div>
+                <button
+                  className="btn"
+                  onClick={async () => {
+                    const newIn = document.getElementById("adminEditIn").value;
+                    const newOut = document.getElementById("adminEditOut").value;
+                    const newBreak = parseInt(document.getElementById("adminEditBreak").value) || 0;
+                    if (!newIn || !newOut) { alert("出勤・退勤時間を入力してください"); return; }
+                    if (!await showConfirm(`申請時間を管理者が編集します。\n出勤: ${newIn}\n退勤: ${newOut}\n休憩: ${newBreak}分\n\nよろしいですか？`)) return;
+                    setLoading(true);
+                    try {
+                      const p = parseComment(editingItem.comment);
+                      const existingApp = p.application || {};
+                      const newApp = {
+                        ...existingApp,
+                        appliedIn: newIn,
+                        appliedOut: newOut,
+                        breakDuration: newBreak,
+                        adminEdited: true,
+                        adminEditedAt: new Date().toISOString(),
+                        status: existingApp.status || "pending",
+                        reason: existingApp.reason || "-",
+                        appliedAt: existingApp.appliedAt || new Date().toISOString()
+                      };
+                      const finalComment = JSON.stringify({ segments: p.segments, text: p.text, application: newApp });
+                      await fetch(`${API_BASE}/attendance/update`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          userId: editingItem.userId,
+                          workDate: editingItem.workDate,
+                          clockIn: editingItem.clockIn,
+                          clockOut: editingItem.clockOut,
+                          breaks: editingItem.breaks || [],
+                          comment: finalComment
+                        })
+                      });
+                      setEditingItem(null);
+                      fetchAttendances();
+                    } catch (e) { console.error(e); alert("保存に失敗しました"); }
+                    finally { setLoading(false); }
+                  }}
+                  style={{
+                    width: "100%", padding: "10px", fontSize: "0.95rem", fontWeight: "bold",
+                    background: "#3b82f6", color: "#fff", border: "none", borderRadius: "6px",
+                    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px"
+                  }}
+                >
+                  <Save size={16} /> 申請時間を保存
+                </button>
+              </div>
 
               <div style={{ marginTop: "20px", padding: "20px", background: "#fff", border: "1px solid #e5e7eb", borderRadius: "8px" }}>
                 <h4 style={{ margin: "0 0 8px 0", fontSize: "1rem", color: "#374151" }}>再提出依頼 (修正願い)</h4>

@@ -220,8 +220,10 @@ export default function AttendanceRecord({ user: propUser }) {
   // Multi-Shift Support
   const todayStr = format(new Date(), "yyyy-MM-dd");
   const todayItems = items.filter(i => i.workDate.startsWith(todayStr));
-  // 日付を跨いだ場合も前日のレコードから未退勤を検出できるよう、全itemsから検索
-  const activeItem = items.find(i => i.clockIn && !i.clockOut) || null;
+  // 当日のレコードのみから未退勤アイテムを検索（過去の未退勤レコードに反応しないように）
+  const activeItem = todayItems.find(i => i.clockIn && !i.clockOut) || null;
+  // 退勤済みかどうか（退勤したらその日はもう出勤できない）
+  const hasClockedOut = todayItems.some(i => i.clockIn && i.clockOut);
   const displayItem = activeItem || (todayItems.length > 0 ? todayItems[todayItems.length - 1] : null);
 
   const todayShift = useMemo(() => user ? getShift(user.userName, todayStr) : null, [user, shiftMap, todayStr]);
@@ -447,6 +449,26 @@ export default function AttendanceRecord({ user: propUser }) {
       return;
     }
 
+    // 休憩中の場合は自動的に休憩を終了
+    if (isOnBreak) {
+      try {
+        await fetch(ENDPOINTS.breakEnd, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: user.userId, workDate: activeItem.workDate }),
+        });
+        // ローカルのbreaksも更新
+        const newItems = [...items];
+        const idx = newItems.findIndex(i => i.workDate === activeItem.workDate);
+        if (idx >= 0 && newItems[idx].breaks?.length > 0) {
+          newItems[idx].breaks[newItems[idx].breaks.length - 1].end = format(new Date(), "HH:mm");
+          setItems(newItems);
+        }
+      } catch (e) {
+        console.error("休憩終了エラー:", e);
+      }
+    }
+
     const nowTime = format(new Date(), "HH:mm");
     const lookupDate = activeItem.displayDate || activeItem.workDate;
     const shift = getShift(user.userName, lookupDate);
@@ -614,6 +636,41 @@ export default function AttendanceRecord({ user: propUser }) {
             }),
           });
           newItems[idx].comment = JSON.stringify(updatedComment);
+        } else {
+          // シフトなし or その他 → 打刻時間を30分丸めで自動承認待ちにする（未申請を残さない）
+          const existingComment = parseComment(newItems[idx].comment);
+          if (!existingComment.application || !existingComment.application.status) {
+            const clockInRounded = roundTimeToHalfHour(clockInTime, "ceil");
+            const clockOutRounded = roundTimeToHalfHour(clockOutTime, "floor");
+            const updatedComment = {
+              segments: existingComment.segments || [],
+              text: existingComment.text || "",
+              application: {
+                status: "pending",
+                reason: "シフトなし",
+                appliedIn: clockInRounded,
+                appliedOut: clockOutRounded,
+                submittedAt: new Date().toISOString(),
+                autoApplied: true
+              }
+            };
+
+            await fetch(ENDPOINTS.update, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                userId: user.userId,
+                workDate: activeItem.workDate,
+                clockIn: newItems[idx].clockIn,
+                clockOut: clockOutTime,
+                breaks: newItems[idx].breaks || [],
+                comment: JSON.stringify(updatedComment),
+                location: newItems[idx].location || "",
+                department: newItems[idx].department || ""
+              }),
+            });
+            newItems[idx].comment = JSON.stringify(updatedComment);
+          }
         }
       }
       setItems(newItems);
@@ -1299,11 +1356,23 @@ export default function AttendanceRecord({ user: propUser }) {
     return false;
   }).length;
 
-  // 再提出依頼のカウント
-  const resubmissionCount = items.filter(i => {
+  // 再提出依頼のカウントと日付リスト
+  const resubmissionItems = items.filter(i => {
     const p = parseComment(i.comment);
     return p.application?.status === "resubmission_requested";
-  }).length;
+  });
+  const resubmissionCount = resubmissionItems.length;
+  const resubmissionDates = resubmissionItems.map(i => {
+    const workDate = i.displayDate || i.workDate;
+    const d = new Date(workDate);
+    const dayNames = ["日", "月", "火", "水", "木", "金", "土"];
+    const p = parseComment(i.comment);
+    const adminComment = p.application?.adminComment || "";
+    return {
+      label: `${d.getMonth() + 1}/${d.getDate()}(${dayNames[d.getDay()]})`,
+      adminComment
+    };
+  });
 
   // 未退勤の日付リスト（今月・出勤しているが退勤していない、本日を除く）
   const currentMonth = format(currentDate, "yyyy-MM");
@@ -1450,16 +1519,16 @@ export default function AttendanceRecord({ user: propUser }) {
           {/* Clock In */}
           <button
             onClick={handleClockIn}
-            disabled={loading || activeItem || (items.find(i => i.workDate === format(new Date(), "yyyy-MM-dd"))?.clockIn)} // Disable if already clocked in today (finished or not)
+            disabled={loading || !!activeItem || hasClockedOut}
             style={{
               width: "160px", height: "64px",
               borderRadius: "8px", border: "none",
-              background: (activeItem || items.find(i => i.workDate === format(new Date(), "yyyy-MM-dd"))?.clockIn) ? "#d1d5db" : "#22c55e",
+              background: (activeItem || hasClockedOut) ? "#d1d5db" : "#22c55e",
               color: "#fff",
               fontSize: "1.1rem", fontWeight: "bold",
-              cursor: (activeItem || items.find(i => i.workDate === format(new Date(), "yyyy-MM-dd"))?.clockIn) ? "default" : "pointer",
+              cursor: (activeItem || hasClockedOut) ? "default" : "pointer",
               display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
-              boxShadow: (activeItem || items.find(i => i.workDate === format(new Date(), "yyyy-MM-dd"))?.clockIn) ? "none" : "0 4px 6px rgba(34,197,94,0.3)"
+              boxShadow: (activeItem || hasClockedOut) ? "none" : "0 4px 6px rgba(34,197,94,0.3)"
             }}
           >
             <LogIn size={20} /> 出勤
@@ -1652,9 +1721,22 @@ export default function AttendanceRecord({ user: propUser }) {
         </div>
 
         {resubmissionCount > 0 && (
-          <div style={{ background: "#faf5ff", color: "#7c3aed", padding: "12px 16px", borderRadius: "8px", marginBottom: "8px", display: "flex", alignItems: "center", gap: "8px", fontSize: "0.9rem", border: "1px solid #e9d5ff" }}>
-            <AlertCircle size={18} />
-            <span>⚠️ <strong>再提出依頼: {resubmissionCount}件</strong> があります。管理者からのコメントを確認して再度申請してください。</span>
+          <div style={{ background: "#faf5ff", color: "#7c3aed", padding: "12px 16px", borderRadius: "8px", marginBottom: "8px", border: "1px solid #e9d5ff" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.9rem", marginBottom: "8px" }}>
+              <AlertCircle size={18} />
+              <span>⚠️ <strong>再提出依頼: {resubmissionCount}件</strong></span>
+            </div>
+            <div style={{ marginLeft: "26px", fontSize: "0.85rem" }}>
+              {resubmissionDates.map((rd, idx) => (
+                <div key={idx} style={{ marginBottom: "4px", padding: "4px 8px", background: "#f3e8ff", borderRadius: "4px" }}>
+                  <strong>{rd.label}</strong>
+                  {rd.adminComment && <span style={{ marginLeft: "8px", color: "#6b21a8" }}>— {rd.adminComment}</span>}
+                </div>
+              ))}
+              <div style={{ marginTop: "6px", fontSize: "0.8rem", color: "#9333ea" }}>
+                上記の日付の勤怠履歴から再申請してください。
+              </div>
+            </div>
           </div>
         )}
 
@@ -1976,20 +2058,7 @@ export default function AttendanceRecord({ user: propUser }) {
                 </div>
               )}
 
-              {/* 残業: 理由入力 */}
-              {reason === "残業" && (
-                <div style={{ background: "#fff7ed", padding: "12px", borderRadius: "8px", border: "1px solid #fed7aa", marginBottom: "12px" }}>
-                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "bold", color: "#c2410c", marginBottom: "6px" }}>
-                    残業理由
-                  </label>
-                  <textarea
-                    placeholder="残業理由を入力してください"
-                    value={formText}
-                    onChange={e => setFormText(e.target.value)}
-                    style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.9rem", minHeight: "60px", boxSizing: "border-box" }}
-                  />
-                </div>
-              )}
+              {/* 残業: サブ理由選択後に補足入力（サブ理由セクションで処理） */}
 
               {/* 打刻間違い: 詳細入力 */}
               {reason === "打刻間違い" && (

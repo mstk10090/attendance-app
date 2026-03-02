@@ -25,125 +25,153 @@ export default function Login({ onLogin }) {
     setMessage("");
     setLoading(true);
 
-    try {
-      const payload = { loginId, password };
-      console.log("LOGIN payload:", payload);
+    const MAX_RETRIES = 3;
+    const TIMEOUT_MS = 8000;
 
-      const res = await fetch(LOGIN_API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const payload = { loginId, password };
+        console.log(`LOGIN attempt ${attempt}/${MAX_RETRIES}:`, payload);
 
-      const text = await res.text();
-      console.log("LOGIN raw:", text);
-
-      let statusCode = res.status;
-      let data = null;
-
-      // 1. outer をパース
-      const outer = safeJsonParse(text);
-
-      // 2. API Gateway 形式 { statusCode, body } の場合
-      if (outer && typeof outer === "object" && "statusCode" in outer) {
-        if (typeof outer.statusCode === "number") {
-          statusCode = outer.statusCode;
+        if (attempt > 1) {
+          setMessage(`⏳ 接続中...（リトライ ${attempt}/${MAX_RETRIES}）`);
         }
 
-        if (outer.body) {
-          if (typeof outer.body === "string") {
-            data = safeJsonParse(outer.body);
-          } else if (typeof outer.body === "object") {
-            data = outer.body;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+        const res = await fetch(LOGIN_API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        const text = await res.text();
+        console.log("LOGIN raw:", text);
+
+        let statusCode = res.status;
+        let data = null;
+
+        // 1. outer をパース
+        const outer = safeJsonParse(text);
+
+        // 2. API Gateway 形式 { statusCode, body } の場合
+        if (outer && typeof outer === "object" && "statusCode" in outer) {
+          if (typeof outer.statusCode === "number") {
+            statusCode = outer.statusCode;
+          }
+
+          if (outer.body) {
+            if (typeof outer.body === "string") {
+              data = safeJsonParse(outer.body);
+            } else if (typeof outer.body === "object") {
+              data = outer.body;
+            } else {
+              data = outer.body;
+            }
           } else {
-            data = outer.body;
+            data = outer;
           }
         } else {
+          // 3. 普通の JSON の場合
           data = outer;
         }
-      } else {
-        // 3. 普通の JSON の場合
-        data = outer;
-      }
 
-      console.log("parsed statusCode:", statusCode);
-      console.log("parsed data:", data);
+        console.log("parsed statusCode:", statusCode);
+        console.log("parsed data:", data);
 
-      // data.user があればそれを、なければ data 自体を user とみなす
-      let user = null;
-      if (data && typeof data === "object") {
-        if (data.user) {
-          user = data.user;
-        } else if (data.userId || data.loginId || data.name) {
-          user = data;
+        // data.user があればそれを、なければ data 自体を user とみなす
+        let user = null;
+        if (data && typeof data === "object") {
+          if (data.user) {
+            user = data.user;
+          } else if (data.userId || data.loginId || data.name) {
+            user = data;
+          }
         }
-      }
 
-      // user が取れなければログイン失敗扱い
-      if (statusCode !== 200 || !user) {
-        const msg =
-          (data && data.message) || "ログインID またはパスワードが違います";
-        setMessage(`❌ ${msg}`);
+        // user が取れなければログイン失敗扱い
+        if (statusCode !== 200 || !user) {
+          const msg =
+            (data && data.message) || "ログインID またはパスワードが違います";
+          setMessage(`❌ ${msg}`);
+          setLoading(false);
+          return;
+        }
+
+        // --- ここから保存処理 ---
+
+        const userName =
+          user.userName ||
+          user.name ||
+          `${user.lastName || ""}${user.firstName || ""}`.trim();
+
+        // role を決定（user.role → data.role → loginId === "admin"）
+        const role =
+          (typeof user.role === "string" && user.role) ||
+          (data && typeof data.role === "string" && data.role) ||
+          (loginId === "admin" ? "admin" : "staff");
+
+        // ユーザー情報を保存
+        localStorage.setItem("userId", user.userId || "");
+        localStorage.setItem("loginId", user.loginId || "");
+        if (userName) localStorage.setItem("userName", userName);
+        if (user.hourlyWage != null) {
+          localStorage.setItem("hourlyWage", String(user.hourlyWage));
+        }
+        if (role) {
+          localStorage.setItem("role", role);
+        }
+        // token はあれば保存、無ければ放置
+        if (data && data.token) {
+          localStorage.setItem("token", data.token);
+        }
+
+        // 雇用形態
+        if (user.employmentType) {
+          localStorage.setItem("employmentType", user.employmentType);
+        } else {
+          localStorage.removeItem("employmentType");
+        }
+
+        // ★★★ デフォルト勤務地・部署を保存 ★★★
+        if (user.defaultLocation) {
+          localStorage.setItem("defaultLocation", user.defaultLocation);
+        }
+        if (user.defaultDepartment) {
+          localStorage.setItem("defaultDepartment", user.defaultDepartment);
+        }
+
+        // ログインフラグ
+        localStorage.setItem("isLoggedIn", "true");
+
+        setMessage("✅ ログインしました");
         setLoading(false);
-        return;
+
+        if (onLogin) {
+          onLogin();
+        }
+        return; // 成功したのでリトライループを抜ける
+
+      } catch (err) {
+        console.error(`LOGIN attempt ${attempt} error:`, err);
+
+        if (attempt < MAX_RETRIES) {
+          // リトライ前に少し待つ
+          await new Promise(r => setTimeout(r, 1000));
+          continue; // 次のリトライへ
+        }
+
+        // 最終リトライも失敗
+        if (err.name === "AbortError") {
+          setMessage("❌ サーバーの応答がありません。しばらく待ってから再度お試しください。");
+        } else {
+          setMessage("❌ 通信エラーが発生しました。再度お試しください。");
+        }
+        setLoading(false);
       }
-
-      // --- ここから保存処理 ---
-
-      const userName =
-        user.userName ||
-        user.name ||
-        `${user.lastName || ""}${user.firstName || ""}`.trim();
-
-      // role を決定（user.role → data.role → loginId === "admin"）
-      const role =
-        (typeof user.role === "string" && user.role) ||
-        (data && typeof data.role === "string" && data.role) ||
-        (loginId === "admin" ? "admin" : "staff");
-
-      // ユーザー情報を保存
-      localStorage.setItem("userId", user.userId || "");
-      localStorage.setItem("loginId", user.loginId || "");
-      if (userName) localStorage.setItem("userName", userName);
-      if (user.hourlyWage != null) {
-        localStorage.setItem("hourlyWage", String(user.hourlyWage));
-      }
-      if (role) {
-        localStorage.setItem("role", role);
-      }
-      // token はあれば保存、無ければ放置
-      if (data && data.token) {
-        localStorage.setItem("token", data.token);
-      }
-
-      // 雇用形態
-      if (user.employmentType) {
-        localStorage.setItem("employmentType", user.employmentType);
-      } else {
-        localStorage.removeItem("employmentType");
-      }
-
-      // ★★★ デフォルト勤務地・部署を保存 ★★★
-      if (user.defaultLocation) {
-        localStorage.setItem("defaultLocation", user.defaultLocation);
-      }
-      if (user.defaultDepartment) {
-        localStorage.setItem("defaultDepartment", user.defaultDepartment);
-      }
-
-      // ログインフラグ
-      localStorage.setItem("isLoggedIn", "true");
-
-      setMessage("✅ ログインしました");
-      setLoading(false);
-
-      if (onLogin) {
-        onLogin();
-      }
-    } catch (err) {
-      console.error("LOGIN error:", err);
-      setMessage("❌ 通信エラーが発生しました");
-      setLoading(false);
     }
   };
 

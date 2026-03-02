@@ -784,10 +784,10 @@ export default function AdminShiftManagement() {
           }
         }
 
-        // 派遣/バイト時間の計算（出退勤があるレコード、withdrawnを除く）
+        // 派遣/バイト時間の計算（承認済みレコードのみ対象）
         // 全ユーザー対象：シフトデータに基づいて派遣/バイト時間を自動分類
         // 日単位で計算し、派遣は1日最大8時間、超過分はバイトに振替
-        if (i.clockIn && i.clockOut && !app.withdrawn) {
+        if (i.clockIn && i.clockOut && !app.withdrawn && app.status === "approved") {
           const actualIn = toMin(app.appliedIn || i.clockIn);
           const actualOut = toMin(app.appliedOut || i.clockOut);
 
@@ -877,8 +877,8 @@ export default function AdminShiftManagement() {
         }
       });
 
-      // 出勤日数
-      const attendedDays = uItems.filter(it => it.clockIn).length;
+      // 出勤日数（承認済みのみカウント）
+      const attendedDays = uItems.filter(it => it.clockIn && (it._application?.status === "approved")).length;
 
       // Prescribed Days（学生バイト=16日固定、その他=月の平日数）
       const m = new Date(baseDate);

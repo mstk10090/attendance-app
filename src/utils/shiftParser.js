@@ -220,20 +220,72 @@ export async function fetchShiftData(forceRefresh = false, additionalSources = [
         parseCsv(text, sheet, source.year, source.month, shifts, locationName, SPECIAL_SHIFTS);
     }
 
+    // --- DynamoDB確定シフトの取得（Lambda Cronで23:30に確定されたデータ） ---
+    const CONFIRMED_SHIFTS_API = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com/shift/confirmed";
+    let confirmedShifts = {};
+    let confirmedApiSuccess = false;
+    try {
+        const todayDate = getTodayStr();
+        // 当月1日から翌月末まで取得
+        const monthStart = todayDate.substring(0, 7) + "-01";
+        const nextMonth = new Date(parseInt(todayDate.substring(0, 4)), parseInt(todayDate.substring(5, 7)), 1);
+        const monthEnd = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, "0")}-${String(new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0).getDate()).padStart(2, "0")}`;
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        const res = await fetch(`${CONFIRMED_SHIFTS_API}?dateFrom=${monthStart}&dateTo=${monthEnd}`, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        if (res.ok) {
+            const data = await res.json();
+            confirmedShifts = data.shifts || {};
+            confirmedApiSuccess = Object.keys(confirmedShifts).length > 0;
+            console.log(`Loaded ${data.count || 0} confirmed shifts from DynamoDB`);
+        } else {
+            console.warn(`Confirmed shifts API returned ${res.status}, falling back to spreadsheet`);
+        }
+    } catch (e) {
+        console.warn("Confirmed shifts API unavailable, falling back to spreadsheet:", e.message);
+    }
+
     // --- キャッシュ確定ロジック ---
-    // 当日以前: キャッシュがあればキャッシュを優先（スプシの後日修正を無視）
-    // 翌日以降: スプシ最新データを使用し、キャッシュを更新
+    // DynamoDB APIが成功した場合: 23:30以降は翌日分も確定扱い
+    // DynamoDB APIが失敗した場合: 前日までを確定扱い（当日はスプシから取得）
+    const now = new Date();
     const todayStr = getTodayStr();
+    let confirmBoundary;
+    if (confirmedApiSuccess) {
+        confirmBoundary = todayStr;
+        if (now.getHours() >= 23 && now.getMinutes() >= 30) {
+            const tomorrow = new Date(now);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            confirmBoundary = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
+        }
+    } else {
+        // API失敗時: 前日までを確定、当日以降はスプシから取得
+        const yesterday = new Date(now);
+        yesterday.setDate(yesterday.getDate() - 1);
+        confirmBoundary = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
+        console.log(`API unavailable: confirmBoundary set to ${confirmBoundary} (yesterday), today's shifts from spreadsheet`);
+    }
     const cache = loadShiftCache();
 
     const mergedShifts = {};
 
-    // 1. まずキャッシュの当日以前データをすべてコピー（確定値として保持）
+    // 0. DynamoDB確定シフトを最優先で適用
+    for (const userName of Object.keys(confirmedShifts)) {
+        if (!mergedShifts[userName]) mergedShifts[userName] = {};
+        for (const dateKey of Object.keys(confirmedShifts[userName])) {
+            mergedShifts[userName][dateKey] = confirmedShifts[userName][dateKey];
+        }
+    }
+
+    // 1. キャッシュの確定境界以前データをコピー（DynamoDB確定データがない日のみ）
     for (const userName of Object.keys(cache)) {
-        mergedShifts[userName] = {};
+        if (!mergedShifts[userName]) mergedShifts[userName] = {};
         for (const dateKey of Object.keys(cache[userName])) {
             if (dateKey.startsWith("prescribed_")) continue;
-            if (dateKey <= todayStr) {
+            if (dateKey <= confirmBoundary && !mergedShifts[userName][dateKey]) {
                 mergedShifts[userName][dateKey] = cache[userName][dateKey];
             }
         }
@@ -250,11 +302,11 @@ export async function fetchShiftData(forceRefresh = false, additionalSources = [
                 continue;
             }
 
-            if (dateKey > todayStr) {
-                // 翌日以降: スプシ最新データで上書き
+            if (dateKey > confirmBoundary) {
+                // 確定境界より後: スプシ最新データで上書き
                 mergedShifts[userName][dateKey] = shifts[userName][dateKey];
             } else {
-                // 当日以前: キャッシュにない場合のみスプシ値を使用（初回読み込み）
+                // 確定境界以前: キャッシュにない場合のみスプシ値を使用（初回読み込み）
                 if (!mergedShifts[userName][dateKey]) {
                     mergedShifts[userName][dateKey] = shifts[userName][dateKey];
                 }

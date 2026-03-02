@@ -187,8 +187,12 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
             endD = endOfYear(new Date(y, 0, 1));
         }
 
-        const attendedDates = new Set(items.filter(i => i.clockIn).map(i => i.displayDate || i.workDate));
-        const totalMin = items.reduce((acc, i) => {
+        const approvedItems = items.filter(i => {
+            const p = parseComment(i.comment);
+            return p?.application?.status === "approved";
+        });
+        const attendedDates = new Set(approvedItems.filter(i => i.clockIn).map(i => i.displayDate || i.workDate));
+        const totalMin = approvedItems.reduce((acc, i) => {
             if (!i.clockIn || !i.clockOut) return acc;
             let wm = calcRoundedWorkMin(i);
             // 遅刻ペナルティ判定
