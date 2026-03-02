@@ -1310,49 +1310,54 @@ export default function AttendanceRecord({ user: propUser }) {
   });
   const notClockedOutCount = notClockedOutDates.length;
 
-  // 遅刻のカウント（今月・シフト開始より遅く出勤した場合）
-  const lateCount = useMemo(() => {
-    if (!user || !shiftMap) return 0;
-    return items.filter(item => {
-      const dDate = item.displayDate || item.workDate;
-      if (!dDate.startsWith(currentMonth)) return false;
-      if (!item.clockIn) return false;
+  // 日付フォーマットヘルパー
+  const formatDateShort = (dateStr) => {
+    const d = new Date(dateStr);
+    const dayNames = ["日", "月", "火", "水", "木", "金", "土"];
+    return `${d.getMonth() + 1}/${d.getDate()}(${dayNames[d.getDay()]})`;
+  };
 
-      // シフトを取得（正規化済み getShift を使用）
+  // 遅刻のカウント＋日付リスト（今月・シフト開始より遅く出勤した場合）
+  const lateData = useMemo(() => {
+    if (!user || !shiftMap) return { count: 0, dates: [] };
+    const dates = [];
+    items.forEach(item => {
+      const dDate = item.displayDate || item.workDate;
+      if (!dDate.startsWith(currentMonth)) return;
+      if (!item.clockIn) return;
+
       const shift = getShift(user.userName, dDate);
 
-
-      // シフトがあり、開始時刻より遅く出勤した場合（取消済みの場合は除外）
       if (shift && shift.start && toMin(item.clockIn) >= toMin(shift.start)) {
-        // 遅刻取消フラグがある場合は除外
         const p = parseComment(item.comment);
-        if (p.application?.lateCancelled) return false;
-        return true;
+        if (p.application?.lateCancelled) return;
+        dates.push(formatDateShort(dDate));
       }
-      return false;
-    }).length;
+    });
+    return { count: dates.length, dates };
   }, [items, user, shiftMap, currentMonth]);
+  const lateCount = lateData.count;
 
-  // 欠勤のカウント（今月）
+  // 欠勤のカウント＋日付リスト（今月）
   const absentData = useMemo(() => {
-    let count = 0;
+    const dates = [];
     const reasons = {};
     items.forEach(item => {
       const dDate = item.displayDate || item.workDate;
       if (!dDate.startsWith(currentMonth)) return;
       const p = parseComment(item.comment);
       if (p.application?.status === "absent") {
-        count++;
+        dates.push(formatDateShort(dDate));
         const r = p.application?.absentReason || "欠勤";
         reasons[r] = (reasons[r] || 0) + 1;
       }
     });
-    return { count, reasons };
+    return { count: dates.length, dates, reasons };
   }, [items, currentMonth]);
 
-  // 早退のカウント（今月）
+  // 早退のカウント＋日付リスト（今月）
   const earlyData = useMemo(() => {
-    let count = 0;
+    const dates = [];
     const reasons = {};
     items.forEach(item => {
       const dDate = item.displayDate || item.workDate;
@@ -1361,12 +1366,12 @@ export default function AttendanceRecord({ user: propUser }) {
       const app = p.application || {};
       if (app.earlyCancelled) return;
       if (app.reason && app.reason.includes("早退")) {
-        count++;
+        dates.push(formatDateShort(dDate));
         const r = app.reason || "早退";
         reasons[r] = (reasons[r] || 0) + 1;
       }
     });
-    return { count, reasons };
+    return { count: dates.length, dates, reasons };
   }, [items, currentMonth]);
 
   return (
@@ -1681,26 +1686,27 @@ export default function AttendanceRecord({ user: propUser }) {
         <div className="card" style={{ padding: "20px", flex: "1 1 100px", minWidth: "100px", background: lateCount > 0 ? "#fef2f2" : undefined }}>
           <div style={{ fontSize: "0.85rem", color: lateCount > 0 ? "#b91c1c" : "#6b7280", marginBottom: "8px" }}>遅刻</div>
           <div style={{ fontSize: "1.5rem", fontWeight: "bold", color: lateCount > 0 ? "#dc2626" : "#374151" }}>{lateCount} 件</div>
+          {lateData.dates.length > 0 && (
+            <div style={{ marginTop: "8px", fontSize: "0.7rem", color: "#b91c1c" }}>
+              {lateData.dates.join("、")}
+            </div>
+          )}
         </div>
         <div className="card" style={{ padding: "20px", flex: "1 1 100px", minWidth: "100px", background: absentData.count > 0 ? "#fef2f2" : undefined }}>
           <div style={{ fontSize: "0.85rem", color: absentData.count > 0 ? "#b91c1c" : "#6b7280", marginBottom: "8px" }}>欠勤</div>
           <div style={{ fontSize: "1.5rem", fontWeight: "bold", color: absentData.count > 0 ? "#dc2626" : "#374151" }}>{absentData.count} 件</div>
-          {Object.keys(absentData.reasons).length > 0 && (
-            <div style={{ marginTop: "8px", fontSize: "0.75rem", color: "#6b7280" }}>
-              {Object.entries(absentData.reasons).map(([r, c]) => (
-                <div key={r}>{r}: {c}件</div>
-              ))}
+          {absentData.dates.length > 0 && (
+            <div style={{ marginTop: "8px", fontSize: "0.7rem", color: "#b91c1c" }}>
+              {absentData.dates.join("、")}
             </div>
           )}
         </div>
         <div className="card" style={{ padding: "20px", flex: "1 1 100px", minWidth: "100px", background: earlyData.count > 0 ? "#fffbeb" : undefined }}>
           <div style={{ fontSize: "0.85rem", color: earlyData.count > 0 ? "#b45309" : "#6b7280", marginBottom: "8px" }}>早退</div>
           <div style={{ fontSize: "1.5rem", fontWeight: "bold", color: earlyData.count > 0 ? "#f59e0b" : "#374151" }}>{earlyData.count} 件</div>
-          {Object.keys(earlyData.reasons).length > 0 && (
-            <div style={{ marginTop: "8px", fontSize: "0.75rem", color: "#6b7280" }}>
-              {Object.entries(earlyData.reasons).map(([r, c]) => (
-                <div key={r}>{r}: {c}件</div>
-              ))}
+          {earlyData.dates.length > 0 && (
+            <div style={{ marginTop: "8px", fontSize: "0.7rem", color: "#b45309" }}>
+              {earlyData.dates.join("、")}
             </div>
           )}
         </div>
