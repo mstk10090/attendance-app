@@ -220,7 +220,8 @@ export default function AttendanceRecord({ user: propUser }) {
   // Multi-Shift Support
   const todayStr = format(new Date(), "yyyy-MM-dd");
   const todayItems = items.filter(i => i.workDate.startsWith(todayStr));
-  const activeItem = todayItems.find(i => i.clockIn && !i.clockOut);
+  // 日付を跨いだ場合も前日のレコードから未退勤を検出できるよう、全itemsから検索
+  const activeItem = items.find(i => i.clockIn && !i.clockOut) || null;
   const displayItem = activeItem || (todayItems.length > 0 ? todayItems[todayItems.length - 1] : null);
 
   const todayShift = useMemo(() => user ? getShift(user.userName, todayStr) : null, [user, shiftMap, todayStr]);
