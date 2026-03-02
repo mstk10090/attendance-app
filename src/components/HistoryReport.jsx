@@ -357,7 +357,31 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                     statusDisplay = <span className="status-badge blue">出勤中</span>;
                                 } else if (incomplete) {
                                     // 本日以外で未退勤
-                                    statusDisplay = <span className="status-badge orange">未退勤</span>;
+                                    statusDisplay = (
+                                        <>
+                                            <span className="status-badge orange">未退勤</span>
+                                            {onWithdraw && isPending && (
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onWithdraw(item.workDate, item);
+                                                    }}
+                                                    style={{
+                                                        marginLeft: "6px",
+                                                        background: "#ef4444",
+                                                        color: "#fff",
+                                                        border: "none",
+                                                        padding: "2px 8px",
+                                                        borderRadius: "4px",
+                                                        fontSize: "0.7rem",
+                                                        cursor: "pointer"
+                                                    }}
+                                                >
+                                                    取下げ
+                                                </button>
+                                            )}
+                                        </>
+                                    );
                                 } else if (isError) {
                                     statusDisplay = <span className="status-badge red">異常</span>;
                                 } else if (isShiftMissing) {
