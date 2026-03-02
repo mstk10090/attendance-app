@@ -2003,7 +2003,7 @@ export default function AttendanceRecord({ user: propUser }) {
               })() && (
                   <button
                     type="button"
-                    onClick={handleWithdraw}
+                    onClick={() => handleWithdraw()}
                     disabled={loading}
                     style={{
                       flex: 1, padding: "14px", borderRadius: "8px", border: "none",
