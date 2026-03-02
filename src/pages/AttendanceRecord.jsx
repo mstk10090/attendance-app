@@ -1258,7 +1258,7 @@ export default function AttendanceRecord({ user: propUser }) {
           // 遅刻ペナルティ判定
           const lateCancelledFlag = p.application?.lateCancelled;
           const effectiveClockIn = p.application?.appliedIn || item.clockIn;
-          const isLateForPenalty = s && s.start && effectiveClockIn && toMin(effectiveClockIn) >= toMin(s.start) && !lateCancelledFlag;
+          const isLateForPenalty = s && s.start && effectiveClockIn && toMin(effectiveClockIn) > toMin(s.start) && !lateCancelledFlag;
 
           if (s && s.isDispatch && (s.dispatchRange || s.partTimeRange)) {
             // 派遣シフトがある場合: dispatchRangeとpartTimeRangeを使用して正確に計算

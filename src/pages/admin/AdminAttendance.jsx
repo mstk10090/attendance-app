@@ -1082,7 +1082,7 @@ export default function AdminAttendance() {
                       const actualInMin = toMin(item.clockIn);
                       const actualOutMin = toMin(item.clockOut);
 
-                      const isLate = actualInMin >= shiftStartMin;
+                      const isLate = actualInMin > shiftStartMin;
                       const isEarly = actualOutMin < shiftEndMin;
                       const isOvertime = actualOutMin >= shiftEndMin + 30; // シフト終了30分以上で残業判定
 
