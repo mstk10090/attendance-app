@@ -1214,7 +1214,10 @@ export default function AdminShiftManagement() {
               const d = new Date(baseDate);
               if (viewMode === "shift_check" || viewMode === "daily" || viewMode === "gantt") setBaseDate(format(addDays(d, -1), "yyyy-MM-dd"));
               if (viewMode === "weekly") setBaseDate(format(addDays(d, -7), "yyyy-MM-dd"));
-              if (viewMode === "monthly" || viewMode === "report") setBaseDate(format(addDays(d, -30), "yyyy-MM-dd"));
+              if (viewMode === "monthly" || viewMode === "report") {
+                const prev = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+                setBaseDate(format(prev, "yyyy-MM-dd"));
+              }
             }}>{"<"}</button>
 
             <span style={{ fontWeight: "bold", fontSize: "1.1rem" }}>
@@ -1226,7 +1229,10 @@ export default function AdminShiftManagement() {
               const d = new Date(baseDate);
               if (viewMode === "shift_check" || viewMode === "daily" || viewMode === "gantt") setBaseDate(format(addDays(d, 1), "yyyy-MM-dd"));
               if (viewMode === "weekly") setBaseDate(format(addDays(d, 7), "yyyy-MM-dd"));
-              if (viewMode === "monthly" || viewMode === "report") setBaseDate(format(addDays(d, 30), "yyyy-MM-dd"));
+              if (viewMode === "monthly" || viewMode === "report") {
+                const next = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+                setBaseDate(format(next, "yyyy-MM-dd"));
+              }
             }}>{">"}</button>
           </div>
         )}
