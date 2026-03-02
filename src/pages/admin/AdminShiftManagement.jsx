@@ -786,77 +786,99 @@ export default function AdminShiftManagement() {
 
         // 派遣/バイト時間の計算（出退勤があるレコード、withdrawnを除く）
         // 全ユーザー対象：シフトデータに基づいて派遣/バイト時間を自動分類
+        // 日単位で計算し、派遣は1日最大8時間、超過分はバイトに振替
         if (i.clockIn && i.clockOut && !app.withdrawn) {
           const actualIn = toMin(app.appliedIn || i.clockIn);
           const actualOut = toMin(app.appliedOut || i.clockOut);
-          const breakMin = app.breakDuration || calcBreakTime(i);
 
-          // 遅刻ペナルティ判定
-          const lateCancelledFlag = app.lateCancelled;
-          const isLateForPenalty = shift && shift.start && i.clockIn && toMin(i.clockIn) >= toMin(shift.start) && !lateCancelledFlag;
-
-          if (shift && (shift.dispatchRange || shift.partTimeRange)) {
-            // 新しい方式: dispatchRange/partTimeRangeを使用
-            if (shift.dispatchRange) {
-              const dispStart = toMin(shift.dispatchRange.start);
-              const dispEnd = toMin(shift.dispatchRange.end);
-              const overlapStart = Math.max(actualIn, dispStart);
-              const overlapEnd = Math.min(actualOut, dispEnd);
-              if (overlapStart < overlapEnd) {
-                dispatchMin += (overlapEnd - overlapStart);
-              }
-            }
-            // 派遣は最大8時間に制限
-            if (dispatchMin > 8 * 60) {
-              const excess = dispatchMin - 8 * 60;
-              dispatchMin = 8 * 60;
-              partTimeMin += excess;
-            }
-
-            if (shift.partTimeRange) {
-              const partStart = toMin(shift.partTimeRange.start);
-              const partEnd = toMin(shift.partTimeRange.end);
-              const overlapStart = Math.max(actualIn, partStart);
-              const overlapEnd = Math.min(actualOut, partEnd);
-              if (overlapStart < overlapEnd) {
-                let partOverlap = overlapEnd - overlapStart;
-                if (isLateForPenalty) {
-                  partOverlap = Math.max(0, partOverlap - 30);
-                }
-                partTimeMin += partOverlap;
-              }
-            }
-
-            // partTimeRangeがない場合で、派遣終了後も働いている場合
-            if (!shift.partTimeRange && shift.dispatchRange) {
-              const dispEnd = toMin(shift.dispatchRange.end);
-              if (actualOut > dispEnd) {
-                let extraPart = actualOut - dispEnd;
-                if (isLateForPenalty) {
-                  extraPart = Math.max(0, extraPart - 30);
-                }
-                partTimeMin += extraPart;
-              }
-            }
-          } else if (shift && shift.isDispatch) {
-            // 旧方式: フォールバック（派遣シフトの場合）
-            const wm = Math.max(0, actualOut - actualIn - breakMin);
-            dispatchMin += Math.min(wm, 8 * 60);
-            let part = Math.max(0, wm - 8 * 60);
-            if (isLateForPenalty) {
-              part = Math.max(0, part - 30);
-            }
-            partTimeMin += part;
+          // 30分丸め: 出勤は次の30分に切り上げ、退勤は前の30分に切り下げ
+          const roundedIn = Math.ceil(actualIn / 30) * 30;
+          const roundedOut = Math.floor(actualOut / 30) * 30;
+          if (roundedIn >= roundedOut) {
+            // 丸め後に有効な勤務時間がない場合はスキップ
           } else {
-            // 派遣シフトでない場合は全てバイト時間
-            let partTotal = Math.max(0, actualOut - actualIn - breakMin);
-            if (isLateForPenalty) {
-              partTotal = Math.max(0, partTotal - 30);
+            const breakMin = app.breakDuration || calcBreakTime(i);
+
+            // 遅刻ペナルティ判定
+            const lateCancelledFlag = app.lateCancelled;
+            const isLateForPenalty = shift && shift.start && i.clockIn && toMin(i.clockIn) >= toMin(shift.start) && !lateCancelledFlag;
+
+            let dayDispatch = 0;
+            let dayPartTime = 0;
+
+            if (shift && (shift.dispatchRange || shift.partTimeRange)) {
+              // 新しい方式: dispatchRange/partTimeRangeを使用
+              if (shift.dispatchRange) {
+                const dispStart = toMin(shift.dispatchRange.start);
+                const dispEnd = toMin(shift.dispatchRange.end);
+                const overlapStart = Math.max(roundedIn, dispStart);
+                const overlapEnd = Math.min(roundedOut, dispEnd);
+                if (overlapStart < overlapEnd) {
+                  dayDispatch = overlapEnd - overlapStart;
+                }
+              }
+              // 派遣は1日最大8時間に制限
+              if (dayDispatch > 8 * 60) {
+                const excess = dayDispatch - 8 * 60;
+                dayDispatch = 8 * 60;
+                dayPartTime += excess;
+              }
+
+              if (shift.partTimeRange) {
+                const partStart = toMin(shift.partTimeRange.start);
+                const partEnd = toMin(shift.partTimeRange.end);
+                const overlapStart = Math.max(roundedIn, partStart);
+                const overlapEnd = Math.min(roundedOut, partEnd);
+                if (overlapStart < overlapEnd) {
+                  let partOverlap = overlapEnd - overlapStart;
+                  if (isLateForPenalty) {
+                    partOverlap = Math.max(0, partOverlap - 30);
+                  }
+                  dayPartTime += partOverlap;
+                }
+              }
+
+              // partTimeRangeがない場合で、派遣終了後も働いている場合
+              if (!shift.partTimeRange && shift.dispatchRange) {
+                const dispEnd = toMin(shift.dispatchRange.end);
+                if (roundedOut > dispEnd) {
+                  let extraPart = roundedOut - dispEnd;
+                  if (isLateForPenalty) {
+                    extraPart = Math.max(0, extraPart - 30);
+                  }
+                  dayPartTime += extraPart;
+                }
+              }
+            } else if (shift && shift.isDispatch) {
+              // 旧方式: フォールバック（派遣シフトの場合）
+              const wm = Math.max(0, roundedOut - roundedIn - breakMin);
+              dayDispatch = Math.min(wm, 8 * 60);
+              let part = Math.max(0, wm - 8 * 60);
+              if (isLateForPenalty) {
+                part = Math.max(0, part - 30);
+              }
+              dayPartTime = part;
+            } else {
+              // 派遣シフトでない場合は全てバイト時間
+              let partTotal = Math.max(0, roundedOut - roundedIn - breakMin);
+              if (isLateForPenalty) {
+                partTotal = Math.max(0, partTotal - 30);
+              }
+              dayPartTime = partTotal;
             }
-            partTimeMin += partTotal;
+
+            // 30分単位で丸め
+            dayDispatch = Math.floor(dayDispatch / 30) * 30;
+            dayPartTime = Math.floor(dayPartTime / 30) * 30;
+
+            dispatchMin += dayDispatch;
+            partTimeMin += dayPartTime;
           }
         }
       });
+
+      // 出勤日数
+      const attendedDays = uItems.filter(it => it.clockIn).length;
 
       // Prescribed Days（学生バイト=16日固定、その他=月の平日数）
       const m = new Date(baseDate);
@@ -871,6 +893,12 @@ export default function AdminShiftManagement() {
         prescribed = String(weekdays);
       }
 
+      // 表記をユーザー側と統一（Xh Ym形式）
+      const dispH = Math.floor(dispatchMin / 60);
+      const dispM = dispatchMin % 60;
+      const partH = Math.floor(partTimeMin / 60);
+      const partM = partTimeMin % 60;
+
       return {
         user: u,
         absent,
@@ -878,12 +906,13 @@ export default function AdminShiftManagement() {
         early,
         missingOut,
         prescribed,
+        attendedDays,
         dispatchMin,
         partTimeMin,
         absentReasons,
         earlyReasons,
-        dispatchHours: `${Math.floor(dispatchMin / 60)}:${String(dispatchMin % 60).padStart(2, '0')}`,
-        partTimeHours: `${Math.floor(partTimeMin / 60)}:${String(partTimeMin % 60).padStart(2, '0')}`
+        dispatchHours: `${dispH}h ${dispM}m`,
+        partTimeHours: `${partH}h ${partM}m`
       };
     });
   }, [items, users, viewMode, fetchRange, shiftMap]);
@@ -1332,6 +1361,9 @@ export default function AdminShiftManagement() {
                       </th>
                       <th style={{ background: "#f9fafb", padding: "12px 16px", borderBottom: "2px solid #e5e7eb" }}>部署/拠点</th>
                       <th style={{ background: "#f9fafb", padding: "12px 16px", borderBottom: "2px solid #e5e7eb", textAlign: "center" }}>規定日数</th>
+                      <th onClick={() => requestSort('attendedDays')} style={{ cursor: "pointer", background: "#f9fafb", padding: "12px 16px", borderBottom: "2px solid #e5e7eb", textAlign: "center" }}>
+                        出勤日数 {sortConfig.key === 'attendedDays' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                      </th>
                       <th onClick={() => requestSort('dispatchMin')} style={{ cursor: "pointer", background: "#eff6ff", padding: "12px 16px", borderBottom: "2px solid #e5e7eb", textAlign: "center", color: "#2563eb" }}>
                         派遣時間 {sortConfig.key === 'dispatchMin' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
                       </th>
@@ -1361,6 +1393,9 @@ export default function AdminShiftManagement() {
                         <td style={{ padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>{r.user.defaultDepartment}/{r.user.defaultLocation}</td>
                         <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", fontWeight: "bold", color: "#374151" }}>
                           {r.prescribed || "-"}
+                        </td>
+                        <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", fontWeight: "bold", color: "#2563eb" }}>
+                          {r.attendedDays} 日
                         </td>
                         <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", background: "#f8faff" }}>
                           {r.dispatchMin > 0 ? (
