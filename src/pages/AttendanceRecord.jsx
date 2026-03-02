@@ -1296,14 +1296,19 @@ export default function AttendanceRecord({ user: propUser }) {
     return p.application?.status === "resubmission_requested";
   }).length;
 
-  // 未退勤のカウント（今月・出勤しているが退勤していない、本日を除く）
+  // 未退勤の日付リスト（今月・出勤しているが退勤していない、本日を除く）
   const currentMonth = format(currentDate, "yyyy-MM");
-  const notClockedOutCount = items.filter(i => {
+  const notClockedOutDates = items.filter(i => {
     const workDate = i.displayDate || i.workDate;
     // 本日は除外（出勤中のため）
     if (workDate === todayStr) return false;
     return workDate.startsWith(currentMonth) && i.clockIn && !i.clockOut;
-  }).length;
+  }).map(i => {
+    const d = new Date(i.displayDate || i.workDate);
+    const dayNames = ["日", "月", "火", "水", "木", "金", "土"];
+    return `${d.getMonth() + 1}/${d.getDate()}(${dayNames[d.getDay()]})`;
+  });
+  const notClockedOutCount = notClockedOutDates.length;
 
   // 遅刻のカウント（今月・シフト開始より遅く出勤した場合）
   const lateCount = useMemo(() => {
@@ -1640,9 +1645,9 @@ export default function AttendanceRecord({ user: propUser }) {
         )}
 
         {notClockedOutCount > 0 && (
-          <div style={{ background: "#fffbeb", color: "#b45309", padding: "12px 16px", borderRadius: "8px", marginBottom: "8px", display: "flex", alignItems: "center", gap: "8px", fontSize: "0.9rem", border: "1px solid #fde68a" }}>
-            <AlertCircle size={18} />
-            <span>⏰ <strong>未退勤: {notClockedOutCount}件</strong> があります。退勤打刻を忘れずに。</span>
+          <div style={{ background: "#fffbeb", color: "#b45309", padding: "12px 16px", borderRadius: "8px", marginBottom: "8px", display: "flex", alignItems: "flex-start", gap: "8px", fontSize: "0.9rem", border: "1px solid #fde68a" }}>
+            <AlertCircle size={18} style={{ flexShrink: 0, marginTop: "2px" }} />
+            <span>⏰ <strong>未退勤: {notClockedOutDates.join("、")}</strong> — 退勤打刻を忘れずに。</span>
           </div>
         )}
 
