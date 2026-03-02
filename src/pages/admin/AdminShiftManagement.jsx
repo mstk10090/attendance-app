@@ -785,9 +785,11 @@ export default function AdminShiftManagement() {
         }
 
         // 派遣/バイト時間の計算（出退勤があるレコード、withdrawnを除く）
-        if (i.clockIn && i.clockOut && isDispatchUser && !app.withdrawn) {
+        // 全ユーザー対象：シフトデータに基づいて派遣/バイト時間を自動分類
+        if (i.clockIn && i.clockOut && !app.withdrawn) {
           const actualIn = toMin(app.appliedIn || i.clockIn);
           const actualOut = toMin(app.appliedOut || i.clockOut);
+          const breakMin = app.breakDuration || calcBreakTime(i);
 
           // 遅刻ペナルティ判定
           const lateCancelledFlag = app.lateCancelled;
@@ -818,7 +820,6 @@ export default function AdminShiftManagement() {
               const overlapEnd = Math.min(actualOut, partEnd);
               if (overlapStart < overlapEnd) {
                 let partOverlap = overlapEnd - overlapStart;
-                // 遅刻ペナルティ: バイト分から30分削り
                 if (isLateForPenalty) {
                   partOverlap = Math.max(0, partOverlap - 30);
                 }
@@ -831,7 +832,6 @@ export default function AdminShiftManagement() {
               const dispEnd = toMin(shift.dispatchRange.end);
               if (actualOut > dispEnd) {
                 let extraPart = actualOut - dispEnd;
-                // 遅刻ペナルティ: バイト分から30分削り
                 if (isLateForPenalty) {
                   extraPart = Math.max(0, extraPart - 30);
                 }
@@ -839,19 +839,17 @@ export default function AdminShiftManagement() {
               }
             }
           } else if (shift && shift.isDispatch) {
-            // 旧方式: フォールバック
-            const wm = Math.max(0, actualOut - actualIn);
+            // 旧方式: フォールバック（派遣シフトの場合）
+            const wm = Math.max(0, actualOut - actualIn - breakMin);
             dispatchMin += Math.min(wm, 8 * 60);
             let part = Math.max(0, wm - 8 * 60);
-            // 遅刻ペナルティ: バイト分から30分削り
             if (isLateForPenalty) {
               part = Math.max(0, part - 30);
             }
             partTimeMin += part;
           } else {
-            // シフトなしまたは派遣シフトでない場合は全てバイト
-            let partTotal = Math.max(0, actualOut - actualIn);
-            // 遅刻ペナルティ: 全体から30分削り
+            // 派遣シフトでない場合は全てバイト時間
+            let partTotal = Math.max(0, actualOut - actualIn - breakMin);
             if (isLateForPenalty) {
               partTotal = Math.max(0, partTotal - 30);
             }
@@ -1359,22 +1357,18 @@ export default function AdminShiftManagement() {
                           {r.prescribed || "-"}
                         </td>
                         <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", background: "#f8faff" }}>
-                          {r.user.employmentType === "派遣" ? (
-                            r.dispatchMin > 0 ? (
-                              <span style={{ fontWeight: "bold", color: "#2563eb" }}>{r.dispatchHours}</span>
-                            ) : (
-                              <span style={{ color: "#9ca3af", fontSize: "0.85rem" }}>派遣なし</span>
-                            )
-                          ) : <span style={{ color: "#d1d5db" }}>-</span>}
+                          {r.dispatchMin > 0 ? (
+                            <span style={{ fontWeight: "bold", color: "#2563eb" }}>{r.dispatchHours}</span>
+                          ) : (
+                            <span style={{ color: "#d1d5db" }}>-</span>
+                          )}
                         </td>
                         <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", background: "#f8fff8" }}>
-                          {r.user.employmentType === "派遣" ? (
-                            r.partTimeMin > 0 ? (
-                              <span style={{ fontWeight: "bold", color: "#16a34a" }}>{r.partTimeHours}</span>
-                            ) : (
-                              <span style={{ color: "#9ca3af", fontSize: "0.85rem" }}>バイトなし</span>
-                            )
-                          ) : <span style={{ color: "#d1d5db" }}>-</span>}
+                          {r.partTimeMin > 0 ? (
+                            <span style={{ fontWeight: "bold", color: "#16a34a" }}>{r.partTimeHours}</span>
+                          ) : (
+                            <span style={{ color: "#d1d5db" }}>-</span>
+                          )}
                         </td>
                         <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", position: "relative" }}>
                           {r.absent > 0 ? (
