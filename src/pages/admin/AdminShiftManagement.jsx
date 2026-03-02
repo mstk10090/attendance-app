@@ -784,10 +784,14 @@ export default function AdminShiftManagement() {
           }
         }
 
-        // 派遣/バイト時間の計算（承認済みのレコードのみ）
-        if (app.status === "approved" && i.clockIn && i.clockOut && isDispatchUser) {
+        // 派遣/バイト時間の計算（出退勤があるレコード、withdrawnを除く）
+        if (i.clockIn && i.clockOut && isDispatchUser && !app.withdrawn) {
           const actualIn = toMin(app.appliedIn || i.clockIn);
           const actualOut = toMin(app.appliedOut || i.clockOut);
+
+          // 遅刻ペナルティ判定
+          const lateCancelledFlag = app.lateCancelled;
+          const isLateForPenalty = shift && shift.start && i.clockIn && toMin(i.clockIn) >= toMin(shift.start) && !lateCancelledFlag;
 
           if (shift && (shift.dispatchRange || shift.partTimeRange)) {
             // 新しい方式: dispatchRange/partTimeRangeを使用
@@ -813,7 +817,12 @@ export default function AdminShiftManagement() {
               const overlapStart = Math.max(actualIn, partStart);
               const overlapEnd = Math.min(actualOut, partEnd);
               if (overlapStart < overlapEnd) {
-                partTimeMin += (overlapEnd - overlapStart);
+                let partOverlap = overlapEnd - overlapStart;
+                // 遅刻ペナルティ: バイト分から30分削り
+                if (isLateForPenalty) {
+                  partOverlap = Math.max(0, partOverlap - 30);
+                }
+                partTimeMin += partOverlap;
               }
             }
 
@@ -821,17 +830,32 @@ export default function AdminShiftManagement() {
             if (!shift.partTimeRange && shift.dispatchRange) {
               const dispEnd = toMin(shift.dispatchRange.end);
               if (actualOut > dispEnd) {
-                partTimeMin += (actualOut - dispEnd);
+                let extraPart = actualOut - dispEnd;
+                // 遅刻ペナルティ: バイト分から30分削り
+                if (isLateForPenalty) {
+                  extraPart = Math.max(0, extraPart - 30);
+                }
+                partTimeMin += extraPart;
               }
             }
           } else if (shift && shift.isDispatch) {
             // 旧方式: フォールバック
             const wm = Math.max(0, actualOut - actualIn);
             dispatchMin += Math.min(wm, 8 * 60);
-            partTimeMin += Math.max(0, wm - 8 * 60);
+            let part = Math.max(0, wm - 8 * 60);
+            // 遅刻ペナルティ: バイト分から30分削り
+            if (isLateForPenalty) {
+              part = Math.max(0, part - 30);
+            }
+            partTimeMin += part;
           } else {
             // シフトなしまたは派遣シフトでない場合は全てバイト
-            partTimeMin += Math.max(0, actualOut - actualIn);
+            let partTotal = Math.max(0, actualOut - actualIn);
+            // 遅刻ペナルティ: 全体から30分削り
+            if (isLateForPenalty) {
+              partTotal = Math.max(0, partTotal - 30);
+            }
+            partTimeMin += partTotal;
           }
         }
       });
