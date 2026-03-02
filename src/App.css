@@ -287,6 +287,22 @@ body {
   }
 }
 
+@keyframes pulse-badge {
+
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 4px rgba(245, 158, 11, 0.2);
+  }
+
+  50% {
+    opacity: 0.85;
+    transform: scale(1.05);
+    box-shadow: 0 0 12px rgba(245, 158, 11, 0.5);
+  }
+}
+
 /* ===== 管理画面用 ガントチャート ===== */
 
 .admin-section {

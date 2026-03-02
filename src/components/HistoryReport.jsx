@@ -1,7 +1,7 @@
 import React, { useMemo, useEffect, useState } from "react";
 import { format, startOfYear, endOfYear, eachDayOfInterval, isSaturday, isSunday } from "date-fns";
 import { ja } from "date-fns/locale";
-import { Calendar, Clock, PieChart, CheckCircle } from "lucide-react";
+import { Calendar, Clock, PieChart, CheckCircle, AlertTriangle } from "lucide-react";
 import { HOLIDAYS } from "../constants";
 import { normalizeName } from "../utils/shiftParser";
 
@@ -416,7 +416,27 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                 } else if (hasAttendance && item.clockIn && !item.clockOut) {
                                     // 未退勤（出勤しているが退勤していない）- 既に上部で判定済み
                                 } else if (hasAttendance) {
-                                    statusDisplay = <CheckCircle size={18} color="#22c55e" />;
+                                    // 出退勤済みだが未申請
+                                    statusDisplay = (
+                                        <span
+                                            className="status-badge"
+                                            style={{
+                                                background: "linear-gradient(135deg, #fef3c7, #fde68a)",
+                                                color: "#92400e",
+                                                border: "1.5px solid #f59e0b",
+                                                fontWeight: "bold",
+                                                fontSize: "0.7rem",
+                                                display: "inline-flex",
+                                                alignItems: "center",
+                                                gap: "3px",
+                                                animation: "pulse-badge 2s ease-in-out infinite",
+                                                boxShadow: "0 0 8px rgba(245, 158, 11, 0.3)"
+                                            }}
+                                        >
+                                            <AlertTriangle size={12} />
+                                            未申請
+                                        </span>
+                                    );
                                 }
 
                                 return (
