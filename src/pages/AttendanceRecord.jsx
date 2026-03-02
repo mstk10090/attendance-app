@@ -479,7 +479,12 @@ export default function AttendanceRecord({ user: propUser }) {
         clockIn: clockInTime,
         clockOutTime: nowTime
       });
-      setDiscrepancyReason("");
+      // 残業判定：退勤がシフト終了+30分以上の場合、自動的に「残業」を選択
+      if (clockOutMin >= shiftEndMin + 30) {
+        setDiscrepancyReason("残業");
+      } else {
+        setDiscrepancyReason("");
+      }
       setDiscrepancySubReason("");
       setDiscrepancySubReasonText("");
       setDiscrepancyText("");
@@ -495,7 +500,7 @@ export default function AttendanceRecord({ user: propUser }) {
       clockIn: clockInTime,
       clockOutTime: nowTime
     });
-    setDiscrepancyReason("");
+    setDiscrepancyReason("シフトなし");
     setDiscrepancySubReason("");
     setDiscrepancySubReasonText("");
     setDiscrepancyText("");
@@ -643,6 +648,10 @@ export default function AttendanceRecord({ user: propUser }) {
     }
     if (discrepancyReason === "打刻間違い" && !discrepancyText.trim()) {
       alert("打刻間違いの詳細を入力してください");
+      return;
+    }
+    if (discrepancyReason === "残業" && !discrepancyText.trim()) {
+      alert("残業理由を入力してください");
       return;
     }
 
@@ -1583,7 +1592,7 @@ export default function AttendanceRecord({ user: propUser }) {
               {(discrepancyReason === "出張" || discrepancyReason === "残業" || discrepancyReason === "打刻間違い") && (
                 <>
                   <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "bold", color: "#374151", marginBottom: "6px" }}>
-                    {discrepancyReason === "出張" ? "出張場所 *" : discrepancyReason === "打刻間違い" ? "詳細 *" : "理由"}
+                    {discrepancyReason === "出張" ? "出張場所 *" : discrepancyReason === "打刻間違い" ? "詳細 *" : "残業理由 *"}
                   </label>
                   <textarea
                     placeholder={discrepancyReason === "出張" ? "出張場所を入力" : discrepancyReason === "打刻間違い" ? "どのように間違えたか入力" : "残業理由を入力"}
