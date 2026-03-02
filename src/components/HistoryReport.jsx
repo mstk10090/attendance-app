@@ -79,7 +79,15 @@ const extractReason = (item) => {
     if (!item.comment) return null;
     try {
         const p = JSON.parse(item.comment);
-        if (p && p.application && p.application.reason) return p.application.reason;
+        if (p && p.application && p.application.reason) {
+            // 大枠のみ返す（括弧部分を除去）
+            const reason = p.application.reason;
+            const parenIdx = reason.indexOf('（');
+            if (parenIdx > 0) return reason.substring(0, parenIdx);
+            const parenIdx2 = reason.indexOf('(');
+            if (parenIdx2 > 0) return reason.substring(0, parenIdx2).trim();
+            return reason;
+        }
         if (p.text && p.text.includes("[管理者修正]:")) {
             return "管理者修正";
         }
@@ -89,12 +97,35 @@ const extractReason = (item) => {
     }
 }
 
-// 理由の詳細テキスト（「その他」等で入力されたコメント）を取得
-const extractReasonText = (item) => {
+// 理由の詳細部分（subReason / subReasonText / text）を取得
+const extractReasonDetail = (item) => {
     if (!item.comment) return null;
     try {
         const p = JSON.parse(item.comment);
-        return p.text || null;
+        if (!p || !p.application) return p.text || null;
+        const app = p.application;
+        const parts = [];
+        // subReasonがある場合
+        if (app.subReason && app.subReason !== '-') {
+            if (app.subReason === 'その他' && app.subReasonText) {
+                parts.push(app.subReasonText);
+            } else {
+                parts.push(app.subReason);
+            }
+        }
+        // 既存データ: reasonに括弧が含まれている場合はそこから詳細を抽出
+        if (parts.length === 0 && app.reason) {
+            const match = app.reason.match(/[\uff08(](.+?)[\uff09)]/);
+            if (match) parts.push(match[1]);
+        }
+        // textフィールド（出張場所、残業理由、打刻間違い詳細など）
+        if (p.text && p.text.trim()) {
+            // 既にpartsに同じ内容がない場合のみ追加
+            if (!parts.includes(p.text.trim())) {
+                parts.push(p.text.trim());
+            }
+        }
+        return parts.length > 0 ? parts.join(' / ') : null;
     } catch {
         return null;
     }
@@ -107,7 +138,8 @@ const extractAppliedTime = (item) => {
         if (p && p.application && p.application.appliedIn && p.application.appliedOut) {
             return {
                 appliedIn: p.application.appliedIn,
-                appliedOut: p.application.appliedOut
+                appliedOut: p.application.appliedOut,
+                breakDuration: p.application.breakDuration || 0
             };
         }
         return null;
@@ -156,7 +188,21 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
         }
 
         const attendedDates = new Set(items.filter(i => i.clockIn).map(i => i.displayDate || i.workDate));
-        const totalMin = items.reduce((acc, i) => acc + (i.clockIn && i.clockOut ? calcRoundedWorkMin(i) : 0), 0);
+        const totalMin = items.reduce((acc, i) => {
+            if (!i.clockIn || !i.clockOut) return acc;
+            let wm = calcRoundedWorkMin(i);
+            // 遅刻ペナルティ判定
+            const dateStr = i.displayDate || i.workDate;
+            const normalized = user ? normalizeName(user.userName) : null;
+            const shiftForDay = normalized && shiftMap?.[normalized]?.[dateStr] ? shiftMap[normalized][dateStr] : null;
+            let lateCancelled = false;
+            const parsed = parseComment(i.comment);
+            lateCancelled = parsed?.application?.lateCancelled || false;
+            if (shiftForDay && shiftForDay.start && i.clockIn && toMin(i.clockIn) >= toMin(shiftForDay.start) && !lateCancelled) {
+                wm = Math.max(0, wm - 30);
+            }
+            return acc + wm;
+        }, 0);
         const missingOut = items.filter(i => i.clockIn && !i.clockOut).length;
         const days = attendedDates.size;
 
@@ -219,7 +265,7 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                 // 承認済み・承認待ちは編集不可（取り下げ or 再申請で編集可能）
                                 // 本日は退勤済みの場合のみ編集可能
                                 const todayClockedOut = isToday && item.clockIn && item.clockOut;
-                                const isInteractive = !isApproved && !isPending && (!isToday || todayClockedOut) && (!isFuture || status);
+                                const isInteractive = !isApproved && (!isToday || todayClockedOut) && (!isFuture || status);
 
                                 // Shift Lookup（背景色判定のために先に行う）
                                 let shift = null;
@@ -253,22 +299,37 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                 let workTimeDisplay = <span style={{ color: "#e5e7eb" }}>-</span>;
                                 let workTimeColor = "#111827"; // デフォルトは黒
 
+                                // 遅刻ペナルティ判定
+                                const parsedComment = parseComment(item.comment);
+                                const lateCancelledFlag = parsedComment?.application?.lateCancelled;
+                                const isLateForPenalty = shift && shift.start && item.clockIn && toMin(item.clockIn) >= toMin(shift.start) && !lateCancelledFlag;
+
                                 // 申請時間がある場合はそちらで計算（ステータスに関係なく）
                                 const appliedTimeForCalc = extractAppliedTime(item);
                                 if (appliedTimeForCalc && appliedTimeForCalc.appliedIn && appliedTimeForCalc.appliedOut) {
                                     const inMin = toMin(appliedTimeForCalc.appliedIn);
                                     const outMin = toMin(appliedTimeForCalc.appliedOut);
-                                    const appliedDuration = outMin - inMin;
+                                    const breakDur = appliedTimeForCalc.breakDuration || 0;
+                                    const appliedDuration = outMin - inMin - breakDur;
 
                                     if (appliedDuration > 0) {
-                                        const roundedDuration = Math.floor(appliedDuration / 30) * 30;
+                                        let roundedDuration = Math.floor(appliedDuration / 30) * 30;
+                                        // 遅刻ペナルティ: 30分削り
+                                        if (isLateForPenalty) {
+                                            roundedDuration = Math.max(0, roundedDuration - 30);
+                                        }
                                         const hours = Math.floor(roundedDuration / 60);
                                         const mins = roundedDuration % 60;
                                         workTimeDisplay = `${hours}:${String(mins).padStart(2, '0')}`;
                                         if (isApproved) workTimeColor = "#16a34a"; // 緑色（承認済み）
                                     }
                                 } else if (rounded > 0) {
-                                    workTimeDisplay = `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, '0')}`;
+                                    let adjustedRounded = rounded;
+                                    // 遅刻ペナルティ: 30分削り
+                                    if (isLateForPenalty) {
+                                        adjustedRounded = Math.max(0, adjustedRounded - 30);
+                                    }
+                                    workTimeDisplay = `${Math.floor(adjustedRounded / 60)}:${String(adjustedRounded % 60).padStart(2, '0')}`;
                                 } else if (item.clockIn && item.clockOut) {
                                     workTimeDisplay = "0:00";
                                 }
@@ -301,8 +362,8 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                     statusDisplay = <span className="status-badge red">異常</span>;
                                 } else if (isShiftMissing) {
                                     statusDisplay = <span className="status-badge red">シフト未出勤</span>;
-                                } else if (status === "pending" && !isToday) {
-                                    // 本日以外で承認待ち
+                                } else if (status === "pending") {
+                                    // 承認待ち（本日含む）
                                     statusDisplay = (
                                         <>
                                             <span className="status-badge orange">承認待</span>
@@ -425,7 +486,16 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                             )}
                                         </td>
                                         <td style={{ padding: "12px 16px", textAlign: "center", fontFamily: "monospace", fontSize: "0.9rem", color: "#2563eb" }}>
-                                            {appliedTime ? `${appliedTime.appliedIn.slice(0, 5)}-${appliedTime.appliedOut.slice(0, 5)}` : <span style={{ color: "#d1d5db" }}>-</span>}
+                                            {appliedTime ? (
+                                                <>
+                                                    {appliedTime.appliedIn.slice(0, 5)}-{appliedTime.appliedOut.slice(0, 5)}
+                                                    {appliedTime.breakDuration > 0 && (
+                                                        <div style={{ fontSize: "0.7rem", color: "#9ca3af" }}>
+                                                            休憩{appliedTime.breakDuration >= 60 ? `${Math.floor(appliedTime.breakDuration / 60)}h` : ''}{appliedTime.breakDuration % 60 > 0 ? `${appliedTime.breakDuration % 60}m` : ''}
+                                                        </div>
+                                                    )}
+                                                </>
+                                            ) : <span style={{ color: "#d1d5db" }}>-</span>}
                                         </td>
                                         <td style={{ padding: "12px 16px", textAlign: "center", fontWeight: "bold", color: workTimeColor }}>
                                             {workTimeDisplay}
@@ -433,35 +503,34 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                         <td style={{ padding: "12px 16px", textAlign: "center" }}>
                                             {statusDisplay}
                                         </td>
-                                        <td style={{ padding: "12px 16px", textAlign: "center" }}>
+                                        <td style={{ padding: "12px 16px" }}>
                                             {(() => {
                                                 if (!reason || reason === "欠勤") {
                                                     return <span style={{ color: "#d1d5db" }}>-</span>;
                                                 }
-                                                const reasonText = extractReasonText(item);
+                                                const reasonDetail = extractReasonDetail(item);
                                                 const itemKey = `${dateStr}`;
                                                 const isExpanded = expandedReasonId === itemKey;
                                                 return (
                                                     <div
-                                                        style={{ lineHeight: "1.3", cursor: reasonText ? "pointer" : "default" }}
+                                                        style={{ display: "flex", alignItems: "flex-start", gap: "8px", lineHeight: "1.3", cursor: reasonDetail ? "pointer" : "default" }}
                                                         onClick={(e) => {
-                                                            if (reasonText) {
+                                                            if (reasonDetail) {
                                                                 e.stopPropagation();
                                                                 setExpandedReasonId(isExpanded ? null : itemKey);
                                                             }
                                                         }}
                                                     >
-                                                        <span className="status-badge gray">{reason}</span>
-                                                        {reasonText && reasonText.trim() && (
-                                                            <div style={{
-                                                                color: "#6b7280", fontSize: "11px", marginTop: "2px",
+                                                        <span className="status-badge gray" style={{ flexShrink: 0 }}>{reason}</span>
+                                                        {reasonDetail && reasonDetail.trim() && (
+                                                            <span style={{
+                                                                color: "#6b7280", fontSize: "11px",
                                                                 ...(isExpanded
                                                                     ? { whiteSpace: "pre-wrap", wordBreak: "break-word", textAlign: "left" }
-                                                                    : { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "120px", display: "inline-block" })
+                                                                    : { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "140px" })
                                                             }}>
-                                                                {reasonText}
-                                                                {!isExpanded && <span style={{ color: "#3b82f6", marginLeft: "4px", fontSize: "10px" }}>▶詳細</span>}
-                                                            </div>
+                                                                {reasonDetail}
+                                                            </span>
                                                         )}
                                                     </div>
                                                 );

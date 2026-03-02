@@ -1996,7 +1996,7 @@ export default function AttendanceRecord({ user: propUser }) {
 
             <div style={{ display: "flex", gap: "12px", paddingTop: "12px", borderTop: "1px solid #f3f4f6" }}>
               <button onClick={() => setExpandedDate(null)} style={{ flex: 1, padding: "14px", borderRadius: "8px", border: "none", background: "#f3f4f6", color: "#4b5563", fontWeight: "bold", cursor: "pointer" }}>キャンセル</button>
-              {adminFeedback && (() => {
+              {(() => {
                 const itm = items.find(i => i.workDate === expandedDate);
                 const app = itm ? parseComment(itm.comment).application : null;
                 return app?.status === "pending";
@@ -2012,24 +2012,6 @@ export default function AttendanceRecord({ user: propUser }) {
                     }}
                   >
                     取り下げ
-                  </button>
-                )}
-              {!adminFeedback && (() => {
-                const itm = items.find(i => i.workDate === expandedDate);
-                const app = itm ? parseComment(itm.comment).application : null;
-                return app?.status === "pending";
-              })() && (
-                  <button
-                    type="button"
-                    onClick={handleWithdraw}
-                    disabled={loading}
-                    style={{
-                      flex: 1, padding: "14px", borderRadius: "8px", border: "none",
-                      background: "#6b7280", color: "#fff", fontWeight: "bold", cursor: loading ? "default" : "pointer",
-                      display: "flex", alignItems: "center", justifyContent: "center", gap: "8px"
-                    }}
-                  >
-                    申請取り下げ
                   </button>
                 )}
 
