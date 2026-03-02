@@ -1042,7 +1042,7 @@ export default function AttendanceRecord({ user: propUser }) {
         setLoading(false);
         return;
       }
-      if (reason === "残業" && (!formText || !formText.trim())) {
+      if (reason === "残業" && !subReason && (!formText || !formText.trim())) {
         alert("残業理由を入力してください");
         setLoading(false);
         return;
