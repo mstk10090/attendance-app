@@ -1485,17 +1485,19 @@ export default function AdminAttendance() {
                                 >
                                   修正
                                 </button>
-                                <button
-                                  className="btn"
-                                  onClick={() => { setResubmitTarget(item); setSelectedResubmitReason(""); setCustomResubmitReason(""); }}
-                                  style={{
-                                    fontSize: "11px", padding: "4px 10px",
-                                    background: "#f59e0b", color: "#fff", border: "none", borderRadius: "4px",
-                                    cursor: "pointer", fontWeight: "bold"
-                                  }}
-                                >
-                                  再提出
-                                </button>
+                                {rowAppStatus !== "resubmission_requested" && (
+                                  <button
+                                    className="btn"
+                                    onClick={() => { setResubmitTarget(item); setSelectedResubmitReason(""); setCustomResubmitReason(""); }}
+                                    style={{
+                                      fontSize: "11px", padding: "4px 10px",
+                                      background: "#f59e0b", color: "#fff", border: "none", borderRadius: "4px",
+                                      cursor: "pointer", fontWeight: "bold"
+                                    }}
+                                  >
+                                    再提出
+                                  </button>
+                                )}
                               </>
                             )}
 

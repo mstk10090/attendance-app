@@ -1123,7 +1123,6 @@ export default function AttendanceRecord({ user: propUser }) {
   const handleWithdraw = async (workDate = null) => {
     const targetDate = workDate || expandedDate;
     if (!targetDate) return;
-    if (!window.confirm("申請を取り下げますか？")) return;
     setLoading(true);
     try {
       const originalItem = items.find(i => i.workDate === targetDate);
