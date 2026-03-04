@@ -1717,8 +1717,7 @@ export default function AdminAttendance() {
                     if (!newIn || !newOut) { alert("出勤・退勤時間を入力してください"); return; }
 
                     // 遅刻・残業の自動判定
-                    const lookupDate = editingItem.displayDate || editingItem.workDate;
-                    const shift = getShift(editingItem.userName, lookupDate);
+                    const shift = findShiftForItem(editingItem);
                     let autoReason = null;
                     if (shift && shift.start && shift.end) {
                       const shiftStartMin = toMin(shift.start);
