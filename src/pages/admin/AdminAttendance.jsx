@@ -1086,10 +1086,12 @@ export default function AdminAttendance() {
                       const shiftEndMin = toMin(shift.end);
                       // 管理者修正済みの場合は申請時間ベースで判定
                       const app = item._application || {};
-                      const checkIn = app.adminEdited && app.appliedIn ? toMin(app.appliedIn) : toMin(item.clockIn);
-                      const checkOut = app.adminEdited && app.appliedOut ? toMin(app.appliedOut) : toMin(item.clockOut);
+                      const isAdminEdited = !!app.adminEdited;
+                      const checkIn = isAdminEdited && app.appliedIn ? toMin(app.appliedIn) : toMin(item.clockIn);
+                      const checkOut = isAdminEdited && app.appliedOut ? toMin(app.appliedOut) : toMin(item.clockOut);
 
-                      const isLate = checkIn > shiftStartMin; // ぴったりは遅刻ではない（管理者修正時）
+                      // 管理者修正: ぴったりは遅刻にしない(>)、通常打刻: ぴったりは遅刻(>=)
+                      const isLate = isAdminEdited ? checkIn > shiftStartMin : checkIn >= shiftStartMin;
                       const isEarly = checkOut < shiftEndMin;
                       const isOvertime = checkOut >= shiftEndMin + 30; // シフト終了30分以上で残業判定
 
