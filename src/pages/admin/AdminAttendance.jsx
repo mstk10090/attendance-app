@@ -1177,6 +1177,16 @@ export default function AdminAttendance() {
                                 </>
                               );
                             }
+                            // 自動承認待ち(問題なし): 30分丸めの申請時間を表示
+                            if (item.clockIn && item.clockOut && !app?.appliedIn) {
+                              const roundCeil = (t) => { const m = toMin(t); const r = Math.ceil(m / 30) * 30; const hh = String(Math.floor(r / 60)).padStart(2, '0'); const mm = String(r % 60).padStart(2, '0'); return `${hh}:${mm}`; };
+                              const roundFloor = (t) => { const m = toMin(t); const r = Math.floor(m / 30) * 30; const hh = String(Math.floor(r / 60)).padStart(2, '0'); const mm = String(r % 60).padStart(2, '0'); return `${hh}:${mm}`; };
+                              return (
+                                <span style={{ fontFamily: "monospace", color: "#9ca3af" }}>
+                                  {roundCeil(item.clockIn)}-{roundFloor(item.clockOut)}
+                                </span>
+                              );
+                            }
                             return <span style={{ color: "#9ca3af" }}>-</span>;
                           })()}
                         </td>
@@ -1643,7 +1653,12 @@ export default function AdminAttendance() {
                     <label style={{ fontSize: "12px", color: "#6b7280", display: "block", marginBottom: "4px" }}>出勤時間</label>
                     <select
                       id="adminEditIn"
-                      defaultValue={editingItem._application?.appliedIn || editingItem.clockIn || ""}
+                      defaultValue={(() => {
+                        const raw = editingItem._application?.appliedIn || editingItem.clockIn || "";
+                        if (!raw) return "";
+                        const m = toMin(raw); const r = Math.ceil(m / 30) * 30;
+                        return `${String(Math.floor(r / 60)).padStart(2, '0')}:${String(r % 60).padStart(2, '0')}`;
+                      })()}
                       className="input"
                       style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "6px" }}
                     >
@@ -1659,7 +1674,12 @@ export default function AdminAttendance() {
                     <label style={{ fontSize: "12px", color: "#6b7280", display: "block", marginBottom: "4px" }}>退勤時間</label>
                     <select
                       id="adminEditOut"
-                      defaultValue={editingItem._application?.appliedOut || editingItem.clockOut || ""}
+                      defaultValue={(() => {
+                        const raw = editingItem._application?.appliedOut || editingItem.clockOut || "";
+                        if (!raw) return "";
+                        const m = toMin(raw); const r = Math.floor(m / 30) * 30;
+                        return `${String(Math.floor(r / 60)).padStart(2, '0')}:${String(r % 60).padStart(2, '0')}`;
+                      })()}
                       className="input"
                       style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "6px" }}
                     >
