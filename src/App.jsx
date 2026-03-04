@@ -37,7 +37,7 @@ import { ALLOWED_IPS } from "./constants"; // IPリスト
 
 
 export default function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem("isLoggedIn") === "true");
 
   // IP Restriction State
   const [ipStatus, setIpStatus] = useState("loading"); // "loading" | "allowed" | "denied"
@@ -83,12 +83,7 @@ export default function App() {
     checkIp();
   }, []);
 
-  useEffect(() => {
-    const flag = localStorage.getItem("isLoggedIn");
-    if (flag === "true") {
-      setIsLoggedIn(true);
-    }
-  }, []);
+
 
   // 自動ログアウト（5分無操作）
   const AUTO_LOGOUT_MS = 5 * 60 * 1000; // 5分
