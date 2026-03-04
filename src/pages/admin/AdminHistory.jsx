@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useRef } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { format, parseISO, startOfYear, endOfYear, eachDayOfInterval, isSaturday, isSunday } from "date-fns";
 import { ja } from "date-fns/locale";
@@ -101,37 +101,6 @@ export default function AdminHistory() {
     const [loadingHistory, setLoadingHistory] = useState(false);
     const [shiftMap, setShiftMap] = useState({});
 
-    // Lazy Load State
-    const [displayedLimit, setDisplayedLimit] = useState(20);
-    const observerTarget = useRef(null);
-
-    useEffect(() => {
-        setDisplayedLimit(20);
-    }, [searchQuery, filterType, filterDept, filterLoc]); // Reset on filter change
-
-    useEffect(() => {
-        const observer = new IntersectionObserver(
-            entries => {
-                if (entries[0].isIntersecting) {
-                    setDisplayedLimit(prev => prev + 20);
-                }
-            },
-            { threshold: 0.1 }
-        );
-        if (observerTarget.current) {
-            observer.observe(observerTarget.current);
-        }
-        return () => {
-            if (observerTarget.current) observer.unobserve(observerTarget.current);
-        };
-    }, [users]); // Re-attach if users list completely reloads (rare) or just mount.
-    // Actually, we want to observe the sentinel. 
-    // Effect needs to run when sentinel might be rendered/unrendered? 
-    // Simply having it with empty deps or appropriate filteredUsers might be enough, 
-    // but React refs are stable. We might need a callback ref or just rely on 'observerTarget.current' being available.
-
-    // Better pattern:
-    // We will render <div ref={observerTarget} /> at the bottom.
 
 
     // 1. Fetch Users on Mount
@@ -534,7 +503,7 @@ export default function AdminHistory() {
                             <div style={{ padding: "40px", textAlign: "center", color: "#9ca3af" }}>データがありません (API接続を確認してください)</div>
                         ) : (
                             <div className="user-grid">
-                                {filteredUsers.slice(0, displayedLimit).map(u => (
+                                {filteredUsers.map(u => (
                                     <button
                                         key={u.userId}
                                         className="user-card-btn"
@@ -549,8 +518,6 @@ export default function AdminHistory() {
                                         </div>
                                     </button>
                                 ))}
-                                {/* Sentinel */}
-                                <div ref={observerTarget} style={{ height: "20px", width: "100%", gridColumn: "1 / -1" }}></div>
                                 {filteredUsers.length === 0 && (
                                     <div style={{ gridColumn: "1 / -1", textAlign: "center", color: "#9ca3af", padding: "20px" }}>
                                         条件に一致するスタッフがいません
