@@ -199,7 +199,15 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
             endD = endOfYear(new Date(y, 0, 1));
         }
 
-        const approvedItems = items.filter(i => {
+        // 当月のアイテムのみにフィルタリング
+        const startStr = format(startD, "yyyy-MM-dd");
+        const endStr = format(endD, "yyyy-MM-dd");
+        const monthItems = items.filter(i => {
+            const d = i.displayDate || i.workDate;
+            return d >= startStr && d <= endStr;
+        });
+
+        const approvedItems = monthItems.filter(i => {
             const p = parseComment(i.comment);
             return p?.application?.status === "approved";
         });
@@ -224,7 +232,7 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
         let dispatchMin = 0;
         let partTimeMin = 0;
 
-        items.forEach(i => {
+        monthItems.forEach(i => {
             const parsed = parseComment(i.comment);
             const app = parsed?.application;
             // 欠勤
@@ -324,7 +332,7 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
             }
             return acc + wm;
         }, 0);
-        const missingOut = items.filter(i => i.clockIn && !i.clockOut).length;
+        const missingOut = monthItems.filter(i => i.clockIn && !i.clockOut).length;
         const days = attendedDates.size;
 
         return {
