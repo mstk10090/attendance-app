@@ -184,7 +184,7 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
     const [expandedReasonId, setExpandedReasonId] = useState(null);
 
 
-    // Render Stats (理由別内訳は削除)
+    // Render Stats
     const stats = useMemo(() => {
         if (!user || !baseDate) return null;
 
@@ -205,6 +205,112 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
         });
         const attendedDates = new Set(approvedItems.filter(i => i.clockIn).map(i => i.displayDate || i.workDate));
         const userShifts = getUserShifts(shiftMap, user);
+
+        // シフト日数（休み以外）
+        const today = format(new Date(), "yyyy-MM-dd");
+        let shiftDays = 0;
+        const allDays = eachDayOfInterval({ start: startD, end: endD });
+        allDays.forEach(day => {
+            const ds = format(day, "yyyy-MM-dd");
+            if (ds > today) return;
+            const s = userShifts[ds];
+            if (s && !s.isOff) shiftDays++;
+        });
+
+        // 遅刻・欠勤カウント
+        let lateCount = 0;
+        let absentCount = 0;
+        let earlyCount = 0;
+        let dispatchMin = 0;
+        let partTimeMin = 0;
+
+        items.forEach(i => {
+            const parsed = parseComment(i.comment);
+            const app = parsed?.application;
+            // 欠勤
+            if (app?.status === "absent") absentCount++;
+            // 遅刻
+            const dateStr = i.displayDate || i.workDate;
+            const shiftForDay = userShifts[dateStr] || null;
+            if (shiftForDay && shiftForDay.start && i.clockIn) {
+                const lateCancelled = app?.lateCancelled || false;
+                if (toMin(i.clockIn) >= toMin(shiftForDay.start) && !lateCancelled) {
+                    lateCount++;
+                }
+            }
+            // 早退
+            if (app?.reason && app.reason.includes("早退")) earlyCount++;
+        });
+
+        // 派遣/バイト時間の計算（承認済みのみ）
+        approvedItems.forEach(i => {
+            if (!i.clockIn || !i.clockOut) return;
+            const parsed = parseComment(i.comment);
+            const app = parsed?.application || {};
+            if (app.withdrawn) return;
+            const actualIn = toMin(app.appliedIn || i.clockIn);
+            const actualOut = toMin(app.appliedOut || i.clockOut);
+            const roundedIn = Math.ceil(actualIn / 30) * 30;
+            const roundedOut = Math.floor(actualOut / 30) * 30;
+            if (roundedIn >= roundedOut) return;
+            const breakMin = app.breakDuration || calcBreakTime(i);
+            const dateStr = i.displayDate || i.workDate;
+            const shift = userShifts[dateStr] || null;
+            const lateCancelled = app.lateCancelled || false;
+            const isLate = shift && shift.start && i.clockIn && toMin(i.clockIn) >= toMin(shift.start) && !lateCancelled;
+
+            let dayDispatch = 0;
+            let dayPartTime = 0;
+
+            if (shift && (shift.dispatchRange || shift.partTimeRange)) {
+                if (shift.dispatchRange) {
+                    const dS = toMin(shift.dispatchRange.start);
+                    const dE = toMin(shift.dispatchRange.end);
+                    const oS = Math.max(roundedIn, dS);
+                    const oE = Math.min(roundedOut, dE);
+                    if (oS < oE) dayDispatch = oE - oS;
+                }
+                if (dayDispatch > 8 * 60) {
+                    dayPartTime += dayDispatch - 8 * 60;
+                    dayDispatch = 8 * 60;
+                }
+                if (shift.partTimeRange) {
+                    const pS = toMin(shift.partTimeRange.start);
+                    const pE = toMin(shift.partTimeRange.end);
+                    const oS = Math.max(roundedIn, pS);
+                    const oE = Math.min(roundedOut, pE);
+                    if (oS < oE) {
+                        let pt = oE - oS;
+                        if (isLate) pt = Math.max(0, pt - 30);
+                        dayPartTime += pt;
+                    }
+                }
+                if (!shift.partTimeRange && shift.dispatchRange) {
+                    const dE = toMin(shift.dispatchRange.end);
+                    if (roundedOut > dE) {
+                        let extra = roundedOut - dE;
+                        if (isLate) extra = Math.max(0, extra - 30);
+                        dayPartTime += extra;
+                    }
+                }
+            } else if (shift && shift.isDispatch) {
+                const wm = Math.max(0, roundedOut - roundedIn - breakMin);
+                dayDispatch = Math.min(wm, 8 * 60);
+                let part = Math.max(0, wm - 8 * 60);
+                if (isLate) part = Math.max(0, part - 30);
+                dayPartTime = part;
+            } else {
+                let partTotal = Math.max(0, roundedOut - roundedIn - breakMin);
+                if (isLate) partTotal = Math.max(0, partTotal - 30);
+                dayPartTime = partTotal;
+            }
+
+            dayDispatch = Math.floor(dayDispatch / 30) * 30;
+            dayPartTime = Math.floor(dayPartTime / 30) * 30;
+            dispatchMin += dayDispatch;
+            partTimeMin += dayPartTime;
+        });
+
         const totalMin = approvedItems.reduce((acc, i) => {
             if (!i.clockIn || !i.clockOut) return acc;
             let wm = calcRoundedWorkMin(i);
@@ -221,13 +327,58 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
         const missingOut = items.filter(i => i.clockIn && !i.clockOut).length;
         const days = attendedDates.size;
 
-        return { totalMin, missingOut, days };
-    }, [items, user, baseDate, viewMode]);
+        return {
+            totalMin, missingOut, days, shiftDays,
+            lateCount, absentCount, earlyCount,
+            dispatchMin, partTimeMin
+        };
+    }, [items, user, baseDate, viewMode, shiftMap]);
 
     if (!stats) return null;
 
+    const fmtTime = (min) => {
+        const h = Math.floor(min / 60);
+        const m = min % 60;
+        return `${h}h ${m}m`;
+    };
+
     return (
         <div>
+            {/* サマリーカード */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "12px", marginBottom: "20px" }}>
+                <div style={{ background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: "12px", padding: "14px", textAlign: "center" }}>
+                    <div style={{ fontSize: "0.75rem", color: "#0369a1", marginBottom: "4px" }}>シフト日数</div>
+                    <div style={{ fontSize: "1.6rem", fontWeight: "bold", color: "#0c4a6e" }}>{stats.shiftDays}<span style={{ fontSize: "0.8rem", fontWeight: "normal" }}>日</span></div>
+                </div>
+                <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "12px", padding: "14px", textAlign: "center" }}>
+                    <div style={{ fontSize: "0.75rem", color: "#15803d", marginBottom: "4px" }}>出勤日数</div>
+                    <div style={{ fontSize: "1.6rem", fontWeight: "bold", color: "#14532d" }}>{stats.days}<span style={{ fontSize: "0.8rem", fontWeight: "normal" }}>日</span></div>
+                </div>
+                <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: "12px", padding: "14px", textAlign: "center" }}>
+                    <div style={{ fontSize: "0.75rem", color: "#1d4ed8", marginBottom: "4px" }}>派遣時間</div>
+                    <div style={{ fontSize: "1.2rem", fontWeight: "bold", color: "#1e3a5f" }}>{stats.dispatchMin > 0 ? fmtTime(stats.dispatchMin) : "-"}</div>
+                </div>
+                <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "12px", padding: "14px", textAlign: "center" }}>
+                    <div style={{ fontSize: "0.75rem", color: "#16a34a", marginBottom: "4px" }}>バイト時間</div>
+                    <div style={{ fontSize: "1.2rem", fontWeight: "bold", color: "#14532d" }}>{stats.partTimeMin > 0 ? fmtTime(stats.partTimeMin) : "-"}</div>
+                </div>
+                <div style={{ background: stats.lateCount > 0 ? "#fffbeb" : "#f9fafb", border: `1px solid ${stats.lateCount > 0 ? "#fde68a" : "#e5e7eb"}`, borderRadius: "12px", padding: "14px", textAlign: "center" }}>
+                    <div style={{ fontSize: "0.75rem", color: "#92400e", marginBottom: "4px" }}>遅刻</div>
+                    <div style={{ fontSize: "1.6rem", fontWeight: "bold", color: stats.lateCount > 0 ? "#b45309" : "#9ca3af" }}>{stats.lateCount}<span style={{ fontSize: "0.8rem", fontWeight: "normal" }}>件</span></div>
+                </div>
+                <div style={{ background: stats.absentCount > 0 ? "#fef2f2" : "#f9fafb", border: `1px solid ${stats.absentCount > 0 ? "#fecaca" : "#e5e7eb"}`, borderRadius: "12px", padding: "14px", textAlign: "center" }}>
+                    <div style={{ fontSize: "0.75rem", color: "#991b1b", marginBottom: "4px" }}>欠勤</div>
+                    <div style={{ fontSize: "1.6rem", fontWeight: "bold", color: stats.absentCount > 0 ? "#dc2626" : "#9ca3af" }}>{stats.absentCount}<span style={{ fontSize: "0.8rem", fontWeight: "normal" }}>件</span></div>
+                </div>
+                <div style={{ background: stats.earlyCount > 0 ? "#fffbeb" : "#f9fafb", border: `1px solid ${stats.earlyCount > 0 ? "#fde68a" : "#e5e7eb"}`, borderRadius: "12px", padding: "14px", textAlign: "center" }}>
+                    <div style={{ fontSize: "0.75rem", color: "#92400e", marginBottom: "4px" }}>早退</div>
+                    <div style={{ fontSize: "1.6rem", fontWeight: "bold", color: stats.earlyCount > 0 ? "#b45309" : "#9ca3af" }}>{stats.earlyCount}<span style={{ fontSize: "0.8rem", fontWeight: "normal" }}>件</span></div>
+                </div>
+                <div style={{ background: stats.missingOut > 0 ? "#fef2f2" : "#f9fafb", border: `1px solid ${stats.missingOut > 0 ? "#fecaca" : "#e5e7eb"}`, borderRadius: "12px", padding: "14px", textAlign: "center" }}>
+                    <div style={{ fontSize: "0.75rem", color: "#991b1b", marginBottom: "4px" }}>打刻漏れ</div>
+                    <div style={{ fontSize: "1.6rem", fontWeight: "bold", color: stats.missingOut > 0 ? "#dc2626" : "#9ca3af" }}>{stats.missingOut}<span style={{ fontSize: "0.8rem", fontWeight: "normal" }}>件</span></div>
+                </div>
+            </div>
             {/* Table List */}
             <div className="table-wrap" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)", borderRadius: "8px", overflow: "hidden", border: "1px solid #e5e7eb", maxHeight: "60vh", overflowY: "auto" }}>
                 <table className="admin-table" style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
