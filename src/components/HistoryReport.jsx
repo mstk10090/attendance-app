@@ -168,6 +168,18 @@ const isWorkDay = (dateStr) => {
     return true;
 };
 
+// shiftMapからユーザーのシフトを取得（複数キーのフォールバック）
+const getUserShifts = (shiftMap, user) => {
+    if (!shiftMap || !user) return {};
+    const ln = (user.lastName || "").trim();
+    const fn = (user.firstName || "").trim();
+    const normalized = normalizeName(ln + fn);
+    if (normalized && shiftMap[normalized]) return shiftMap[normalized];
+    if (user.userName && shiftMap[normalizeName(user.userName)]) return shiftMap[normalizeName(user.userName)];
+    if (user.loginId && shiftMap[user.loginId]) return shiftMap[user.loginId];
+    return {};
+};
+
 export default function HistoryReport({ user, items, baseDate, viewMode, shiftMap, onRowClick, onWithdraw }) {
     const [expandedReasonId, setExpandedReasonId] = useState(null);
 
@@ -192,13 +204,12 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
             return p?.application?.status === "approved";
         });
         const attendedDates = new Set(approvedItems.filter(i => i.clockIn).map(i => i.displayDate || i.workDate));
+        const userShifts = getUserShifts(shiftMap, user);
         const totalMin = approvedItems.reduce((acc, i) => {
             if (!i.clockIn || !i.clockOut) return acc;
             let wm = calcRoundedWorkMin(i);
-            // 遅刻ペナルティ判定
             const dateStr = i.displayDate || i.workDate;
-            const normalized = user ? normalizeName(user.userName) : null;
-            const shiftForDay = normalized && shiftMap?.[normalized]?.[dateStr] ? shiftMap[normalized][dateStr] : null;
+            const shiftForDay = userShifts[dateStr] || null;
             let lateCancelled = false;
             const parsed = parseComment(i.comment);
             lateCancelled = parsed?.application?.lateCancelled || false;
@@ -274,9 +285,9 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                 // Shift Lookup（背景色判定のために先に行う）
                                 let shift = null;
                                 if (shiftMap && user) {
-                                    const normalized = normalizeName(user.userName);
-                                    if (shiftMap[normalized]?.[dateStr]) {
-                                        shift = shiftMap[normalized][dateStr];
+                                    const userShiftsMap = getUserShifts(shiftMap, user);
+                                    if (userShiftsMap[dateStr]) {
+                                        shift = userShiftsMap[dateStr];
                                     }
                                 }
 
