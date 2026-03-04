@@ -1707,10 +1707,6 @@ export default function AttendanceRecord({ user: propUser }) {
 
       {/* 2. ALERTS */}
       <div style={{ marginBottom: "20px" }}>
-        <div style={{ background: "#eff6ff", color: "#1e40af", padding: "12px 16px", borderRadius: "8px", marginBottom: "8px", display: "flex", alignItems: "center", gap: "8px", fontSize: "0.9rem" }}>
-          <Info size={18} />
-          前日以降の勤怠が申請可能です
-        </div>
 
         {resubmissionCount > 0 && (
           <div style={{ background: "#faf5ff", color: "#7c3aed", padding: "12px 16px", borderRadius: "8px", marginBottom: "8px", border: "1px solid #e9d5ff" }}>
