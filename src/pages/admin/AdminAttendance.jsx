@@ -1213,24 +1213,15 @@ export default function AdminAttendance() {
                             // 派遣ユーザーの場合は派遣/バイト分離表示
                             const isDispatch = shift?.isDispatch || shift?.location === "派遣" || ["朝", "早", "遅", "中"].includes(shift?.type || "");
                             if (isDispatch && shift && effectiveIn && effectiveOut) {
-                              // dispatchRangeがあればそれを使用、なければshift.start/endにフォールバック
+                              // dispatchRangeがあればそれを使用（派遣は固定契約のためフルレンジ）
                               let dMin = 0;
                               if (shift.dispatchRange) {
                                 const dispStart = toMin(shift.dispatchRange.start);
                                 const dispEnd = toMin(shift.dispatchRange.end);
-                                const overlapStart = Math.max(effInMin, dispStart);
-                                const overlapEnd = Math.min(effOutMin, dispEnd);
-                                if (overlapStart < overlapEnd) {
-                                  dMin = Math.min(overlapEnd - overlapStart, 8 * 60);
-                                }
+                                dMin = dispEnd - dispStart;
                               } else {
-                                const shiftStart = toMin(shift.start);
-                                const shiftEnd = toMin(shift.end);
-                                const start = Math.max(shiftStart, effInMin);
-                                const end = Math.min(shiftEnd, effOutMin);
-                                if (start < end) {
-                                  dMin = Math.min(Math.max(0, end - start), 8 * 60);
-                                }
+                                // フォールバック: 最大8時間
+                                dMin = Math.min(min, 8 * 60);
                               }
                               let pMin = Math.max(0, min - dMin);
                               // 派遣の遅刻ペナルティ: バイト分から30分削り
@@ -1661,35 +1652,46 @@ export default function AdminAttendance() {
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px", marginBottom: "12px" }}>
                   <div>
                     <label style={{ fontSize: "12px", color: "#6b7280", display: "block", marginBottom: "4px" }}>出勤時間</label>
-                    <input
-                      type="time"
+                    <select
                       id="adminEditIn"
                       defaultValue={editingItem._application?.appliedIn || editingItem.clockIn || ""}
                       className="input"
                       style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "6px" }}
-                    />
+                    >
+                      <option value="">--</option>
+                      {Array.from({ length: 48 }, (_, i) => {
+                        const h = String(Math.floor(i / 2)).padStart(2, "0");
+                        const m = i % 2 === 0 ? "00" : "30";
+                        return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>;
+                      })}
+                    </select>
                   </div>
                   <div>
                     <label style={{ fontSize: "12px", color: "#6b7280", display: "block", marginBottom: "4px" }}>退勤時間</label>
-                    <input
-                      type="time"
+                    <select
                       id="adminEditOut"
                       defaultValue={editingItem._application?.appliedOut || editingItem.clockOut || ""}
                       className="input"
                       style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "6px" }}
-                    />
+                    >
+                      <option value="">--</option>
+                      {Array.from({ length: 48 }, (_, i) => {
+                        const h = String(Math.floor(i / 2)).padStart(2, "0");
+                        const m = i % 2 === 0 ? "00" : "30";
+                        return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>;
+                      })}
+                    </select>
                   </div>
                   <div>
                     <label style={{ fontSize: "12px", color: "#6b7280", display: "block", marginBottom: "4px" }}>休憩(分)</label>
-                    <input
-                      type="number"
+                    <select
                       id="adminEditBreak"
                       defaultValue={editingItem._application?.breakDuration || 0}
-                      min="0"
-                      step="30"
                       className="input"
                       style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "6px" }}
-                    />
+                    >
+                      {[0, 30, 60, 90, 120].map(v => <option key={v} value={v}>{v}分</option>)}
+                    </select>
                   </div>
                 </div>
                 <button
@@ -1699,7 +1701,27 @@ export default function AdminAttendance() {
                     const newOut = document.getElementById("adminEditOut").value;
                     const newBreak = parseInt(document.getElementById("adminEditBreak").value) || 0;
                     if (!newIn || !newOut) { alert("出勤・退勤時間を入力してください"); return; }
-                    if (!await showConfirm(`申請時間を管理者が編集します。\n出勤: ${newIn}\n退勤: ${newOut}\n休憩: ${newBreak}分\n\nよろしいですか？`)) return;
+
+                    // 遅刻・残業の自動判定
+                    const lookupDate = editingItem.displayDate || editingItem.workDate;
+                    const shift = getShift(editingItem.userName, lookupDate);
+                    let autoReason = null;
+                    if (shift && shift.start && shift.end) {
+                      const shiftStartMin = toMin(shift.start);
+                      const shiftEndMin = toMin(shift.end);
+                      const editInMin = toMin(newIn);
+                      const editOutMin = toMin(newOut);
+                      const isLate = editInMin >= shiftStartMin;
+                      const isOvertime = editOutMin >= shiftEndMin + 30;
+                      const isEarly = editOutMin < shiftEndMin;
+                      if (isLate && isOvertime) autoReason = "遅刻・残業";
+                      else if (isLate) autoReason = "遅刻";
+                      else if (isOvertime) autoReason = "残業";
+                      else if (isEarly) autoReason = "早退";
+                    }
+
+                    const confirmMsg = `申請時間を管理者が編集します。\n出勤: ${newIn}\n退勤: ${newOut}\n休憩: ${newBreak}分${autoReason ? `\n\n⚠️ 判定: ${autoReason}` : "\n\n✅ 判定: 問題なし"}\n\nよろしいですか？`;
+                    if (!await showConfirm(confirmMsg)) return;
                     setLoading(true);
                     try {
                       const p = parseComment(editingItem.comment);
@@ -1712,7 +1734,7 @@ export default function AdminAttendance() {
                         adminEdited: true,
                         adminEditedAt: new Date().toISOString(),
                         status: existingApp.status || "pending",
-                        reason: existingApp.reason || "-",
+                        reason: autoReason || existingApp.reason || "-",
                         appliedAt: existingApp.appliedAt || new Date().toISOString()
                       };
                       const finalComment = JSON.stringify({ segments: p.segments, text: p.text, application: newApp });

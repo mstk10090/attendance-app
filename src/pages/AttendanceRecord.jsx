@@ -1265,16 +1265,11 @@ export default function AttendanceRecord({ user: propUser }) {
             const actualIn = toMin(appliedIn || item.clockIn);
             const actualOut = toMin(appliedOut || item.clockOut);
 
-            // 派遣区間の計算
+            // 派遣区間の計算（派遣は固定契約のためフルレンジで計算）
             if (s.dispatchRange) {
               const dispStart = toMin(s.dispatchRange.start);
               const dispEnd = toMin(s.dispatchRange.end);
-              // 実際の出勤時刻と派遣区間の重なりを計算
-              const overlapStart = Math.max(actualIn, dispStart);
-              const overlapEnd = Math.min(actualOut, dispEnd);
-              if (overlapStart < overlapEnd) {
-                dispatchMin += (overlapEnd - overlapStart);
-              }
+              dispatchMin += (dispEnd - dispStart);
             }
 
             // バイト区間の計算
