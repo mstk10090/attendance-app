@@ -1281,10 +1281,7 @@ export default function AttendanceRecord({ user: propUser }) {
               const overlapEnd = Math.min(actualOut, partEnd);
               if (overlapStart < overlapEnd) {
                 let partOverlap = overlapEnd - overlapStart;
-                // 遅刻ペナルティ: バイト分から30分削り
-                if (isLateForPenalty) {
-                  partOverlap = Math.max(0, partOverlap - 30);
-                }
+                // ※遅刻ペナルティは30分丸め(ceil)で既に反映済みのため、追加削減は行わない
                 partTimeMin += partOverlap;
               }
             }

@@ -1235,10 +1235,7 @@ export default function AdminAttendance() {
                                 dMin = Math.min(min, 8 * 60);
                               }
                               let pMin = Math.max(0, min - dMin);
-                              // 派遣の遅刻ペナルティ: バイト分から30分削り
-                              if (isLateForPenalty) {
-                                pMin = Math.max(0, pMin - 30);
-                              }
+                              // ※遅刻ペナルティは30分丸め(ceil)で既に反映済みのため、追加削減は行わない
                               const dH = Math.floor(dMin / 60);
                               const dM = (dMin % 60) >= 30 ? 5 : 0;
                               const pH = Math.floor(pMin / 60);
