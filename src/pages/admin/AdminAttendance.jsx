@@ -379,8 +379,51 @@ export default function AdminAttendance() {
         if (a.workDate !== b.workDate) return a.workDate.localeCompare(b.workDate);
         return a.userId.localeCompare(b.userId);
       });
-
-      // シフト予定者の追加は別のuseEffectで行う（shiftMapの読み込みを待たない）
+      // DynamoDB APIからシフト予定者を直接取得（スプシ読み込みを待たない高速表示）
+      try {
+        const CONFIRMED_API = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com/shift/confirmed";
+        const dateFrom = format(start, "yyyy-MM-dd");
+        const dateTo = format(end, "yyyy-MM-dd");
+        const shiftRes = await fetch(`${CONFIRMED_API}?dateFrom=${dateFrom}&dateTo=${dateTo}`);
+        if (shiftRes.ok) {
+          const shiftData = await shiftRes.json();
+          const confirmedShifts = shiftData.shifts || {};
+          const existingKeys = new Set(processedItems.map(i => `${normalizeName(i.userName)}_${i.workDate}`));
+          for (const shiftUserName of Object.keys(confirmedShifts)) {
+            for (const dateKey of Object.keys(confirmedShifts[shiftUserName])) {
+              const sd = confirmedShifts[shiftUserName][dateKey];
+              if (sd.isOff) continue;
+              if (!sd.start && !sd.end) continue; // シフトデータが空の場合スキップ
+              const normalizedShiftName = normalizeName(shiftUserName);
+              if (existingKeys.has(`${normalizedShiftName}_${dateKey}`)) continue;
+              const matchedUser = users.find(u => normalizeName((u.lastName || "") + (u.firstName || "")) === normalizedShiftName);
+              processedItems.push({
+                userId: matchedUser?.userId || `shift_${shiftUserName}_${dateKey}`,
+                userName: shiftUserName,
+                workDate: dateKey,
+                clockIn: "",
+                clockOut: "",
+                breaks: [],
+                comment: "",
+                location: sd.location || "",
+                department: matchedUser?.department || "",
+                segments: [],
+                _parsedHtmlComment: "",
+                _application: null,
+                _shiftOnly: true
+              });
+              existingKeys.add(`${normalizedShiftName}_${dateKey}`);
+            }
+          }
+          // 再ソート
+          processedItems.sort((a, b) => {
+            if (a.workDate !== b.workDate) return a.workDate.localeCompare(b.workDate);
+            return (a.userName || "").localeCompare(b.userName || "");
+          });
+        }
+      } catch (e) {
+        console.warn("Failed to fetch confirmed shifts for admin:", e.message);
+      }
 
       setItems(processedItems);
     } catch (e) {
@@ -395,58 +438,8 @@ export default function AdminAttendance() {
     fetchAttendances();
   }, [fetchRange.start, fetchRange.end]);
 
-  // shiftMapがロードされたら既存のitemsにシフト予定者を追加（API再呼び出しなし）
-  useEffect(() => {
-    if (!shiftMap || Object.keys(shiftMap).length === 0) return;
-    if (items.length === 0) return;
 
-    // 既にシフト予定者が追加済みかチェック
-    const hasShiftOnly = items.some(i => i._shiftOnly);
-    if (hasShiftOnly) return;
 
-    const start = new Date(fetchRange.start);
-    const end = new Date(fetchRange.end);
-    const days = eachDayOfInterval({ start, end });
-    const existingKeys = new Set(items.map(i => `${normalizeName(i.userName)}_${i.workDate}`));
-    const newItems = [...items];
-    let added = false;
-
-    for (const day of days) {
-      const dateStr = format(day, "yyyy-MM-dd");
-      for (const shiftUserName of Object.keys(shiftMap)) {
-        const shiftData = shiftMap[shiftUserName]?.[dateStr];
-        if (!shiftData || shiftData.isOff) continue;
-        const normalizedShiftName = normalizeName(shiftUserName);
-        if (existingKeys.has(`${normalizedShiftName}_${dateStr}`)) continue;
-        const matchedUser = users.find(u => normalizeName((u.lastName || "") + (u.firstName || "")) === normalizedShiftName);
-        newItems.push({
-          userId: matchedUser?.userId || `shift_${shiftUserName}_${dateStr}`,
-          userName: shiftUserName,
-          workDate: dateStr,
-          clockIn: "",
-          clockOut: "",
-          breaks: [],
-          comment: "",
-          location: shiftData.location || "",
-          department: matchedUser?.department || "",
-          segments: [],
-          _parsedHtmlComment: "",
-          _application: null,
-          _shiftOnly: true
-        });
-        existingKeys.add(`${normalizedShiftName}_${dateStr}`);
-        added = true;
-      }
-    }
-
-    if (added) {
-      newItems.sort((a, b) => {
-        if (a.workDate !== b.workDate) return a.workDate.localeCompare(b.workDate);
-        return (a.userName || "").localeCompare(b.userName || "");
-      });
-      setItems(newItems);
-    }
-  }, [shiftMap]);
 
   // アイテムのステータスカテゴリを返す
   const getItemCategory = (item) => {
@@ -1542,19 +1535,7 @@ export default function AdminAttendance() {
       {
         editingItem && (
           <div className="modal-overlay">
-            <div className="modal-content" style={{ maxWidth: "700px", position: "relative" }}>
-              {/* 閉じるボタン（右上×） */}
-              <button
-                onClick={() => setEditingItem(null)}
-                style={{
-                  position: "absolute", top: "12px", right: "12px",
-                  background: "none", border: "none", cursor: "pointer",
-                  fontSize: "24px", color: "#dc2626", lineHeight: 1,
-                  padding: "4px 8px", borderRadius: "6px", fontWeight: "bold"
-                }}
-                onMouseOver={e => e.currentTarget.style.background = '#fee2e2'}
-                onMouseOut={e => e.currentTarget.style.background = 'none'}
-              >×</button>
+            <div className="modal-content" key={`${editingItem.userId}_${editingItem.workDate}_${Date.now()}`} style={{ maxWidth: "700px", position: "relative" }}>
               <h3>申請内容の確認・操作</h3>
 
               <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: "8px", overflow: "hidden", marginBottom: "20px" }}>
