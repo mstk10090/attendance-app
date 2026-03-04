@@ -26,7 +26,7 @@ export default function Login({ onLogin }) {
     setLoading(true);
 
     const MAX_RETRIES = 3;
-    const TIMEOUT_MS = 8000;
+    const TIMEOUT_MS = 15000; // コールドスタート対応: 15秒
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
@@ -160,7 +160,7 @@ export default function Login({ onLogin }) {
 
         if (attempt < MAX_RETRIES) {
           // リトライ前に少し待つ
-          await new Promise(r => setTimeout(r, 1000));
+          await new Promise(r => setTimeout(r, 2000));
           continue; // 次のリトライへ
         }
 
