@@ -246,6 +246,7 @@ export default function AdminShiftManagement() {
   const [users, setUsers] = useState([]); // For report
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [expandedReportUser, setExpandedReportUser] = useState(null);
 
   // 確認モーダル用ステート（window.confirmの代わり）
   const [confirmModal, setConfirmModal] = useState({
@@ -899,6 +900,50 @@ export default function AdminShiftManagement() {
       const partH = Math.floor(partTimeMin / 60);
       const partM = partTimeMin % 60;
 
+      // 日別詳細データの生成
+      const dailyDetails = [];
+      const allDaysInRange = eachDayOfInterval({ start, end });
+      allDaysInRange.forEach(day => {
+        const dateStr = format(day, "yyyy-MM-dd");
+        if (day > new Date()) return; // 未来日はスキップ
+        const shift = uShiftData[dateStr];
+        if (!shift && !attendedDates.has(dateStr)) return; // シフトも出勤もない日はスキップ
+        const dayItem = uItems.find(i => i.workDate === dateStr);
+        const dayApp = dayItem?._application || {};
+        const dayClockIn = dayItem?.clockIn || "";
+        const dayClockOut = dayItem?.clockOut || "";
+        const dayAppliedIn = dayApp.appliedIn || "";
+        const dayAppliedOut = dayApp.appliedOut || "";
+        let status = "";
+        if (dayApp.status === "absent") status = "欠勤";
+        else if (dayApp.status === "approved") status = "承認済";
+        else if (dayApp.status === "pending") status = "承認待";
+        else if (dayClockIn && !dayClockOut) status = "出勤中";
+        else if (!dayClockIn && shift && !shift.isOff) status = "未出勤";
+        // 遅刻判定
+        let isLateDay = false;
+        if (shift && shift.start && dayClockIn) {
+          if (toMin(dayClockIn) >= toMin(shift.start)) isLateDay = true;
+        }
+        // 理由
+        let reason = dayApp.reason || "";
+        if (reason === "-") reason = "";
+        dailyDetails.push({
+          date: dateStr,
+          dayOfWeek: ["日", "月", "火", "水", "木", "金", "土"][day.getDay()],
+          shiftStart: shift?.start || "",
+          shiftEnd: shift?.end || "",
+          clockIn: dayClockIn,
+          clockOut: dayClockOut,
+          appliedIn: dayAppliedIn,
+          appliedOut: dayAppliedOut,
+          status,
+          isLate: isLateDay,
+          reason,
+          isOff: shift?.isOff || false
+        });
+      });
+
       return {
         user: u,
         absent,
@@ -912,7 +957,8 @@ export default function AdminShiftManagement() {
         absentReasons,
         earlyReasons,
         dispatchHours: `${dispH}h ${dispM}m`,
-        partTimeHours: `${partH}h ${partM}m`
+        partTimeHours: `${partH}h ${partM}m`,
+        dailyDetails
       };
     });
   }, [items, users, viewMode, fetchRange, shiftMap]);
@@ -1385,68 +1431,131 @@ export default function AdminShiftManagement() {
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedReportData.map((r, idx) => (
-                      <tr key={r.user.userId} style={{ background: idx % 2 === 0 ? "#fff" : "#fbfbfb" }}>
-                        <td style={{ fontWeight: "bold", padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>
-                          {r.user.lastName} {r.user.firstName}
-                        </td>
-                        <td style={{ padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>{r.user.defaultDepartment}/{r.user.defaultLocation}</td>
-                        <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", fontWeight: "bold", color: "#374151" }}>
-                          {r.prescribed || "-"}
-                        </td>
-                        <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", fontWeight: "bold", color: "#2563eb" }}>
-                          {r.attendedDays} 日
-                        </td>
-                        <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", background: "#f8faff" }}>
-                          {r.dispatchMin > 0 ? (
-                            <span style={{ fontWeight: "bold", color: "#2563eb" }}>{r.dispatchHours}</span>
-                          ) : (
-                            <span style={{ color: "#d1d5db" }}>-</span>
-                          )}
-                        </td>
-                        <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", background: "#f8fff8" }}>
-                          {r.partTimeMin > 0 ? (
-                            <span style={{ fontWeight: "bold", color: "#16a34a" }}>{r.partTimeHours}</span>
-                          ) : (
-                            <span style={{ color: "#d1d5db" }}>-</span>
-                          )}
-                        </td>
-                        <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", position: "relative" }}>
-                          {r.absent > 0 ? (
-                            <div style={{ position: "relative", display: "inline-block" }} title={Object.entries(r.absentReasons || {}).map(([reason, count]) => `${reason}: ${count}件`).join('\n')}>
-                              <span className="status-badge red" style={{ minWidth: "30px", display: "inline-block", cursor: "help" }}>{r.absent}</span>
-                              {Object.keys(r.absentReasons || {}).length > 0 && (
-                                <div style={{ fontSize: "0.7rem", color: "#6b7280", marginTop: "4px" }}>
-                                  {Object.entries(r.absentReasons).map(([reason, count]) => (
-                                    <div key={reason}>{reason}: {count}</div>
-                                  ))}
-                                </div>
+                    {sortedReportData.map((r, idx) => {
+                      const isExpanded = expandedReportUser === r.user.userId;
+                      return (
+                        <React.Fragment key={r.user.userId}>
+                          <tr style={{ background: idx % 2 === 0 ? "#fff" : "#fbfbfb", cursor: "pointer" }} onClick={() => setExpandedReportUser(isExpanded ? null : r.user.userId)}>
+                            <td style={{ fontWeight: "bold", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", color: "#2563eb" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                <span style={{ fontSize: "10px", color: "#9ca3af" }}>{isExpanded ? "▼" : "▶"}</span>
+                                {r.user.lastName} {r.user.firstName}
+                              </div>
+                            </td>
+                            <td style={{ padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>{r.user.defaultDepartment}/{r.user.defaultLocation}</td>
+                            <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", fontWeight: "bold", color: "#374151" }}>
+                              {r.prescribed || "-"}
+                            </td>
+                            <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", fontWeight: "bold", color: "#2563eb" }}>
+                              {r.attendedDays} 日
+                            </td>
+                            <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", background: "#f8faff" }}>
+                              {r.dispatchMin > 0 ? (
+                                <span style={{ fontWeight: "bold", color: "#2563eb" }}>{r.dispatchHours}</span>
+                              ) : (
+                                <span style={{ color: "#d1d5db" }}>-</span>
                               )}
-                            </div>
-                          ) : <span style={{ color: "#d1d5db" }}>-</span>}
-                        </td>
-                        <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>
-                          {r.late > 0 ? <span className="status-badge orange" style={{ minWidth: "30px", display: "inline-block" }}>{r.late}</span> : <span style={{ color: "#d1d5db" }}>-</span>}
-                        </td>
-                        <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>
-                          {r.early > 0 ? (
-                            <div style={{ position: "relative", display: "inline-block" }} title={Object.entries(r.earlyReasons || {}).map(([reason, count]) => `${reason}: ${count}件`).join('\n')}>
-                              <span className="status-badge orange" style={{ minWidth: "30px", display: "inline-block", cursor: "help" }}>{r.early}</span>
-                              {Object.keys(r.earlyReasons || {}).length > 0 && (
-                                <div style={{ fontSize: "0.7rem", color: "#6b7280", marginTop: "4px" }}>
-                                  {Object.entries(r.earlyReasons).map(([reason, count]) => (
-                                    <div key={reason}>{reason}: {count}</div>
-                                  ))}
-                                </div>
+                            </td>
+                            <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", background: "#f8fff8" }}>
+                              {r.partTimeMin > 0 ? (
+                                <span style={{ fontWeight: "bold", color: "#16a34a" }}>{r.partTimeHours}</span>
+                              ) : (
+                                <span style={{ color: "#d1d5db" }}>-</span>
                               )}
-                            </div>
-                          ) : <span style={{ color: "#d1d5db" }}>-</span>}
-                        </td>
-                        <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>
-                          {r.missingOut > 0 ? <span className="status-badge red" style={{ minWidth: "30px", display: "inline-block" }}>{r.missingOut}</span> : <span style={{ color: "#d1d5db" }}>-</span>}
-                        </td>
-                      </tr>
-                    ))}
+                            </td>
+                            <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", position: "relative" }}>
+                              {r.absent > 0 ? (
+                                <div style={{ position: "relative", display: "inline-block" }} title={Object.entries(r.absentReasons || {}).map(([reason, count]) => `${reason}: ${count}件`).join('\n')}>
+                                  <span className="status-badge red" style={{ minWidth: "30px", display: "inline-block", cursor: "help" }}>{r.absent}</span>
+                                  {Object.keys(r.absentReasons || {}).length > 0 && (
+                                    <div style={{ fontSize: "0.7rem", color: "#6b7280", marginTop: "4px" }}>
+                                      {Object.entries(r.absentReasons).map(([reason, count]) => (
+                                        <div key={reason}>{reason}: {count}</div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : <span style={{ color: "#d1d5db" }}>-</span>}
+                            </td>
+                            <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>
+                              {r.late > 0 ? <span className="status-badge orange" style={{ minWidth: "30px", display: "inline-block" }}>{r.late}</span> : <span style={{ color: "#d1d5db" }}>-</span>}
+                            </td>
+                            <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>
+                              {r.early > 0 ? (
+                                <div style={{ position: "relative", display: "inline-block" }} title={Object.entries(r.earlyReasons || {}).map(([reason, count]) => `${reason}: ${count}件`).join('\n')}>
+                                  <span className="status-badge orange" style={{ minWidth: "30px", display: "inline-block", cursor: "help" }}>{r.early}</span>
+                                  {Object.keys(r.earlyReasons || {}).length > 0 && (
+                                    <div style={{ fontSize: "0.7rem", color: "#6b7280", marginTop: "4px" }}>
+                                      {Object.entries(r.earlyReasons).map(([reason, count]) => (
+                                        <div key={reason}>{reason}: {count}</div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : <span style={{ color: "#d1d5db" }}>-</span>}
+                            </td>
+                            <td style={{ textAlign: "center", padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>
+                              {r.missingOut > 0 ? <span className="status-badge red" style={{ minWidth: "30px", display: "inline-block" }}>{r.missingOut}</span> : <span style={{ color: "#d1d5db" }}>-</span>}
+                            </td>
+                          </tr>
+                          {isExpanded && (
+                            <tr>
+                              <td colSpan={10} style={{ padding: 0, background: "#f8fafc" }}>
+                                <div style={{ padding: "12px 16px 16px 40px" }}>
+                                  <div style={{ fontSize: "0.85rem", fontWeight: "bold", color: "#374151", marginBottom: "8px" }}>
+                                    📋 {r.user.lastName} {r.user.firstName}さんの勤務詳細
+                                  </div>
+                                  <table style={{ width: "100%", fontSize: "0.8rem", borderCollapse: "collapse" }}>
+                                    <thead>
+                                      <tr style={{ background: "#e5e7eb" }}>
+                                        <th style={{ padding: "6px 10px", textAlign: "left", borderBottom: "1px solid #d1d5db" }}>日付</th>
+                                        <th style={{ padding: "6px 10px", textAlign: "center", borderBottom: "1px solid #d1d5db" }}>シフト</th>
+                                        <th style={{ padding: "6px 10px", textAlign: "center", borderBottom: "1px solid #d1d5db" }}>実績</th>
+                                        <th style={{ padding: "6px 10px", textAlign: "center", borderBottom: "1px solid #d1d5db" }}>申請</th>
+                                        <th style={{ padding: "6px 10px", textAlign: "center", borderBottom: "1px solid #d1d5db" }}>ステータス</th>
+                                        <th style={{ padding: "6px 10px", textAlign: "center", borderBottom: "1px solid #d1d5db" }}>備考</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {r.dailyDetails.filter(d => !d.isOff).map(d => (
+                                        <tr key={d.date} style={{ borderBottom: "1px solid #f3f4f6", background: d.status === "欠勤" ? "#fef2f2" : d.isLate ? "#fffbeb" : "#fff" }}>
+                                          <td style={{ padding: "6px 10px", fontWeight: "500" }}>
+                                            {d.date.slice(5)} ({d.dayOfWeek})
+                                          </td>
+                                          <td style={{ padding: "6px 10px", textAlign: "center", fontFamily: "monospace", color: "#6b7280" }}>
+                                            {d.shiftStart && d.shiftEnd ? `${d.shiftStart.slice(0, 5)}-${d.shiftEnd.slice(0, 5)}` : "-"}
+                                          </td>
+                                          <td style={{ padding: "6px 10px", textAlign: "center", fontFamily: "monospace" }}>
+                                            {d.clockIn ? `${d.clockIn.slice(0, 5)}-${d.clockOut ? d.clockOut.slice(0, 5) : "..."}` : "-"}
+                                          </td>
+                                          <td style={{ padding: "6px 10px", textAlign: "center", fontFamily: "monospace", color: "#2563eb" }}>
+                                            {d.appliedIn && d.appliedOut ? `${d.appliedIn.slice(0, 5)}-${d.appliedOut.slice(0, 5)}` : "-"}
+                                          </td>
+                                          <td style={{ padding: "6px 10px", textAlign: "center" }}>
+                                            {d.status === "欠勤" && <span style={{ background: "#fee2e2", color: "#991b1b", padding: "2px 8px", borderRadius: "4px", fontSize: "0.75rem", fontWeight: "bold" }}>欠勤</span>}
+                                            {d.status === "承認済" && <span style={{ background: "#dcfce7", color: "#166534", padding: "2px 8px", borderRadius: "4px", fontSize: "0.75rem" }}>承認済</span>}
+                                            {d.status === "承認待" && <span style={{ background: "#fef3c7", color: "#92400e", padding: "2px 8px", borderRadius: "4px", fontSize: "0.75rem" }}>承認待</span>}
+                                            {d.status === "出勤中" && <span style={{ background: "#dbeafe", color: "#1e40af", padding: "2px 8px", borderRadius: "4px", fontSize: "0.75rem" }}>出勤中</span>}
+                                            {d.status === "未出勤" && <span style={{ background: "#f3f4f6", color: "#6b7280", padding: "2px 8px", borderRadius: "4px", fontSize: "0.75rem" }}>未出勤</span>}
+                                            {d.isLate && <span style={{ background: "#fef3c7", color: "#92400e", padding: "2px 8px", borderRadius: "4px", fontSize: "0.75rem", marginLeft: "4px" }}>遅刻</span>}
+                                          </td>
+                                          <td style={{ padding: "6px 10px", textAlign: "center", fontSize: "0.75rem", color: "#6b7280" }}>
+                                            {d.reason || "-"}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                      {r.dailyDetails.filter(d => !d.isOff).length === 0 && (
+                                        <tr><td colSpan={6} style={{ padding: "12px", textAlign: "center", color: "#9ca3af" }}>該当期間のデータがありません</td></tr>
+                                      )}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
