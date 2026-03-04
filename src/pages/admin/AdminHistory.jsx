@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import { format, parseISO, startOfYear, endOfYear, eachDayOfInterval, isSaturday, isSunday } from "date-fns";
 import { ja } from "date-fns/locale";
 import {
@@ -80,6 +81,7 @@ const isWorkDay = (dateStr) => {
 };
 
 export default function AdminHistory() {
+    const [searchParams] = useSearchParams();
     const [viewMode, setViewMode] = useState("month"); // "month" | "year"
     const [baseDate, setBaseDate] = useState(format(new Date(), "yyyy-MM-dd"));
 
@@ -136,6 +138,17 @@ export default function AdminHistory() {
     useEffect(() => {
         fetchUsers();
     }, []);
+
+    // URLパラメータからuserIdを取得して自動選択
+    useEffect(() => {
+        const userId = searchParams.get("userId");
+        if (userId && users.length > 0 && !historyUser) {
+            const foundUser = users.find(u => u.userId === userId);
+            if (foundUser) {
+                setHistoryUser(foundUser);
+            }
+        }
+    }, [users, searchParams]);
 
     const fetchUsers = async () => {
         setLoadingUsers(true);
