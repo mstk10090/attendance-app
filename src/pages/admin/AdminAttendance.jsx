@@ -1214,7 +1214,11 @@ export default function AdminAttendance() {
                             const totalDuration = Math.max(0, effOutMin - effInMin);
 
                             // 申請に休憩時間がある場合はそれを差し引く
-                            const breakDuration = app.breakDuration || 0;
+                            // breakDuration未設定の場合、8時間超なら自動60分控除
+                            let breakDuration = app.breakDuration;
+                            if (breakDuration === undefined || breakDuration === null) {
+                              breakDuration = totalDuration > 480 ? 60 : 0;
+                            }
                             const netDuration = Math.max(0, totalDuration - breakDuration);
 
                             // 30分単位に丸める
@@ -1605,10 +1609,17 @@ export default function AdminAttendance() {
                       {(() => {
                         const app = editingItem._application;
                         if (!app?.appliedIn || !app?.appliedOut) return "-";
-                        const dummy = { ...editingItem, clockIn: app.appliedIn, clockOut: app.appliedOut };
-                        const min = calcRoundedWorkMin(dummy);
-                        const h = Math.floor(min / 60);
-                        const m = (min % 60) === 30 ? 5 : 0;
+                        const inMin = Math.ceil(toMin(app.appliedIn) / 30) * 30;
+                        const outMin = Math.floor(toMin(app.appliedOut) / 30) * 30;
+                        const totalDuration = Math.max(0, outMin - inMin);
+                        // breakDuration考慮（未設定で8時間超なら自動60分控除）
+                        let breakMin = app.breakDuration;
+                        if (breakMin === undefined || breakMin === null) {
+                          breakMin = totalDuration > 480 ? 60 : 0;
+                        }
+                        const net = Math.floor(Math.max(0, totalDuration - breakMin) / 30) * 30;
+                        const h = Math.floor(net / 60);
+                        const m = (net % 60) === 30 ? 5 : 0;
                         return `${h}.${m}H`;
                       })()}
                     </div>
