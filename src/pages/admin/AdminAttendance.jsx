@@ -1550,7 +1550,7 @@ export default function AdminAttendance() {
       {
         editingItem && (
           <div className="modal-overlay">
-            <div className="modal-content" key={editingItemId} style={{ maxWidth: "700px", position: "relative", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
+            <div className="modal-content" key={editingItemId} style={{ maxWidth: "700px", position: "relative", maxHeight: "90vh", overflowY: "auto" }}>
               <h3>申請内容の確認・操作</h3>
 
               <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: "8px", overflow: "hidden", marginBottom: "20px" }}>
@@ -1728,7 +1728,7 @@ export default function AdminAttendance() {
                       const shiftEndMin = toMin(shift.end);
                       const editInMin = toMin(newIn);
                       const editOutMin = toMin(newOut);
-                      const isLate = editInMin >= shiftStartMin;
+                      const isLate = editInMin > shiftStartMin; // 管理者修正はぴったりを遅刻にしない
                       const isOvertime = editOutMin >= shiftEndMin + 30;
                       const isEarly = editOutMin < shiftEndMin;
                       if (isLate && isOvertime) autoReason = "遅刻・残業";
@@ -1807,10 +1807,9 @@ export default function AdminAttendance() {
               <button
                 onClick={() => setEditingItem(null)}
                 style={{
-                  width: "100%", padding: "12px",
+                  width: "100%", marginTop: "16px", padding: "12px",
                   background: "#fee2e2", border: "1px solid #fca5a5", borderRadius: "8px",
-                  cursor: "pointer", fontSize: "1rem", fontWeight: "bold", color: "#dc2626",
-                  position: "sticky", bottom: 0, marginTop: "16px", flexShrink: 0
+                  cursor: "pointer", fontSize: "1rem", fontWeight: "bold", color: "#dc2626"
                 }}
               >
                 閉じる
