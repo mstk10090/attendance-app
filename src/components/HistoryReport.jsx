@@ -449,10 +449,11 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                 const isShiftMissing = hasShift && noAttendance && isPast && status !== "approved" && status !== "pending" && status !== "absent";
 
                                 // 行全体の背景色を決定
+                                const isImplicitPending = hasAttendance && item.clockIn && item.clockOut && !status;
                                 let bg = "#fff";
                                 if (isApproved) {
                                     bg = "#f0fdf4"; // 緑（済）
-                                } else if (isPending) {
+                                } else if (isPending || isImplicitPending) {
                                     bg = "#fff7ed"; // オレンジ（承認待ち）
                                 } else if (isError || incomplete || status === "absent" || isShiftMissing) {
                                     bg = "#fef2f2"; // 赤（異常/未退勤/欠勤/シフト未出勤）
@@ -581,28 +582,9 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                     );
                                 } else if (hasAttendance && item.clockIn && !item.clockOut) {
                                     // 未退勤（出勤しているが退勤していない）- 既に上部で判定済み
-                                } else if (hasAttendance) {
-                                    // 出退勤済みだが未申請
-                                    statusDisplay = (
-                                        <span
-                                            className="status-badge"
-                                            style={{
-                                                background: "linear-gradient(135deg, #fef3c7, #fde68a)",
-                                                color: "#92400e",
-                                                border: "1.5px solid #f59e0b",
-                                                fontWeight: "bold",
-                                                fontSize: "0.7rem",
-                                                display: "inline-flex",
-                                                alignItems: "center",
-                                                gap: "3px",
-                                                animation: "pulse-badge 2s ease-in-out infinite",
-                                                boxShadow: "0 0 8px rgba(245, 158, 11, 0.3)"
-                                            }}
-                                        >
-                                            <AlertTriangle size={12} />
-                                            未申請
-                                        </span>
-                                    );
+                                } else if (hasAttendance && item.clockIn && item.clockOut) {
+                                    // 出退勤済みだがステータスなし → 承認待ちとして表示（勤怠管理と統一）
+                                    statusDisplay = <span className="status-badge orange">承認待</span>;
                                 }
 
                                 return (
