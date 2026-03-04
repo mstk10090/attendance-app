@@ -230,8 +230,8 @@ export default function AdminAttendance() {
   }, [showStatusDropdown]);
 
   const [editingItem, setEditingItem] = useState(null);
+  const [editingItemId, setEditingItemId] = useState(0);
   const [resubmitReason, setResubmitReason] = useState("");
-
   // 再提出理由選択用
   const RESUBMIT_REASONS = [
     "乖離理由を教えてください",
@@ -556,6 +556,7 @@ export default function AdminAttendance() {
 
   const openEdit = (item) => {
     setEditingItem(item);
+    setEditingItemId(prev => prev + 1);
     setResubmitReason("");
   };
 
@@ -1545,7 +1546,7 @@ export default function AdminAttendance() {
       {
         editingItem && (
           <div className="modal-overlay">
-            <div className="modal-content" key={`${editingItem.userId}_${editingItem.workDate}_${Date.now()}`} style={{ maxWidth: "700px", position: "relative" }}>
+            <div className="modal-content" key={editingItemId} style={{ maxWidth: "700px", position: "relative" }}>
               <h3>申請内容の確認・操作</h3>
 
               <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: "8px", overflow: "hidden", marginBottom: "20px" }}>
