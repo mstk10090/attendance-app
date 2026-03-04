@@ -637,7 +637,7 @@ export default function AttendanceRecord({ user: propUser }) {
           });
           newItems[idx].comment = JSON.stringify(updatedComment);
         } else {
-          // シフトなし or その他 → 打刻時間を30分丸めで自動承認待ちにする（未申請を残さない）
+          // 乖離ありだが理由未入力 → 打刻時間を30分丸めで自動承認待ちにする（未申請を残さない）
           const existingComment = parseComment(newItems[idx].comment);
           if (!existingComment.application || !existingComment.application.status) {
             const clockInRounded = roundTimeToHalfHour(clockInTime, "ceil");
@@ -647,7 +647,7 @@ export default function AttendanceRecord({ user: propUser }) {
               text: existingComment.text || "",
               application: {
                 status: "pending",
-                reason: "シフトなし",
+                reason: "-",
                 appliedIn: clockInRounded,
                 appliedOut: clockOutRounded,
                 submittedAt: new Date().toISOString(),
@@ -707,7 +707,7 @@ export default function AttendanceRecord({ user: propUser }) {
       alert("打刻間違いの詳細を入力してください");
       return;
     }
-    if (discrepancyReason === "残業" && !discrepancyText.trim()) {
+    if (discrepancyReason === "残業" && !discrepancySubReason && !discrepancyText.trim()) {
       alert("残業理由を入力してください");
       return;
     }
@@ -846,12 +846,14 @@ export default function AttendanceRecord({ user: propUser }) {
               appliedIn = shift.start;
               appliedOut = shift.end;
             } else {
-              // シフトはあるが時間が合わないのでスキップ（手動で理由付き申請が必要）
-              continue;
+              // シフトはあるが時間が合わない → 打刻時間を30分丸めで申請
+              appliedIn = roundTimeToHalfHour(item.clockIn, "ceil");
+              appliedOut = roundTimeToHalfHour(item.clockOut, "floor");
             }
           } else {
-            // シフトがない場合もスキップ（手動で理由付き申請が必要）
-            continue;
+            // シフトがない場合 → 打刻時間を30分丸めで申請
+            appliedIn = roundTimeToHalfHour(item.clockIn, "ceil");
+            appliedOut = roundTimeToHalfHour(item.clockOut, "floor");
           }
 
           // 自動で承認待ちにする
