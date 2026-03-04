@@ -1183,7 +1183,7 @@ export default function AdminAttendance() {
                           {!isShiftOnly && rowAppStatus === "pending" && <span className="status-badge orange" style={{ fontSize: "11px" }}>承認待</span>}
                           {!isShiftOnly && rowAppStatus === "approved" && <span className="status-badge" style={{ background: "#059669", color: "#fff", fontSize: "11px", fontWeight: "bold", padding: "3px 8px" }}>✅ 承認済{item._application?.adminEdited && <span style={{ fontSize: "9px", opacity: 0.8 }}> (管理者)</span>}</span>}
                           {!isShiftOnly && rowAppStatus === "resubmission_requested" && <span className="status-badge purple" style={{ fontSize: "11px" }}>再提出</span>}
-                          {!isShiftOnly && isUnapplied && !isWorking && !isIncomplete && <span className="status-badge orange" style={{ fontSize: "11px" }}>承認待</span>}
+                          {!isShiftOnly && isUnapplied && !isWorking && !isIncomplete && <span className="status-badge gray" style={{ fontSize: "11px" }}>未申請</span>}
                         </td>
                         <td style={{ padding: "10px 8px", fontSize: "14px", fontFamily: "monospace", fontWeight: "bold" }}>
                           {(() => {
