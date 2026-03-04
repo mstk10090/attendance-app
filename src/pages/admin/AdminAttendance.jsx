@@ -1084,12 +1084,14 @@ export default function AdminAttendance() {
                     if (shift && !shift.isOff && item.clockIn && item.clockOut) {
                       const shiftStartMin = toMin(shift.start);
                       const shiftEndMin = toMin(shift.end);
-                      const actualInMin = toMin(item.clockIn);
-                      const actualOutMin = toMin(item.clockOut);
+                      // 管理者修正済みの場合は申請時間ベースで判定
+                      const app = item._application || {};
+                      const checkIn = app.adminEdited && app.appliedIn ? toMin(app.appliedIn) : toMin(item.clockIn);
+                      const checkOut = app.adminEdited && app.appliedOut ? toMin(app.appliedOut) : toMin(item.clockOut);
 
-                      const isLate = actualInMin >= shiftStartMin;
-                      const isEarly = actualOutMin < shiftEndMin;
-                      const isOvertime = actualOutMin >= shiftEndMin + 30; // シフト終了30分以上で残業判定
+                      const isLate = checkIn > shiftStartMin; // ぴったりは遅刻ではない（管理者修正時）
+                      const isEarly = checkOut < shiftEndMin;
+                      const isOvertime = checkOut >= shiftEndMin + 30; // シフト終了30分以上で残業判定
 
                       if (isLate && isEarly) shiftCheck = "both";
                       else if (isLate && isOvertime) shiftCheck = "late_overtime";
@@ -1546,7 +1548,7 @@ export default function AdminAttendance() {
       {
         editingItem && (
           <div className="modal-overlay">
-            <div className="modal-content" key={editingItemId} style={{ maxWidth: "700px", position: "relative" }}>
+            <div className="modal-content" key={editingItemId} style={{ maxWidth: "700px", position: "relative", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
               <h3>申請内容の確認・操作</h3>
 
               <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: "8px", overflow: "hidden", marginBottom: "20px" }}>
@@ -1803,9 +1805,10 @@ export default function AdminAttendance() {
               <button
                 onClick={() => setEditingItem(null)}
                 style={{
-                  width: "100%", marginTop: "16px", padding: "12px",
+                  width: "100%", padding: "12px",
                   background: "#fee2e2", border: "1px solid #fca5a5", borderRadius: "8px",
-                  cursor: "pointer", fontSize: "1rem", fontWeight: "bold", color: "#dc2626"
+                  cursor: "pointer", fontSize: "1rem", fontWeight: "bold", color: "#dc2626",
+                  position: "sticky", bottom: 0, marginTop: "16px", flexShrink: 0
                 }}
               >
                 閉じる
