@@ -1707,9 +1707,13 @@ export default function AdminAttendance() {
                 <button
                   className="btn"
                   onClick={async () => {
-                    const newIn = document.getElementById("adminEditIn").value;
-                    const newOut = document.getElementById("adminEditOut").value;
-                    const newBreak = parseInt(document.getElementById("adminEditBreak").value) || 0;
+                    const inEl = document.getElementById("adminEditIn");
+                    const outEl = document.getElementById("adminEditOut");
+                    const breakEl = document.getElementById("adminEditBreak");
+                    if (!inEl || !outEl || !breakEl) { alert("フォーム要素が見つかりません"); return; }
+                    const newIn = inEl.value;
+                    const newOut = outEl.value;
+                    const newBreak = parseInt(breakEl.value) || 0;
                     if (!newIn || !newOut) { alert("出勤・退勤時間を入力してください"); return; }
 
                     // 遅刻・残業の自動判定
@@ -1731,7 +1735,7 @@ export default function AdminAttendance() {
                     }
 
                     const confirmMsg = `申請時間を管理者が編集します。\n出勤: ${newIn}\n退勤: ${newOut}\n休憩: ${newBreak}分${autoReason ? `\n\n⚠️ 判定: ${autoReason}` : "\n\n✅ 判定: 問題なし"}\n\nよろしいですか？`;
-                    if (!await showConfirm(confirmMsg)) return;
+                    if (!window.confirm(confirmMsg)) return;
                     setLoading(true);
                     try {
                       const p = parseComment(editingItem.comment);
@@ -1748,21 +1752,26 @@ export default function AdminAttendance() {
                         appliedAt: existingApp.appliedAt || new Date().toISOString()
                       };
                       const finalComment = JSON.stringify({ segments: p.segments, text: p.text, application: newApp });
-                      await fetch(`${API_BASE}/attendance/update`, {
+                      const res = await fetch(`${API_BASE}/attendance/update`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
                           userId: editingItem.userId,
                           workDate: editingItem.workDate,
-                          clockIn: editingItem.clockIn,
-                          clockOut: editingItem.clockOut,
+                          clockIn: editingItem.clockIn || "",
+                          clockOut: editingItem.clockOut || "",
                           breaks: editingItem.breaks || [],
                           comment: finalComment
                         })
                       });
+                      if (!res.ok) {
+                        const err = await res.text();
+                        throw new Error(`API error: ${res.status} ${err}`);
+                      }
+                      alert("保存しました");
                       setEditingItem(null);
                       fetchAttendances();
-                    } catch (e) { console.error(e); alert("保存に失敗しました"); }
+                    } catch (e) { console.error(e); alert("保存に失敗しました: " + e.message); }
                     finally { setLoading(false); }
                   }}
                   style={{
@@ -1808,280 +1817,286 @@ export default function AdminAttendance() {
       }
 
       {/* 確認モーダル */}
-      {confirmModal.isOpen && (
-        <div style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: "rgba(0,0,0,0.5)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          zIndex: 10000
-        }}>
+      {
+        confirmModal.isOpen && (
           <div style={{
-            background: "#fff",
-            borderRadius: "12px",
-            padding: "24px",
-            maxWidth: "400px",
-            width: "90%",
-            boxShadow: "0 4px 20px rgba(0,0,0,0.2)"
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0,0,0,0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10000
           }}>
-            <h3 style={{ marginBottom: "16px", fontSize: "1.1rem" }}>確認</h3>
-            <p style={{ marginBottom: "24px", whiteSpace: "pre-wrap", color: "#374151" }}>
-              {confirmModal.message}
-            </p>
-            <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
-              <button
-                onClick={confirmModal.onCancel}
-                style={{
-                  padding: "10px 20px",
-                  borderRadius: "8px",
-                  border: "1px solid #d1d5db",
-                  background: "#fff",
-                  cursor: "pointer",
-                  fontSize: "0.95rem"
-                }}
-              >
-                キャンセル
-              </button>
-              <button
-                onClick={confirmModal.onConfirm}
-                style={{
-                  padding: "10px 20px",
-                  borderRadius: "8px",
-                  border: "none",
-                  background: "#2563eb",
-                  color: "#fff",
-                  cursor: "pointer",
-                  fontSize: "0.95rem"
-                }}
-              >
-                OK
-              </button>
+            <div style={{
+              background: "#fff",
+              borderRadius: "12px",
+              padding: "24px",
+              maxWidth: "400px",
+              width: "90%",
+              boxShadow: "0 4px 20px rgba(0,0,0,0.2)"
+            }}>
+              <h3 style={{ marginBottom: "16px", fontSize: "1.1rem" }}>確認</h3>
+              <p style={{ marginBottom: "24px", whiteSpace: "pre-wrap", color: "#374151" }}>
+                {confirmModal.message}
+              </p>
+              <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
+                <button
+                  onClick={confirmModal.onCancel}
+                  style={{
+                    padding: "10px 20px",
+                    borderRadius: "8px",
+                    border: "1px solid #d1d5db",
+                    background: "#fff",
+                    cursor: "pointer",
+                    fontSize: "0.95rem"
+                  }}
+                >
+                  キャンセル
+                </button>
+                <button
+                  onClick={confirmModal.onConfirm}
+                  style={{
+                    padding: "10px 20px",
+                    borderRadius: "8px",
+                    border: "none",
+                    background: "#2563eb",
+                    color: "#fff",
+                    cursor: "pointer",
+                    fontSize: "0.95rem"
+                  }}
+                >
+                  OK
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* 再提出理由選択モーダル */}
-      {resubmitTarget && (
-        <div style={{
-          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-          background: "rgba(0,0,0,0.5)", zIndex: 9999,
-          display: "flex", alignItems: "center", justifyContent: "center"
-        }}>
+      {
+        resubmitTarget && (
           <div style={{
-            background: "#fff", borderRadius: "12px", padding: "24px",
-            maxWidth: "420px", width: "90%", boxShadow: "0 8px 32px rgba(0,0,0,0.2)"
+            position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+            background: "rgba(0,0,0,0.5)", zIndex: 9999,
+            display: "flex", alignItems: "center", justifyContent: "center"
           }}>
-            <h3 style={{ margin: "0 0 8px", fontSize: "16px" }}>再提出依頼</h3>
-            <div style={{ fontSize: "13px", color: "#6b7280", marginBottom: "16px" }}>
-              {resubmitTarget.userName} ({format(new Date(resubmitTarget.workDate), "MM/dd")}) への再提出理由を選択してください
-            </div>
+            <div style={{
+              background: "#fff", borderRadius: "12px", padding: "24px",
+              maxWidth: "420px", width: "90%", boxShadow: "0 8px 32px rgba(0,0,0,0.2)"
+            }}>
+              <h3 style={{ margin: "0 0 8px", fontSize: "16px" }}>再提出依頼</h3>
+              <div style={{ fontSize: "13px", color: "#6b7280", marginBottom: "16px" }}>
+                {resubmitTarget.userName} ({format(new Date(resubmitTarget.workDate), "MM/dd")}) への再提出理由を選択してください
+              </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
-              {RESUBMIT_REASONS.map(r => (
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
+                {RESUBMIT_REASONS.map(r => (
+                  <button
+                    key={r}
+                    onClick={() => { setSelectedResubmitReason(r); setCustomResubmitReason(""); }}
+                    style={{
+                      padding: "10px 14px", borderRadius: "8px", cursor: "pointer",
+                      border: selectedResubmitReason === r ? "2px solid #f59e0b" : "1px solid #d1d5db",
+                      background: selectedResubmitReason === r ? "#fffbeb" : "#fff",
+                      fontWeight: selectedResubmitReason === r ? "bold" : "normal",
+                      fontSize: "14px", textAlign: "left"
+                    }}
+                  >
+                    {r}
+                  </button>
+                ))}
                 <button
-                  key={r}
-                  onClick={() => { setSelectedResubmitReason(r); setCustomResubmitReason(""); }}
+                  onClick={() => { setSelectedResubmitReason("その他"); }}
                   style={{
                     padding: "10px 14px", borderRadius: "8px", cursor: "pointer",
-                    border: selectedResubmitReason === r ? "2px solid #f59e0b" : "1px solid #d1d5db",
-                    background: selectedResubmitReason === r ? "#fffbeb" : "#fff",
-                    fontWeight: selectedResubmitReason === r ? "bold" : "normal",
+                    border: selectedResubmitReason === "その他" ? "2px solid #f59e0b" : "1px solid #d1d5db",
+                    background: selectedResubmitReason === "その他" ? "#fffbeb" : "#fff",
+                    fontWeight: selectedResubmitReason === "その他" ? "bold" : "normal",
                     fontSize: "14px", textAlign: "left"
                   }}
                 >
-                  {r}
+                  その他
                 </button>
-              ))}
-              <button
-                onClick={() => { setSelectedResubmitReason("その他"); }}
-                style={{
-                  padding: "10px 14px", borderRadius: "8px", cursor: "pointer",
-                  border: selectedResubmitReason === "その他" ? "2px solid #f59e0b" : "1px solid #d1d5db",
-                  background: selectedResubmitReason === "その他" ? "#fffbeb" : "#fff",
-                  fontWeight: selectedResubmitReason === "その他" ? "bold" : "normal",
-                  fontSize: "14px", textAlign: "left"
-                }}
-              >
-                その他
-              </button>
-            </div>
+              </div>
 
-            {selectedResubmitReason === "その他" && (
-              <textarea
-                value={customResubmitReason}
-                onChange={e => setCustomResubmitReason(e.target.value)}
-                placeholder="理由を入力してください"
-                style={{
-                  width: "100%", padding: "8px", borderRadius: "6px",
-                  border: "1px solid #d1d5db", fontSize: "14px",
-                  marginBottom: "16px", minHeight: "60px", resize: "vertical",
-                  boxSizing: "border-box"
-                }}
-              />
-            )}
+              {selectedResubmitReason === "その他" && (
+                <textarea
+                  value={customResubmitReason}
+                  onChange={e => setCustomResubmitReason(e.target.value)}
+                  placeholder="理由を入力してください"
+                  style={{
+                    width: "100%", padding: "8px", borderRadius: "6px",
+                    border: "1px solid #d1d5db", fontSize: "14px",
+                    marginBottom: "16px", minHeight: "60px", resize: "vertical",
+                    boxSizing: "border-box"
+                  }}
+                />
+              )}
 
-            <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
-              <button
-                onClick={() => setResubmitTarget(null)}
-                style={{
-                  padding: "8px 16px", borderRadius: "8px",
-                  border: "1px solid #d1d5db", background: "#fff",
-                  cursor: "pointer", fontSize: "14px"
-                }}
-              >
-                キャンセル
-              </button>
-              <button
-                disabled={!selectedResubmitReason || (selectedResubmitReason === "その他" && !customResubmitReason.trim())}
-                onClick={async () => {
-                  const finalReason = selectedResubmitReason === "その他" ? customResubmitReason.trim() : selectedResubmitReason;
-                  setLoading(true);
-                  try {
-                    const p = parseComment(resubmitTarget.comment);
-                    const app = p.application || {};
-                    const newApp = {
-                      ...app,
-                      status: "resubmission_requested",
-                      reason: app.reason,
-                      adminComment: finalReason
-                    };
-                    const finalComment = JSON.stringify({
-                      segments: p.segments,
-                      text: (p.text || "") + `\n[再提出依頼]: ${finalReason}`,
-                      application: newApp
-                    });
-                    await fetch(`${API_BASE}/attendance/update`, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        userId: resubmitTarget.userId,
-                        workDate: resubmitTarget.workDate,
-                        clockIn: resubmitTarget.clockIn,
-                        clockOut: resubmitTarget.clockOut,
-                        breaks: resubmitTarget.breaks || [],
-                        comment: finalComment
-                      }),
-                    });
-                    setResubmitTarget(null);
-                    fetchAttendances();
-                  } catch (e) {
-                    alert("エラーが発生しました");
-                  } finally {
-                    setLoading(false);
-                  }
-                }}
-                style={{
-                  padding: "8px 16px", borderRadius: "8px",
-                  border: "none", background: (!selectedResubmitReason || (selectedResubmitReason === "その他" && !customResubmitReason.trim())) ? "#d1d5db" : "#f59e0b",
-                  color: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: "bold"
-                }}
-              >
-                再提出を依頼
-              </button>
+              <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+                <button
+                  onClick={() => setResubmitTarget(null)}
+                  style={{
+                    padding: "8px 16px", borderRadius: "8px",
+                    border: "1px solid #d1d5db", background: "#fff",
+                    cursor: "pointer", fontSize: "14px"
+                  }}
+                >
+                  キャンセル
+                </button>
+                <button
+                  disabled={!selectedResubmitReason || (selectedResubmitReason === "その他" && !customResubmitReason.trim())}
+                  onClick={async () => {
+                    const finalReason = selectedResubmitReason === "その他" ? customResubmitReason.trim() : selectedResubmitReason;
+                    setLoading(true);
+                    try {
+                      const p = parseComment(resubmitTarget.comment);
+                      const app = p.application || {};
+                      const newApp = {
+                        ...app,
+                        status: "resubmission_requested",
+                        reason: app.reason,
+                        adminComment: finalReason
+                      };
+                      const finalComment = JSON.stringify({
+                        segments: p.segments,
+                        text: (p.text || "") + `\n[再提出依頼]: ${finalReason}`,
+                        application: newApp
+                      });
+                      await fetch(`${API_BASE}/attendance/update`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          userId: resubmitTarget.userId,
+                          workDate: resubmitTarget.workDate,
+                          clockIn: resubmitTarget.clockIn,
+                          clockOut: resubmitTarget.clockOut,
+                          breaks: resubmitTarget.breaks || [],
+                          comment: finalComment
+                        }),
+                      });
+                      setResubmitTarget(null);
+                      fetchAttendances();
+                    } catch (e) {
+                      alert("エラーが発生しました");
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                  style={{
+                    padding: "8px 16px", borderRadius: "8px",
+                    border: "none", background: (!selectedResubmitReason || (selectedResubmitReason === "その他" && !customResubmitReason.trim())) ? "#d1d5db" : "#f59e0b",
+                    color: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: "bold"
+                  }}
+                >
+                  再提出を依頼
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* 取消理由選択モーダル */}
-      {cancelTarget && (
-        <div style={{
-          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-          background: "rgba(0,0,0,0.5)", zIndex: 9999,
-          display: "flex", alignItems: "center", justifyContent: "center"
-        }}>
+      {
+        cancelTarget && (
           <div style={{
-            background: "#fff", borderRadius: "12px", padding: "24px",
-            maxWidth: "420px", width: "90%", boxShadow: "0 8px 32px rgba(0,0,0,0.2)"
+            position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+            background: "rgba(0,0,0,0.5)", zIndex: 9999,
+            display: "flex", alignItems: "center", justifyContent: "center"
           }}>
-            <h3 style={{ margin: "0 0 8px", fontSize: "16px" }}>
-              {cancelTarget.type === "late" ? "遅刻" : cancelTarget.type === "early" ? "早退" : "遅刻+早退"}取消
-            </h3>
-            <div style={{ fontSize: "13px", color: "#6b7280", marginBottom: "16px" }}>
-              取消理由を選択してください
-            </div>
+            <div style={{
+              background: "#fff", borderRadius: "12px", padding: "24px",
+              maxWidth: "420px", width: "90%", boxShadow: "0 8px 32px rgba(0,0,0,0.2)"
+            }}>
+              <h3 style={{ margin: "0 0 8px", fontSize: "16px" }}>
+                {cancelTarget.type === "late" ? "遅刻" : cancelTarget.type === "early" ? "早退" : "遅刻+早退"}取消
+              </h3>
+              <div style={{ fontSize: "13px", color: "#6b7280", marginBottom: "16px" }}>
+                取消理由を選択してください
+              </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
-              {CANCEL_REASONS.map(r => (
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
+                {CANCEL_REASONS.map(r => (
+                  <button
+                    key={r}
+                    onClick={() => { setSelectedCancelReason(r); setCustomCancelReason(""); }}
+                    style={{
+                      padding: "10px 14px", borderRadius: "8px", cursor: "pointer",
+                      border: selectedCancelReason === r ? "2px solid #6b7280" : "1px solid #d1d5db",
+                      background: selectedCancelReason === r ? "#f3f4f6" : "#fff",
+                      fontWeight: selectedCancelReason === r ? "bold" : "normal",
+                      fontSize: "14px", textAlign: "left"
+                    }}
+                  >
+                    {r}
+                  </button>
+                ))}
                 <button
-                  key={r}
-                  onClick={() => { setSelectedCancelReason(r); setCustomCancelReason(""); }}
+                  onClick={() => { setSelectedCancelReason("その他"); }}
                   style={{
                     padding: "10px 14px", borderRadius: "8px", cursor: "pointer",
-                    border: selectedCancelReason === r ? "2px solid #6b7280" : "1px solid #d1d5db",
-                    background: selectedCancelReason === r ? "#f3f4f6" : "#fff",
-                    fontWeight: selectedCancelReason === r ? "bold" : "normal",
+                    border: selectedCancelReason === "その他" ? "2px solid #6b7280" : "1px solid #d1d5db",
+                    background: selectedCancelReason === "その他" ? "#f3f4f6" : "#fff",
+                    fontWeight: selectedCancelReason === "その他" ? "bold" : "normal",
                     fontSize: "14px", textAlign: "left"
                   }}
                 >
-                  {r}
+                  その他（記述式）
                 </button>
-              ))}
-              <button
-                onClick={() => { setSelectedCancelReason("その他"); }}
-                style={{
-                  padding: "10px 14px", borderRadius: "8px", cursor: "pointer",
-                  border: selectedCancelReason === "その他" ? "2px solid #6b7280" : "1px solid #d1d5db",
-                  background: selectedCancelReason === "その他" ? "#f3f4f6" : "#fff",
-                  fontWeight: selectedCancelReason === "その他" ? "bold" : "normal",
-                  fontSize: "14px", textAlign: "left"
-                }}
-              >
-                その他（記述式）
-              </button>
-            </div>
+              </div>
 
-            {selectedCancelReason === "その他" && (
-              <textarea
-                value={customCancelReason}
-                onChange={e => setCustomCancelReason(e.target.value)}
-                placeholder="理由を入力してください"
-                style={{
-                  width: "100%", padding: "8px", borderRadius: "6px",
-                  border: "1px solid #d1d5db", fontSize: "14px",
-                  marginBottom: "16px", minHeight: "60px", resize: "vertical",
-                  boxSizing: "border-box"
-                }}
-              />
-            )}
+              {selectedCancelReason === "その他" && (
+                <textarea
+                  value={customCancelReason}
+                  onChange={e => setCustomCancelReason(e.target.value)}
+                  placeholder="理由を入力してください"
+                  style={{
+                    width: "100%", padding: "8px", borderRadius: "6px",
+                    border: "1px solid #d1d5db", fontSize: "14px",
+                    marginBottom: "16px", minHeight: "60px", resize: "vertical",
+                    boxSizing: "border-box"
+                  }}
+                />
+              )}
 
-            <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
-              <button
-                onClick={() => setCancelTarget(null)}
-                style={{
-                  padding: "8px 16px", borderRadius: "8px",
-                  border: "1px solid #d1d5db", background: "#fff",
-                  cursor: "pointer", fontSize: "14px"
-                }}
-              >
-                キャンセル
-              </button>
-              <button
-                disabled={!selectedCancelReason || (selectedCancelReason === "その他" && !customCancelReason.trim())}
-                onClick={async () => {
-                  const finalReason = selectedCancelReason === "その他" ? customCancelReason.trim() : selectedCancelReason;
-                  await handleCancelLate(cancelTarget.item, cancelTarget.type, finalReason);
-                  setCancelTarget(null);
-                }}
-                style={{
-                  padding: "8px 16px", borderRadius: "8px",
-                  border: "none",
-                  background: (!selectedCancelReason || (selectedCancelReason === "その他" && !customCancelReason.trim())) ? "#d1d5db" : "#6b7280",
-                  color: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: "bold"
-                }}
-              >
-                取消を実行
-              </button>
+              <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+                <button
+                  onClick={() => setCancelTarget(null)}
+                  style={{
+                    padding: "8px 16px", borderRadius: "8px",
+                    border: "1px solid #d1d5db", background: "#fff",
+                    cursor: "pointer", fontSize: "14px"
+                  }}
+                >
+                  キャンセル
+                </button>
+                <button
+                  disabled={!selectedCancelReason || (selectedCancelReason === "その他" && !customCancelReason.trim())}
+                  onClick={async () => {
+                    const finalReason = selectedCancelReason === "その他" ? customCancelReason.trim() : selectedCancelReason;
+                    await handleCancelLate(cancelTarget.item, cancelTarget.type, finalReason);
+                    setCancelTarget(null);
+                  }}
+                  style={{
+                    padding: "8px 16px", borderRadius: "8px",
+                    border: "none",
+                    background: (!selectedCancelReason || (selectedCancelReason === "その他" && !customCancelReason.trim())) ? "#d1d5db" : "#6b7280",
+                    color: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: "bold"
+                  }}
+                >
+                  取消を実行
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       <style>{`
           .status-badge.purple { background: #f3e8ff; color: #7c3aed; border: 1px solid #d8b4fe; }
