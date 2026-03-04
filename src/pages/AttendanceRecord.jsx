@@ -846,12 +846,14 @@ export default function AttendanceRecord({ user: propUser }) {
               appliedIn = shift.start;
               appliedOut = shift.end;
             } else {
-              // シフトはあるが時間が合わないのでスキップ（手動で理由付き申請が必要）
-              continue;
+              // シフトはあるが時間が合わない → 既存の未申請データを救済（30分丸めで承認待ちに変換）
+              appliedIn = roundTimeToHalfHour(item.clockIn, "ceil");
+              appliedOut = roundTimeToHalfHour(item.clockOut, "floor");
             }
           } else {
-            // シフトがない場合もスキップ（手動で理由付き申請が必要）
-            continue;
+            // シフトがない場合 → 既存の未申請データを救済（30分丸めで承認待ちに変換）
+            appliedIn = roundTimeToHalfHour(item.clockIn, "ceil");
+            appliedOut = roundTimeToHalfHour(item.clockOut, "floor");
           }
 
           // 自動で承認待ちにする
