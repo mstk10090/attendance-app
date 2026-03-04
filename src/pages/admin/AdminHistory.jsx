@@ -137,11 +137,13 @@ export default function AdminHistory() {
                     else if (data && Array.isArray(data.Items)) list = data.Items;
                     else if (data && data.success && Array.isArray(data.items)) list = data.items;
 
-                    // loginIdに基づいて重複を排除（最新のエントリを保持）
+                    // loginIdに基づいて重複を排除（最初のエントリ=古いアカウントを保持）
                     const uniqueMap = new Map();
                     list.forEach(user => {
                         if (user.loginId) {
-                            uniqueMap.set(user.loginId, user);
+                            if (!uniqueMap.has(user.loginId)) {
+                                uniqueMap.set(user.loginId, user);
+                            }
                         }
                     });
                     list = Array.from(uniqueMap.values());
