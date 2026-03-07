@@ -13,6 +13,19 @@ const ddbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 
 exports.handler = async (event) => {
+    // EventBridge warm-up ping対応（コールドスタート防止）
+    if (event.source === "aws.events" || event["detail-type"] === "Scheduled Event") {
+        console.log("Warm-up ping received at", new Date().toISOString());
+        return {
+            statusCode: 200,
+            headers: {
+                "Access-Control-Allow-Origin": "*",
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ message: "warm" })
+        };
+    }
+
     const headers = {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "Content-Type",

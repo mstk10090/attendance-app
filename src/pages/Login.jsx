@@ -92,10 +92,18 @@ export default function Login({ onLogin }) {
           }
         }
 
+        // サーバーエラー（500番台）の場合はリトライ（コールドスタート対応）
+        if (statusCode >= 500 && attempt < MAX_RETRIES) {
+          console.warn(`Server error ${statusCode}, retrying... (${attempt}/${MAX_RETRIES})`);
+          await new Promise(r => setTimeout(r, 2000));
+          continue;
+        }
+
         // user が取れなければログイン失敗扱い
         if (statusCode !== 200 || !user) {
-          const msg =
-            (data && data.message) || "ログインID またはパスワードが違います";
+          const msg = statusCode >= 500
+            ? "サーバーが一時的に応答できません。再度お試しください。"
+            : (data && data.message) || "ログインID またはパスワードが違います";
           setMessage(`❌ ${msg}`);
           setLoading(false);
           return;
