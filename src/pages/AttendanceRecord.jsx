@@ -1922,16 +1922,22 @@ export default function AttendanceRecord({ user: propUser }) {
 
       {/* --- EDIT FORM (Rendered when expandedDate is set) --- */}
       {expandedDate && (
-        <>
+        <div
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            zIndex: 1000, backdropFilter: "blur(2px)"
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setExpandedDate(null); }}
+        >
           <div
-
             style={{
-              position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
-              width: "90%", maxWidth: "600px", zIndex: 1000,
+              width: "90%", maxWidth: "600px",
               background: "#fff", padding: "24px", borderRadius: "16px",
               boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
               maxHeight: "90vh", overflowY: "auto", border: "1px solid #e5e7eb"
             }}
+            onClick={(e) => e.stopPropagation()}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", borderBottom: "1px solid #f3f4f6", paddingBottom: "12px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
@@ -2239,8 +2245,7 @@ export default function AttendanceRecord({ user: propUser }) {
               </button>
             </div>
           </div>
-          <div className="modal-overlay" onClick={() => setExpandedDate(null)} style={{ zIndex: 999 }}></div>
-        </>
+        </div>
       )}
 
 
