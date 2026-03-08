@@ -1308,7 +1308,10 @@ export default function AttendanceRecord({ user: propUser }) {
 
           // 遅刻ペナルティ判定（実際の打刻時間で判定。appliedInは丸め後なので使わない）
           const lateCancelledFlag = p.application?.lateCancelled;
-          const isLateForPenalty = s && s.start && item.clockIn && toMin(item.clockIn) >= toMin(s.start) && !lateCancelledFlag;
+          // 打刻忘れの場合は遅刻ペナルティ対象外（clockInが遅いのは打刻忘れによるもの）
+          const reasonForLateCheck = p.application?.reason || '';
+          const isForgotClockPenalty = reasonForLateCheck.includes('打刻忘れ');
+          const isLateForPenalty = s && s.start && item.clockIn && toMin(item.clockIn) >= toMin(s.start) && !lateCancelledFlag && !isForgotClockPenalty;
 
           if (s && s.isDispatch && (s.dispatchRange || s.partTimeRange)) {
             // 派遣シフトがある場合: dispatchRangeとpartTimeRangeを使用して正確に計算

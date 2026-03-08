@@ -268,7 +268,10 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
             const dateStr = i.displayDate || i.workDate;
             const shift = userShifts[dateStr] || null;
             const lateCancelled = app.lateCancelled || false;
-            const isLate = shift && shift.start && i.clockIn && toMin(i.clockIn) >= toMin(shift.start) && !lateCancelled;
+            // 打刻忘れの場合は遅刻ペナルティ対象外（clockInが遅いのは打刻忘れによるもの）
+            const reasonStr = app.reason || '';
+            const isForgotClock = reasonStr.includes('打刻忘れ');
+            const isLate = shift && shift.start && i.clockIn && toMin(i.clockIn) >= toMin(shift.start) && !lateCancelled && !isForgotClock;
 
             let dayDispatch = 0;
             let dayPartTime = 0;
@@ -487,7 +490,10 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                 // 遅刻ペナルティ判定
                                 const parsedComment = parseComment(item.comment);
                                 const lateCancelledFlag = parsedComment?.application?.lateCancelled;
-                                const isLateForPenalty = shift && shift.start && item.clockIn && toMin(item.clockIn) >= toMin(shift.start) && !lateCancelledFlag;
+                                // 打刻忘れの場合は遅刻ペナルティ対象外（clockInが遅いのは打刻忘れによるもの）
+                                const reasonForLate = parsedComment?.application?.reason || '';
+                                const isForgotClockForPenalty = reasonForLate.includes('打刻忘れ');
+                                const isLateForPenalty = shift && shift.start && item.clockIn && toMin(item.clockIn) >= toMin(shift.start) && !lateCancelledFlag && !isForgotClockForPenalty;
 
                                 // 申請時間がある場合はそちらで計算（ステータスに関係なく）
                                 const appliedTimeForCalc = extractAppliedTime(item);
@@ -567,12 +573,8 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                             )}
                                         </>
                                     );
-                                } else if (isError) {
-                                    statusDisplay = <span className="status-badge red">異常</span>;
-                                } else if (isShiftMissing) {
-                                    statusDisplay = <span className="status-badge red">シフト未出勤</span>;
                                 } else if (status === "pending") {
-                                    // 承認待ち（本日含む）
+                                    // 承認待ち（本日含む）- 異常やシフト未出勤より優先
                                     statusDisplay = (
                                         <>
                                             <span className="status-badge orange">承認待</span>
@@ -598,6 +600,10 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                             )}
                                         </>
                                     );
+                                } else if (isError) {
+                                    statusDisplay = <span className="status-badge red">異常</span>;
+                                } else if (isShiftMissing) {
+                                    statusDisplay = <span className="status-badge red">シフト未出勤</span>;
                                 } else if (hasAttendance && item.clockIn && !item.clockOut) {
                                     // 未退勤（出勤しているが退勤していない）- 既に上部で判定済み
                                 } else if (hasAttendance && item.clockIn && item.clockOut) {
