@@ -801,10 +801,6 @@ export default function AdminShiftManagement() {
           } else {
             const breakMin = app.breakDuration || calcBreakTime(i);
 
-            // 遅刻ペナルティ判定
-            const lateCancelledFlag = app.lateCancelled;
-            const isLateForPenalty = shift && shift.start && i.clockIn && toMin(i.clockIn) >= toMin(shift.start) && !lateCancelledFlag;
-
             let dayDispatch = 0;
             let dayPartTime = 0;
 
@@ -833,9 +829,6 @@ export default function AdminShiftManagement() {
                 const overlapEnd = Math.min(roundedOut, partEnd);
                 if (overlapStart < overlapEnd) {
                   let partOverlap = overlapEnd - overlapStart;
-                  if (isLateForPenalty) {
-                    partOverlap = Math.max(0, partOverlap - 30);
-                  }
                   dayPartTime += partOverlap;
                 }
               }
@@ -845,9 +838,6 @@ export default function AdminShiftManagement() {
                 const dispEnd = toMin(shift.dispatchRange.end);
                 if (roundedOut > dispEnd) {
                   let extraPart = roundedOut - dispEnd;
-                  if (isLateForPenalty) {
-                    extraPart = Math.max(0, extraPart - 30);
-                  }
                   dayPartTime += extraPart;
                 }
               }
@@ -856,16 +846,10 @@ export default function AdminShiftManagement() {
               const wm = Math.max(0, roundedOut - roundedIn - breakMin);
               dayDispatch = Math.min(wm, 8 * 60);
               let part = Math.max(0, wm - 8 * 60);
-              if (isLateForPenalty) {
-                part = Math.max(0, part - 30);
-              }
               dayPartTime = part;
             } else {
               // 派遣シフトでない場合は全てバイト時間
               let partTotal = Math.max(0, roundedOut - roundedIn - breakMin);
-              if (isLateForPenalty) {
-                partTotal = Math.max(0, partTotal - 30);
-              }
               dayPartTime = partTotal;
             }
 

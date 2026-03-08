@@ -1225,9 +1225,6 @@ export default function AdminAttendance() {
                             let min = Math.floor(netDuration / 30) * 30;
                             if (min <= 0) return "-";
 
-                            // 遅刻ペナルティ判定: 遅刻時は30分削り（遅刻取消済みの場合は除外）
-                            const lateCancelled = item._application?.lateCancelled;
-                            const isLateForPenalty = (shiftCheck === "late" || shiftCheck === "both" || shiftCheck === "late_overtime") && !lateCancelled;
 
                             // 派遣ユーザーの場合は派遣/バイト分離表示
                             const isDispatch = shift?.isDispatch || shift?.location === "派遣" || ["朝", "早", "遅", "中"].includes(shift?.type || "");
@@ -1243,7 +1240,6 @@ export default function AdminAttendance() {
                                 dMin = Math.min(min, 8 * 60);
                               }
                               let pMin = Math.max(0, min - dMin);
-                              // ※遅刻ペナルティは30分丸め(ceil)で既に反映済みのため、追加削減は行わない
                               const dH = Math.floor(dMin / 60);
                               const dM = (dMin % 60) >= 30 ? 5 : 0;
                               const pH = Math.floor(pMin / 60);
@@ -1278,11 +1274,6 @@ export default function AdminAttendance() {
                               );
                             }
 
-                            // 非派遣の遅刻ペナルティ: minから30分削り
-                            if (isLateForPenalty) {
-                              min = Math.max(0, min - 30);
-                              if (min <= 0) return "-";
-                            }
                             const h = Math.floor(min / 60);
                             const m = (min % 60) === 30 ? 5 : 0;
                             return `${h}.${m}H`;

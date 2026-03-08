@@ -267,11 +267,6 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
             const breakMin = app.breakDuration || calcBreakTime(i);
             const dateStr = i.displayDate || i.workDate;
             const shift = userShifts[dateStr] || null;
-            const lateCancelled = app.lateCancelled || false;
-            // 打刻忘れの場合は遅刻ペナルティ対象外（clockInが遅いのは打刻忘れによるもの）
-            const reasonStr = app.reason || '';
-            const isForgotClock = reasonStr.includes('打刻忘れ');
-            const isLate = shift && shift.start && i.clockIn && toMin(i.clockIn) >= toMin(shift.start) && !lateCancelled && !isForgotClock;
 
             let dayDispatch = 0;
             let dayPartTime = 0;
@@ -295,7 +290,6 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                     const oE = Math.min(roundedOut, pE);
                     if (oS < oE) {
                         let pt = oE - oS;
-                        if (isLate) pt = Math.max(0, pt - 30);
                         dayPartTime += pt;
                     }
                 }
@@ -303,7 +297,6 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                     const dE = toMin(shift.dispatchRange.end);
                     if (roundedOut > dE) {
                         let extra = roundedOut - dE;
-                        if (isLate) extra = Math.max(0, extra - 30);
                         dayPartTime += extra;
                     }
                 }
@@ -311,11 +304,9 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                 const wm = Math.max(0, roundedOut - roundedIn - breakMin);
                 dayDispatch = Math.min(wm, 8 * 60);
                 let part = Math.max(0, wm - 8 * 60);
-                if (isLate) part = Math.max(0, part - 30);
                 dayPartTime = part;
             } else {
                 let partTotal = Math.max(0, roundedOut - roundedIn - breakMin);
-                if (isLate) partTotal = Math.max(0, partTotal - 30);
                 dayPartTime = partTotal;
             }
 
@@ -337,12 +328,6 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
             const breakDur = app.breakDuration || calcBreakTime(i);
             let wm = Math.max(0, outMin - inMin - breakDur);
             wm = Math.floor(wm / 30) * 30; // 30分単位に丸め
-            const dateStr = i.displayDate || i.workDate;
-            const shiftForDay = userShifts[dateStr] || null;
-            const lateCancelled = app.lateCancelled || false;
-            if (shiftForDay && shiftForDay.start && i.clockIn && toMin(i.clockIn) >= toMin(shiftForDay.start) && !lateCancelled) {
-                wm = Math.max(0, wm - 30);
-            }
             return acc + wm;
         }, 0);
         const missingOut = monthItems.filter(i => i.clockIn && !i.clockOut).length;
@@ -487,13 +472,6 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                 let workTimeDisplay = <span style={{ color: "#e5e7eb" }}>-</span>;
                                 let workTimeColor = "#111827"; // デフォルトは黒
 
-                                // 遅刻ペナルティ判定
-                                const parsedComment = parseComment(item.comment);
-                                const lateCancelledFlag = parsedComment?.application?.lateCancelled;
-                                // 打刻忘れの場合は遅刻ペナルティ対象外（clockInが遅いのは打刻忘れによるもの）
-                                const reasonForLate = parsedComment?.application?.reason || '';
-                                const isForgotClockForPenalty = reasonForLate.includes('打刻忘れ');
-                                const isLateForPenalty = shift && shift.start && item.clockIn && toMin(item.clockIn) >= toMin(shift.start) && !lateCancelledFlag && !isForgotClockForPenalty;
 
                                 // 申請時間がある場合はそちらで計算（ステータスに関係なく）
                                 const appliedTimeForCalc = extractAppliedTime(item);
@@ -505,10 +483,6 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
 
                                     if (appliedDuration > 0) {
                                         let roundedDuration = Math.floor(appliedDuration / 30) * 30;
-                                        // 遅刻ペナルティ: 30分削り
-                                        if (isLateForPenalty) {
-                                            roundedDuration = Math.max(0, roundedDuration - 30);
-                                        }
                                         const hours = Math.floor(roundedDuration / 60);
                                         const mins = roundedDuration % 60;
                                         workTimeDisplay = `${hours}:${String(mins).padStart(2, '0')}`;
@@ -516,10 +490,6 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                     }
                                 } else if (rounded > 0) {
                                     let adjustedRounded = rounded;
-                                    // 遅刻ペナルティ: 30分削り
-                                    if (isLateForPenalty) {
-                                        adjustedRounded = Math.max(0, adjustedRounded - 30);
-                                    }
                                     workTimeDisplay = `${Math.floor(adjustedRounded / 60)}:${String(adjustedRounded % 60).padStart(2, '0')}`;
                                 } else if (item.clockIn && item.clockOut) {
                                     workTimeDisplay = "0:00";

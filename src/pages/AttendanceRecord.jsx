@@ -1306,13 +1306,6 @@ export default function AttendanceRecord({ user: propUser }) {
           // Get Shift to check Dispatch status. Use displayDate.
           const s = getShift(user.userName, dDate);
 
-          // 遅刻ペナルティ判定（実際の打刻時間で判定。appliedInは丸め後なので使わない）
-          const lateCancelledFlag = p.application?.lateCancelled;
-          // 打刻忘れの場合は遅刻ペナルティ対象外（clockInが遅いのは打刻忘れによるもの）
-          const reasonForLateCheck = p.application?.reason || '';
-          const isForgotClockPenalty = reasonForLateCheck.includes('打刻忘れ');
-          const isLateForPenalty = s && s.start && item.clockIn && toMin(item.clockIn) >= toMin(s.start) && !lateCancelledFlag && !isForgotClockPenalty;
-
           if (s && s.isDispatch && (s.dispatchRange || s.partTimeRange)) {
             // 派遣シフトがある場合: dispatchRangeとpartTimeRangeを使用して正確に計算
             const actualIn = toMin(appliedIn || item.clockIn);
@@ -1345,10 +1338,6 @@ export default function AttendanceRecord({ user: propUser }) {
               if (actualOut > dispEnd) {
                 // 派遣終了後はバイト時間として計算
                 let extraPart = actualOut - dispEnd;
-                // 遅刻ペナルティ: バイト分から30分削り
-                if (isLateForPenalty) {
-                  extraPart = Math.max(0, extraPart - 30);
-                }
                 partTimeMin += extraPart;
               }
             }
@@ -1357,19 +1346,11 @@ export default function AttendanceRecord({ user: propUser }) {
             // Dispatch Logic: First 8h is Dispatch, Rest is PartTime
             const disp = Math.min(wm, 8 * 60);
             let part = Math.max(0, wm - 8 * 60);
-            // 遅刻ペナルティ: バイト分から30分削り
-            if (isLateForPenalty) {
-              part = Math.max(0, part - 30);
-            }
             dispatchMin += disp;
             partTimeMin += part;
           } else {
             // All PartTime
             let adjustedWm = wm;
-            // 遅刻ペナルティ: 全体から30分削り
-            if (isLateForPenalty) {
-              adjustedWm = Math.max(0, adjustedWm - 30);
-            }
             partTimeMin += adjustedWm;
           }
         }

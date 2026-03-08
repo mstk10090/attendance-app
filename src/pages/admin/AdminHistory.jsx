@@ -306,19 +306,6 @@ export default function AdminHistory() {
         const totalMin = userItems.reduce((acc, i) => {
             if (!i.clockIn || !i.clockOut) return acc;
             let wm = calcRoundedWorkMin(i);
-            // 遅刻ペナルティ判定
-            const dateStr = i.displayDate || i.workDate;
-            const userName = historyUser?.userName || getDisplayName(historyUser);
-            // shiftMap参照（名前での参照を試行）
-            const shiftForDay = shiftMap?.[userName]?.[dateStr] || null;
-            let lateCancelled = false;
-            try {
-                const parsed = JSON.parse(i.comment || "{}");
-                lateCancelled = parsed?.application?.lateCancelled || false;
-            } catch { }
-            if (shiftForDay && shiftForDay.start && i.clockIn && toMin(i.clockIn) >= toMin(shiftForDay.start) && !lateCancelled) {
-                wm = Math.max(0, wm - 30);
-            }
             return acc + wm;
         }, 0);
         // Late Count: Needs "Original Time". If not available, we can't count.
