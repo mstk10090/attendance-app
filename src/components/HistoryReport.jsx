@@ -252,12 +252,15 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
 
         // 派遣/バイト時間の計算（承認済みのみ）
         approvedItems.forEach(i => {
-            if (!i.clockIn || !i.clockOut) return;
             const parsed = parseComment(i.comment);
             const app = parsed?.application || {};
             if (app.withdrawn) return;
-            const actualIn = toMin(app.appliedIn || i.clockIn);
-            const actualOut = toMin(app.appliedOut || i.clockOut);
+            // appliedIn/Out（申請時間）があればそちらを優先、なければ打刻時間を使用
+            const effectiveIn = app.appliedIn || i.clockIn;
+            const effectiveOut = app.appliedOut || i.clockOut;
+            if (!effectiveIn || !effectiveOut) return;
+            const actualIn = toMin(effectiveIn);
+            const actualOut = toMin(effectiveOut);
             const roundedIn = Math.ceil(actualIn / 30) * 30;
             const roundedOut = Math.floor(actualOut / 30) * 30;
             if (roundedIn >= roundedOut) return;
@@ -320,13 +323,20 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
         });
 
         const totalMin = approvedItems.reduce((acc, i) => {
-            if (!i.clockIn || !i.clockOut) return acc;
-            let wm = calcRoundedWorkMin(i);
+            const parsed = parseComment(i.comment);
+            const app = parsed?.application || {};
+            // appliedIn/Out（申請時間）があればそちらを優先、なければ打刻時間を使用
+            const effectiveIn = app.appliedIn || i.clockIn;
+            const effectiveOut = app.appliedOut || i.clockOut;
+            if (!effectiveIn || !effectiveOut) return acc;
+            const inMin = toMin(effectiveIn);
+            const outMin = toMin(effectiveOut);
+            const breakDur = app.breakDuration || calcBreakTime(i);
+            let wm = Math.max(0, outMin - inMin - breakDur);
+            wm = Math.floor(wm / 30) * 30; // 30分単位に丸め
             const dateStr = i.displayDate || i.workDate;
             const shiftForDay = userShifts[dateStr] || null;
-            let lateCancelled = false;
-            const parsed = parseComment(i.comment);
-            lateCancelled = parsed?.application?.lateCancelled || false;
+            const lateCancelled = app.lateCancelled || false;
             if (shiftForDay && shiftForDay.start && i.clockIn && toMin(i.clockIn) >= toMin(shiftForDay.start) && !lateCancelled) {
                 wm = Math.max(0, wm - 30);
             }
