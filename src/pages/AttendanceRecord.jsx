@@ -156,6 +156,8 @@ export default function AttendanceRecord({ user: propUser }) {
   const [subReason, setSubReason] = useState(""); // サブ理由（早退/欠勤/遅刻の詳細理由）
   const [subReasonText, setSubReasonText] = useState(""); // サブ理由がその他の場合のテキスト
   const [formText, setFormText] = useState(""); // 出張場所/残業理由等のテキスト
+  const [formForgotActualIn, setFormForgotActualIn] = useState(""); // 打刻忘れ: 実際の出社時間
+  const [formForgotActualOut, setFormForgotActualOut] = useState(""); // 打刻忘れ: 実際の退勤時間
   const [absentReason, setAbsentReason] = useState(ABSENT_REASONS[0]); // 後方互換用
   const [absentReasonText, setAbsentReasonText] = useState(""); // 後方互換用
   const [loading, setLoading] = useState(false);
@@ -996,6 +998,11 @@ export default function AttendanceRecord({ user: propUser }) {
         setSubReason("");
         setSubReasonText("");
       }
+      // 打刻忘れの実際の時間復元
+      if (app.actualClockIn) setFormForgotActualIn(app.actualClockIn);
+      else setFormForgotActualIn("");
+      if (app.actualClockOut) setFormForgotActualOut(app.actualClockOut);
+      else setFormForgotActualOut("");
 
     } else {
       setFormIn(shift?.start || "");
@@ -1008,6 +1015,8 @@ export default function AttendanceRecord({ user: propUser }) {
       setReason(REASON_OPTIONS[0]); // Default to "-"
       setSubReason("");
       setSubReasonText("");
+      setFormForgotActualIn("");
+      setFormForgotActualOut("");
     }
     // setModalOpen(true); // Removed
   };
@@ -1083,6 +1092,16 @@ export default function AttendanceRecord({ user: propUser }) {
         setLoading(false);
         return;
       }
+      if (reason === "その他" && (!formText || !formText.trim())) {
+        alert("理由を入力してください");
+        setLoading(false);
+        return;
+      }
+      if (reason === "打刻忘れ" && !formForgotActualIn) {
+        alert("おおよその出社時間を入力してください");
+        setLoading(false);
+        return;
+      }
 
       // --- VALIDATION END ---
 
@@ -1102,7 +1121,9 @@ export default function AttendanceRecord({ user: propUser }) {
         subReason: subReason || null,
         subReasonText: subReasonText || null,
         breakDuration: formBreakDuration || 0,
-        adminComment: null
+        adminComment: null,
+        actualClockIn: reason === "打刻忘れ" ? formForgotActualIn : null,
+        actualClockOut: reason === "打刻忘れ" ? formForgotActualOut : null
       };
 
       const commentObj = {
@@ -2067,7 +2088,7 @@ export default function AttendanceRecord({ user: propUser }) {
               {/* カテゴリ選択 */}
               <select
                 value={reason}
-                onChange={e => { setReason(e.target.value); setSubReason(""); setSubReasonText(""); setFormText(""); }}
+                onChange={e => { setReason(e.target.value); setSubReason(""); setSubReasonText(""); setFormText(""); setFormForgotActualIn(""); setFormForgotActualOut(""); }}
                 style={{ width: "100%", padding: "12px", borderRadius: "8px", border: "1px solid #d1d5db", marginBottom: "12px", fontSize: "0.95rem" }}
               >
                 <option value="">理由を選択してください</option>
@@ -2130,6 +2151,47 @@ export default function AttendanceRecord({ user: propUser }) {
                     onChange={e => setFormText(e.target.value)}
                     style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.9rem", minHeight: "60px", boxSizing: "border-box" }}
                   />
+                </div>
+              )}
+
+              {/* 打刻忘れ: 実際の出社/退勤時間入力 */}
+              {reason === "打刻忘れ" && (
+                <div style={{ background: "#fef3c7", padding: "16px", borderRadius: "8px", border: "1px solid #fcd34d", marginBottom: "12px" }}>
+                  <div style={{ fontSize: "0.85rem", fontWeight: "bold", color: "#92400e", marginBottom: "12px" }}>
+                    ⏰ おおよその実際の時間を入力してください（5分単位）
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                    <div>
+                      <label style={{ display: "block", fontSize: "0.8rem", color: "#6b7280", marginBottom: "4px" }}>実際の出社時間 *</label>
+                      <select
+                        value={formForgotActualIn}
+                        onChange={e => setFormForgotActualIn(e.target.value)}
+                        style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "0.95rem" }}
+                      >
+                        <option value="">--:--</option>
+                        {Array.from({ length: 24 * 12 }, (_, i) => {
+                          const h = String(Math.floor(i / 12)).padStart(2, "0");
+                          const m = String((i % 12) * 5).padStart(2, "0");
+                          return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>;
+                        })}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ display: "block", fontSize: "0.8rem", color: "#6b7280", marginBottom: "4px" }}>実際の退勤時間</label>
+                      <select
+                        value={formForgotActualOut}
+                        onChange={e => setFormForgotActualOut(e.target.value)}
+                        style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "0.95rem" }}
+                      >
+                        <option value="">--:--</option>
+                        {Array.from({ length: 24 * 12 }, (_, i) => {
+                          const h = String(Math.floor(i / 12)).padStart(2, "0");
+                          const m = String((i % 12) * 5).padStart(2, "0");
+                          return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>;
+                        })}
+                      </select>
+                    </div>
+                  </div>
                 </div>
               )}
 

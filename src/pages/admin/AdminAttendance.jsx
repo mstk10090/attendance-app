@@ -1621,7 +1621,28 @@ export default function AdminAttendance() {
                   <div style={{ background: "#f3f4f6", padding: "10px", borderRadius: "6px" }}>
                     <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "4px" }}>申請理由</div>
                     <div style={{ fontWeight: "bold", color: "#ef4444" }}>{editingItem._application?.reason || "なし"}</div>
+                    {editingItem._application?.subReason && (
+                      <div style={{ fontSize: "13px", color: "#6b7280", marginTop: "4px" }}>
+                        詳細: {editingItem._application.subReason}
+                        {editingItem._application.subReasonText ? ` (${editingItem._application.subReasonText})` : ""}
+                      </div>
+                    )}
                   </div>
+
+                  {/* 打刻忘れ: 実際の時間表示 */}
+                  {editingItem._application?.reason === "打刻忘れ" && (editingItem._application?.actualClockIn || editingItem._application?.actualClockOut) && (
+                    <div style={{ background: "#fef3c7", padding: "10px", borderRadius: "6px", marginTop: "8px", border: "1px solid #fcd34d" }}>
+                      <div style={{ fontSize: "12px", color: "#92400e", marginBottom: "4px", fontWeight: "bold" }}>⏰ 本人申告の実際の時間</div>
+                      <div style={{ display: "flex", gap: "16px", fontSize: "14px" }}>
+                        {editingItem._application.actualClockIn && (
+                          <div><span style={{ color: "#6b7280" }}>出社:</span> <strong>{editingItem._application.actualClockIn}</strong></div>
+                        )}
+                        {editingItem._application.actualClockOut && (
+                          <div><span style={{ color: "#6b7280" }}>退勤:</span> <strong>{editingItem._application.actualClockOut}</strong></div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
