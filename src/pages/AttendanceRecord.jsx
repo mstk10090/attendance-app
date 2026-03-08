@@ -178,6 +178,8 @@ export default function AttendanceRecord({ user: propUser }) {
   const [discrepancySubReasonText, setDiscrepancySubReasonText] = useState("");
   const [discrepancyText, setDiscrepancyText] = useState("");
   const [discrepancyInfo, setDiscrepancyInfo] = useState(null); // { shiftStart, shiftEnd, clockIn, clockOutTime }
+  const [forgotClockActualIn, setForgotClockActualIn] = useState(""); // 打刻忘れ: 実際の出社時間
+  const [forgotClockActualOut, setForgotClockActualOut] = useState(""); // 打刻忘れ: 実際の退勤時間
 
   const handlePrevMonth = () => {
     setCurrentDate(prev => subMonths(prev, 1));
@@ -347,6 +349,8 @@ export default function AttendanceRecord({ user: propUser }) {
         setDiscrepancySubReason("");
         setDiscrepancySubReasonText("");
         setDiscrepancyText("");
+        setForgotClockActualIn("");
+        setForgotClockActualOut("");
         setDiscrepancyModalOpen(true);
         return; // モーダルでの入力を待つ
       }
@@ -510,6 +514,8 @@ export default function AttendanceRecord({ user: propUser }) {
       setDiscrepancySubReason("");
       setDiscrepancySubReasonText("");
       setDiscrepancyText("");
+      setForgotClockActualIn("");
+      setForgotClockActualOut("");
       setDiscrepancyMode("clockOut");
       setDiscrepancyModalOpen(true);
       return;
@@ -526,6 +532,8 @@ export default function AttendanceRecord({ user: propUser }) {
     setDiscrepancySubReason("");
     setDiscrepancySubReasonText("");
     setDiscrepancyText("");
+    setForgotClockActualIn("");
+    setForgotClockActualOut("");
     setDiscrepancyMode("clockOut");
     setDiscrepancyModalOpen(true);
   };
@@ -711,6 +719,20 @@ export default function AttendanceRecord({ user: propUser }) {
       alert("残業理由を入力してください");
       return;
     }
+    if (discrepancyReason === "その他" && !discrepancyText.trim()) {
+      alert("理由を入力してください");
+      return;
+    }
+    if (discrepancyReason === "打刻忘れ") {
+      if (discrepancyMode === "clockIn" && !forgotClockActualIn) {
+        alert("おおよその出社時間を入力してください");
+        return;
+      }
+      if (discrepancyMode === "clockOut" && !forgotClockActualOut) {
+        alert("おおよその退勤時間を入力してください");
+        return;
+      }
+    }
 
     // 理由文字列を構成（大枠のみ）
     let reasonStr = discrepancyReason;
@@ -718,6 +740,13 @@ export default function AttendanceRecord({ user: propUser }) {
     let subReasonVal = discrepancySubReason || null;
     let subReasonTextVal = discrepancySubReasonText || null;
     let textVal = discrepancyText || null;
+    // 打刻忘れの場合、実際の時間情報をtextValに追加
+    if (discrepancyReason === "打刻忘れ") {
+      const parts = [];
+      if (forgotClockActualIn) parts.push(`実際の出社: ${forgotClockActualIn}`);
+      if (forgotClockActualOut) parts.push(`実際の退勤: ${forgotClockActualOut}`);
+      textVal = parts.join(" / ");
+    }
 
     setDiscrepancyModalOpen(false);
     if (discrepancyMode === "clockIn") {
@@ -1649,19 +1678,60 @@ export default function AttendanceRecord({ user: propUser }) {
                 </>
               )}
 
-              {/* 出張場所 / 残業理由 / 打刻間違い詳細 */}
-              {(discrepancyReason === "出張" || discrepancyReason === "残業" || discrepancyReason === "打刻間違い") && (
+              {/* 出張場所 / 残業理由 / 打刻間違い詳細 / その他理由 */}
+              {(discrepancyReason === "出張" || discrepancyReason === "残業" || discrepancyReason === "打刻間違い" || discrepancyReason === "その他") && (
                 <>
                   <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "bold", color: "#374151", marginBottom: "6px" }}>
-                    {discrepancyReason === "出張" ? "出張場所 *" : discrepancyReason === "打刻間違い" ? "詳細 *" : "残業理由 *"}
+                    {discrepancyReason === "出張" ? "出張場所 *" : discrepancyReason === "打刻間違い" ? "詳細 *" : discrepancyReason === "その他" ? "理由 *" : "残業理由 *"}
                   </label>
                   <textarea
-                    placeholder={discrepancyReason === "出張" ? "出張場所を入力" : discrepancyReason === "打刻間違い" ? "どのように間違えたか入力" : "残業理由を入力"}
+                    placeholder={discrepancyReason === "出張" ? "出張場所を入力" : discrepancyReason === "打刻間違い" ? "どのように間違えたか入力" : discrepancyReason === "その他" ? "理由を入力してください" : "残業理由を入力"}
                     value={discrepancyText}
                     onChange={e => setDiscrepancyText(e.target.value)}
                     style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", marginBottom: "12px", fontSize: "0.9rem", minHeight: "60px", resize: "vertical" }}
                   />
                 </>
+              )}
+
+              {/* 打刻忘れ: 実際の出社/退勤時間入力 */}
+              {discrepancyReason === "打刻忘れ" && (
+                <div style={{ background: "#fef3c7", borderRadius: "8px", padding: "16px", marginBottom: "12px" }}>
+                  <div style={{ fontSize: "0.85rem", fontWeight: "bold", color: "#92400e", marginBottom: "12px" }}>
+                    ⏰ おおよその実際の時間を入力してください（5分単位）
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                    <div>
+                      <label style={{ display: "block", fontSize: "0.8rem", color: "#6b7280", marginBottom: "4px" }}>実際の出社時間 *</label>
+                      <select
+                        value={forgotClockActualIn}
+                        onChange={e => setForgotClockActualIn(e.target.value)}
+                        style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "0.95rem" }}
+                      >
+                        <option value="">--:--</option>
+                        {Array.from({ length: 24 * 12 }, (_, i) => {
+                          const h = String(Math.floor(i / 12)).padStart(2, "0");
+                          const m = String((i % 12) * 5).padStart(2, "0");
+                          return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>;
+                        })}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ display: "block", fontSize: "0.8rem", color: "#6b7280", marginBottom: "4px" }}>実際の退勤時間</label>
+                      <select
+                        value={forgotClockActualOut}
+                        onChange={e => setForgotClockActualOut(e.target.value)}
+                        style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "0.95rem" }}
+                      >
+                        <option value="">--:--</option>
+                        {Array.from({ length: 24 * 12 }, (_, i) => {
+                          const h = String(Math.floor(i / 12)).padStart(2, "0");
+                          const m = String((i % 12) * 5).padStart(2, "0");
+                          return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>;
+                        })}
+                      </select>
+                    </div>
+                  </div>
+                </div>
               )}
 
               <div style={{ display: "flex", gap: "12px", marginTop: "8px" }}>
