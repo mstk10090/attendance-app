@@ -1804,6 +1804,53 @@ export default function AdminAttendance() {
                 </button>
               </div>
 
+              {/* 勤怠取り消し */}
+              <div style={{ marginTop: "20px", padding: "20px", background: "#fff", border: "1px solid #fca5a5", borderRadius: "8px" }}>
+                <h4 style={{ margin: "0 0 8px 0", fontSize: "1rem", color: "#dc2626", display: "flex", alignItems: "center", gap: "6px" }}>
+                  🗑️ 勤怠取り消し
+                </h4>
+                <p style={{ fontSize: "0.85rem", color: "#6b7280", marginBottom: "12px" }}>
+                  この勤怠レコードを完全に取り消します。打刻・申請データがすべてリセットされます。
+                </p>
+                <button
+                  className="btn"
+                  onClick={async () => {
+                    if (!await showConfirm(`${editingItem.userName}さんの${editingItem.workDate}の勤怠を取り消しますか？\n\n⚠️ 打刻・申請データがすべて削除されます。この操作は元に戻せません。`)) return;
+                    setLoading(true);
+                    try {
+                      const payload = {
+                        userId: editingItem.userId,
+                        workDate: editingItem.workDate,
+                        clockIn: "",
+                        clockOut: "",
+                        breaks: [],
+                        comment: ""
+                      };
+                      await fetch(`${API_BASE}/attendance/update`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload),
+                      });
+                      alert("勤怠を取り消しました");
+                      setEditingItem(null);
+                      fetchAttendances();
+                    } catch (e) {
+                      console.error(e);
+                      alert("エラーが発生しました");
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                  style={{
+                    width: "100%", padding: "10px", fontSize: "0.95rem", fontWeight: "bold",
+                    background: "#dc2626", color: "#fff", border: "none", borderRadius: "6px",
+                    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px"
+                  }}
+                >
+                  <Trash2 size={16} /> 勤怠を取り消す
+                </button>
+              </div>
+
               <button
                 onClick={() => setEditingItem(null)}
                 style={{
