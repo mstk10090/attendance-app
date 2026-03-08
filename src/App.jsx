@@ -129,11 +129,16 @@ export default function App() {
 
     // 他タブでのログアウトチェック
     const lastActivity = localStorage.getItem("lastActivity");
-    if (lastActivity && Date.now() - parseInt(lastActivity) > AUTO_LOGOUT_MS) {
-      localStorage.removeItem("isLoggedIn");
-      localStorage.removeItem("lastActivity");
-      setIsLoggedIn(false);
-      return;
+    // lastActivityが存在し、かつタイマー超過の場合のみログアウト
+    // lastActivityがない場合はログイン直後なのでログアウトしない
+    if (lastActivity) {
+      const elapsed = Date.now() - parseInt(lastActivity);
+      if (elapsed > AUTO_LOGOUT_MS) {
+        localStorage.removeItem("isLoggedIn");
+        localStorage.removeItem("lastActivity");
+        setIsLoggedIn(false);
+        return;
+      }
     }
 
     // 操作イベントを監視
@@ -169,8 +174,12 @@ export default function App() {
   }
 
   const handleLoginSuccess = () => {
-    setIsLoggedIn(true);
+    // ★ 自動ログアウトの誤判定防止: ログイン成功時にlastActivityを更新してからisLoggedInをセット
+    // これがないと、古いlastActivityが残っている場合に
+    // useEffect内の自動ログアウト判定で即座にログアウトされる
+    localStorage.setItem("lastActivity", Date.now().toString());
     localStorage.setItem("isLoggedIn", "true");
+    setIsLoggedIn(true);
   };
 
   const handleLogout = () => {
