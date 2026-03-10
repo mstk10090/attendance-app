@@ -498,7 +498,13 @@ export default function AdminShiftManagement() {
             }
           }
         });
-        const uniqueList = Array.from(nameDeduped.values());
+        let uniqueList = Array.from(nameDeduped.values());
+        // テストユーザーを除外
+        const EXCLUDED_NAMES = new Set(["bb", "テスト", "テストユーザー"]);
+        uniqueList = uniqueList.filter(u => {
+          const name = ((u.lastName || "") + (u.firstName || "")).replace(/\s+/g, "").trim();
+          return !EXCLUDED_NAMES.has(name);
+        });
         setUsers(uniqueList);
       }
     } catch (e) {

@@ -1,6 +1,9 @@
 // src/pages/Login.jsx
 import React, { useState } from "react";
 
+// ★ メンテナンスモードフラグ（true: 一般ユーザーのログインをブロック）
+const MAINTENANCE_MODE = true;
+
 const LOGIN_API_URL =
   "https://cma9brof8g.execute-api.ap-northeast-1.amazonaws.com/prod/login";
 
@@ -116,11 +119,23 @@ export default function Login({ onLogin }) {
           user.name ||
           `${user.lastName || ""}${user.firstName || ""}`.trim();
 
-        // role を決定（user.role → data.role → loginId === "admin"）
-        const role =
-          (typeof user.role === "string" && user.role) ||
-          (data && typeof data.role === "string" && data.role) ||
-          (loginId === "admin" ? "admin" : "staff");
+        // role を決定（loginId ベースの明示的判定 → user.role → data.role → デフォルト）
+        let role;
+        if (loginId === "abo") {
+          role = "super_admin";
+        } else {
+          role =
+            (typeof user.role === "string" && user.role) ||
+            (data && typeof data.role === "string" && data.role) ||
+            (loginId === "admin" ? "admin" : "staff");
+        }
+
+        // ★ メンテナンスモード: 一般ユーザー（staff）のログインをブロック
+        if (MAINTENANCE_MODE && role === "staff") {
+          setMessage("🔧 現在メンテナンス中です。しばらくお待ちください。");
+          setLoading(false);
+          return;
+        }
 
         // ユーザー情報を保存
         localStorage.setItem("userId", user.userId || "");
@@ -206,6 +221,30 @@ export default function Login({ onLogin }) {
         }}
       >
         <h2 style={{ textAlign: "center", marginBottom: 8, fontSize: "1.5rem", color: "#1f2937" }}>勤怠管理システム</h2>
+
+        {/* ★ メンテナンスモード告知バナー */}
+        {MAINTENANCE_MODE && (
+          <div
+            style={{
+              marginBottom: 20,
+              padding: "16px",
+              borderRadius: 8,
+              background: "linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)",
+              border: "1px solid #f59e0b",
+              textAlign: "center",
+            }}
+          >
+            <div style={{ fontSize: "1.5rem", marginBottom: 6 }}>🔧</div>
+            <div style={{ fontSize: "0.95rem", fontWeight: "bold", color: "#92400e", marginBottom: 4 }}>
+              メンテナンス中
+            </div>
+            <div style={{ fontSize: "0.8rem", color: "#b45309", lineHeight: 1.5 }}>
+              現在システムメンテナンスを実施しております。<br />
+              一般ユーザーの方はログインできません。<br />
+              ご不便をおかけしますが、しばらくお待ちください。
+            </div>
+          </div>
+        )}
 
         <p style={{ textAlign: "center", marginBottom: 24, fontSize: "0.85rem", color: "#6b7280" }}>
           ※管理者は管理者用IDでログインしてください

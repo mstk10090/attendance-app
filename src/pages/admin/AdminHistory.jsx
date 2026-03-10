@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { format, parseISO, startOfYear, endOfYear, eachDayOfInterval, isSaturday, isSunday } from "date-fns";
 import { ja } from "date-fns/locale";
 import {
@@ -82,6 +82,7 @@ const isWorkDay = (dateStr) => {
 
 export default function AdminHistory() {
     const [searchParams] = useSearchParams();
+    const navigate = useNavigate();
     const [viewMode, setViewMode] = useState("month"); // "month" | "year"
     const [baseDate, setBaseDate] = useState(format(new Date(), "yyyy-MM-dd"));
 
@@ -147,6 +148,13 @@ export default function AdminHistory() {
                         }
                     });
                     list = Array.from(uniqueMap.values());
+
+                    // テストユーザーを除外
+                    const EXCLUDED_NAMES = new Set(["bb", "テスト", "テストユーザー"]);
+                    list = list.filter(u => {
+                        const name = ((u.lastName || "") + (u.firstName || "")).replace(/\s+/g, "").trim();
+                        return !EXCLUDED_NAMES.has(name);
+                    });
 
                     // Sort by name or ID logically
                     list.sort((a, b) => (a.userId || "").localeCompare(b.userId || ""));
@@ -536,9 +544,14 @@ export default function AdminHistory() {
                                 </div>
                             </div>
                         </div>
-                        <button className="btn btn-outline" onClick={() => setHistoryUser(null)}>
-                            <ArrowLeft size={16} style={{ marginRight: "4px" }} /> 一覧に戻る
-                        </button>
+                        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                            <button className="btn btn-outline" onClick={() => navigate(`/admin/attendance?userId=${historyUser.userId}`)} style={{ borderColor: "#3b82f6", color: "#3b82f6" }}>
+                                勤怠管理で開く
+                            </button>
+                            <button className="btn btn-outline" onClick={() => setHistoryUser(null)}>
+                                <ArrowLeft size={16} style={{ marginRight: "4px" }} /> 一覧に戻る
+                            </button>
+                        </div>
                     </div>
 
                     <div style={{ flex: 1, overflowY: "auto", padding: "24px" }}>

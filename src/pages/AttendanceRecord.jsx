@@ -96,23 +96,24 @@ const calcRoundedWorkMin = (e) => {
 
 const parseComment = (raw) => {
   try {
-    if (!raw) return { segments: [], text: "", application: null };
-    if (typeof raw === "object") return raw;
+    if (!raw) return { segments: [], text: "", application: null, auditLog: [] };
+    if (typeof raw === "object") return { ...raw, auditLog: raw.auditLog || [] };
     const parsed = JSON.parse(raw);
 
-    // Support new structure { segments, text, application }
+    // Support new structure { segments, text, application, auditLog }
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       return {
         segments: parsed.segments || [],
         text: parsed.text || "",
-        application: parsed.application || null // { status, reason, adminComment, ... }
+        application: parsed.application || null,
+        auditLog: parsed.auditLog || []
       };
     }
     // Fallback for old array structure
-    if (Array.isArray(parsed)) return { segments: parsed, text: "", application: null };
-    return { segments: [], text: raw, application: null };
+    if (Array.isArray(parsed)) return { segments: parsed, text: "", application: null, auditLog: [] };
+    return { segments: [], text: raw, application: null, auditLog: [] };
   } catch (e) {
-    return { segments: [], text: raw || "", application: null };
+    return { segments: [], text: raw || "", application: null, auditLog: [] };
   }
 };
 
@@ -182,6 +183,8 @@ export default function AttendanceRecord({ user: propUser }) {
   const [discrepancyInfo, setDiscrepancyInfo] = useState(null); // { shiftStart, shiftEnd, clockIn, clockOutTime }
   const [forgotClockActualIn, setForgotClockActualIn] = useState(""); // 打刻忘れ: 実際の出社時間
   const [forgotClockActualOut, setForgotClockActualOut] = useState(""); // 打刻忘れ: 実際の退勤時間
+  const [discrepancyAppliedIn, setDiscrepancyAppliedIn] = useState(""); // 乖離モーダル: 申請する出勤時間
+  const [discrepancyAppliedOut, setDiscrepancyAppliedOut] = useState(""); // 乖離モーダル: 申請する退勤時間
 
   const handlePrevMonth = () => {
     setCurrentDate(prev => subMonths(prev, 1));
@@ -272,7 +275,8 @@ export default function AttendanceRecord({ user: propUser }) {
       const commentObj = {
         segments: [{ location: "出張", department: user.defaultDepartment || "未記載", hours: "" }],
         text: tripComment,
-        application: application
+        application: application,
+        auditLog: [{ action: "submitted", by: user.userName || user.loginId || "スタッフ", at: new Date().toISOString(), detail: "出張申請を提出しました" }]
       };
 
       const payload = {
@@ -518,6 +522,9 @@ export default function AttendanceRecord({ user: propUser }) {
       setDiscrepancyText("");
       setForgotClockActualIn("");
       setForgotClockActualOut("");
+      // デフォルト値: 打刻時間の30分丸め（出勤=切り上げ、退勤=切り捨て）
+      setDiscrepancyAppliedIn(roundTimeToHalfHour(clockInTime, "ceil"));
+      setDiscrepancyAppliedOut(roundTimeToHalfHour(nowTime, "floor"));
       setDiscrepancyMode("clockOut");
       setDiscrepancyModalOpen(true);
       return;
@@ -536,12 +543,15 @@ export default function AttendanceRecord({ user: propUser }) {
     setDiscrepancyText("");
     setForgotClockActualIn("");
     setForgotClockActualOut("");
+    // デフォルト値: 打刻時間の30分丸め
+    setDiscrepancyAppliedIn(roundTimeToHalfHour(clockInTime, "ceil"));
+    setDiscrepancyAppliedOut(roundTimeToHalfHour(nowTime, "floor"));
     setDiscrepancyMode("clockOut");
     setDiscrepancyModalOpen(true);
   };
 
   // 実際の退勤処理（乖離なしの場合 or モーダル入力後に呼ばれる）
-  const executeClockOut = async (clockOutTime, reasonStr = null, subReasonVal = null, subReasonTextVal = null, textVal = null) => {
+  const executeClockOut = async (clockOutTime, reasonStr = null, subReasonVal = null, subReasonTextVal = null, textVal = null, appliedInOverride = null, appliedOutOverride = null) => {
     setLoading(true);
     try {
       const payload = { userId: user.userId, workDate: activeItem.workDate };
@@ -593,7 +603,8 @@ export default function AttendanceRecord({ user: propUser }) {
               appliedOut: appliedOut,
               submittedAt: new Date().toISOString(),
               autoApplied: true
-            }
+            },
+            auditLog: [...(existingComment.auditLog || []), { action: "submitted", by: user.userName || user.loginId || "スタッフ", at: new Date().toISOString(), detail: "承認待ちになりました（自動申請）" }]
           };
 
           await fetch(ENDPOINTS.update, {
@@ -613,8 +624,9 @@ export default function AttendanceRecord({ user: propUser }) {
           newItems[idx].comment = JSON.stringify(updatedComment);
         } else if (reasonStr) {
           // 乖離あり＋理由入力済み → 理由付き申請として承認待ちにする
-          const clockInRounded = roundTimeToHalfHour(clockInTime, "ceil");
-          const clockOutRounded = roundTimeToHalfHour(clockOutTime, "floor");
+          // モーダルで入力された申請時間を使用（未入力の場合は自動30分丸め）
+          const appliedInVal = appliedInOverride || roundTimeToHalfHour(clockInTime, "ceil");
+          const appliedOutVal = appliedOutOverride || roundTimeToHalfHour(clockOutTime, "floor");
           const existingComment = parseComment(newItems[idx].comment);
           const updatedComment = {
             segments: existingComment.segments || [],
@@ -624,11 +636,12 @@ export default function AttendanceRecord({ user: propUser }) {
               reason: reasonStr,
               subReason: subReasonVal || null,
               subReasonText: subReasonTextVal || null,
-              appliedIn: clockInRounded,
-              appliedOut: clockOutRounded,
+              appliedIn: appliedInVal,
+              appliedOut: appliedOutVal,
               submittedAt: new Date().toISOString(),
               autoApplied: false
-            }
+            },
+            auditLog: [...(existingComment.auditLog || []), { action: "submitted", by: user.userName || user.loginId || "スタッフ", at: new Date().toISOString(), detail: `承認待ちになりました（理由: ${reasonStr}）` }]
           };
 
           await fetch(ENDPOINTS.update, {
@@ -662,7 +675,8 @@ export default function AttendanceRecord({ user: propUser }) {
                 appliedOut: clockOutRounded,
                 submittedAt: new Date().toISOString(),
                 autoApplied: true
-              }
+              },
+              auditLog: [...(existingComment.auditLog || []), { action: "submitted", by: user.userName || user.loginId || "スタッフ", at: new Date().toISOString(), detail: "承認待ちになりました（自動申請）" }]
             };
 
             await fetch(ENDPOINTS.update, {
@@ -754,7 +768,7 @@ export default function AttendanceRecord({ user: propUser }) {
     if (discrepancyMode === "clockIn") {
       await executeClockIn(discrepancyInfo.clockIn, reasonStr, subReasonVal, subReasonTextVal, textVal);
     } else {
-      await executeClockOut(discrepancyInfo.clockOutTime, reasonStr, subReasonVal, subReasonTextVal, textVal);
+      await executeClockOut(discrepancyInfo.clockOutTime, reasonStr, subReasonVal, subReasonTextVal, textVal, discrepancyAppliedIn || null, discrepancyAppliedOut || null);
     }
   };
 
@@ -898,7 +912,8 @@ export default function AttendanceRecord({ user: propUser }) {
               appliedOut: appliedOut,
               submittedAt: new Date().toISOString(),
               autoApplied: true
-            }
+            },
+            auditLog: [...(p.auditLog || []), { action: "submitted", by: user.userName || user.loginId || "スタッフ", at: new Date().toISOString(), detail: "承認待ちになりました（自動救済）" }]
           };
 
           // APIで更新（バックグラウンド）
@@ -1649,6 +1664,45 @@ export default function AttendanceRecord({ user: propUser }) {
                 )}
               </div>
 
+              {/* 申請する勤務時間入力（30分単位） */}
+              <div style={{ background: "#ecfdf5", borderRadius: "8px", padding: "16px", marginBottom: "16px" }}>
+                <div style={{ fontSize: "0.85rem", fontWeight: "bold", color: "#065f46", marginBottom: "12px" }}>
+                  ⏰ 申請する勤務時間（30分単位）
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.8rem", color: "#6b7280", marginBottom: "4px" }}>出勤時間</label>
+                    <select
+                      value={discrepancyAppliedIn}
+                      onChange={e => setDiscrepancyAppliedIn(e.target.value)}
+                      style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "0.95rem", background: "#fff" }}
+                    >
+                      <option value="">--:--</option>
+                      {Array.from({ length: 48 }, (_, i) => {
+                        const h = String(Math.floor(i / 2)).padStart(2, "0");
+                        const m = (i % 2 === 0) ? "00" : "30";
+                        return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>;
+                      })}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.8rem", color: "#6b7280", marginBottom: "4px" }}>退勤時間</label>
+                    <select
+                      value={discrepancyAppliedOut}
+                      onChange={e => setDiscrepancyAppliedOut(e.target.value)}
+                      style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "0.95rem", background: "#fff" }}
+                    >
+                      <option value="">--:--</option>
+                      {Array.from({ length: 48 }, (_, i) => {
+                        const h = String(Math.floor(i / 2)).padStart(2, "0");
+                        const m = (i % 2 === 0) ? "00" : "30";
+                        return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>;
+                      })}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
               {/* 理由選択 */}
               <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "bold", color: "#374151", marginBottom: "6px" }}>乖離理由 *</label>
               <select
@@ -2137,6 +2191,21 @@ export default function AttendanceRecord({ user: propUser }) {
                   </label>
                   <textarea
                     placeholder="例：出勤打刻と退勤打刻を間違えて押してしまいました"
+                    value={formText}
+                    onChange={e => setFormText(e.target.value)}
+                    style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.9rem", minHeight: "60px", boxSizing: "border-box" }}
+                  />
+                </div>
+              )}
+
+              {/* その他: 理由入力 */}
+              {reason === "その他" && (
+                <div style={{ background: "#f0f9ff", padding: "12px", borderRadius: "8px", border: "1px solid #bae6fd", marginBottom: "12px" }}>
+                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "bold", color: "#0369a1", marginBottom: "6px" }}>
+                    理由を入力してください *
+                  </label>
+                  <textarea
+                    placeholder="具体的な理由を入力してください"
                     value={formText}
                     onChange={e => setFormText(e.target.value)}
                     style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.9rem", minHeight: "60px", boxSizing: "border-box" }}

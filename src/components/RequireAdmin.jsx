@@ -8,7 +8,7 @@ export default function RequireAdmin({ children }) {
 
   if (!isLoggedIn) return <Navigate to="/login" replace />;
 
-  if (role !== "admin") return <Navigate to="/mypage" replace />;
+  if (role !== "admin" && role !== "super_admin") return <Navigate to="/mypage" replace />;
 
   return <>{children}</>;
 }

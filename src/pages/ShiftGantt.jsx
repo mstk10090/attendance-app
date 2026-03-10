@@ -75,7 +75,13 @@ export default function ShiftGantt() {
                             nameDeduped.set(fullName, u);
                         }
                     });
-                    setUsers(Array.from(nameDeduped.values()));
+                    // テストユーザーを除外
+                    const EXCLUDED_NAMES = new Set(["bb", "テスト", "テストユーザー"]);
+                    const filtered = Array.from(nameDeduped.values()).filter(u => {
+                        const name = ((u.lastName || "") + (u.firstName || "")).replace(/\s+/g, "").trim();
+                        return !EXCLUDED_NAMES.has(name);
+                    });
+                    setUsers(filtered);
                 }
             } catch (e) {
                 console.error(e);

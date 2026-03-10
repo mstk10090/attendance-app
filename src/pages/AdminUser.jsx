@@ -104,6 +104,13 @@ export default function AdminUser() {
         else if (data && Array.isArray(data.Items)) list = data.Items;
         else if (data && data.success && Array.isArray(data.items)) list = data.items;
 
+        // テストユーザーを除外
+        const EXCLUDED_NAMES = new Set(["bb", "テスト", "テストユーザー"]);
+        list = list.filter(u => {
+          const name = ((u.lastName || "") + (u.firstName || "")).replace(/\s+/g, "").trim();
+          return !EXCLUDED_NAMES.has(name);
+        });
+
         // 重複排除（3段階）
         // スコア関数: データの完全度を評価（高い方を優先）
         const completenessScore = (u) => {

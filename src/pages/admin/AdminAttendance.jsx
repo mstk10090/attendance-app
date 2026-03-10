@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addDays, addMonths, subMonths, startOfYear, endOfYear, isSaturday, isSunday } from "date-fns";
 import { ja } from "date-fns/locale";
-import { Search, Filter, AlertTriangle, CheckCircle, XCircle, Clock, MapPin, Download, Save, X, Briefcase, FileText, Send, PieChart, BarChart, ClipboardCheck, Trash2 } from "lucide-react";
+import { Search, Filter, AlertTriangle, CheckCircle, XCircle, Clock, MapPin, Download, Save, X, Briefcase, FileText, Send, PieChart, BarChart, ClipboardCheck, Trash2, MessageSquare } from "lucide-react";
 import "../../App.css";
 import { LOCATIONS, DEPARTMENTS, EMPLOYMENT_TYPES, HOLIDAYS } from "../../constants";
 import { fetchShiftData, normalizeName } from "../../utils/shiftParser";
@@ -13,28 +13,29 @@ const API_USER_URL = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.co
 // --- Utilities ---
 const parseComment = (raw) => {
   try {
-    if (!raw) return { segments: [], text: "" };
+    if (!raw) return { segments: [], text: "", auditLog: [] };
     if (typeof raw === "object") {
-      if (Array.isArray(raw)) return { segments: raw, text: "" };
-      return { segments: raw.segments || [], text: raw.text || "", application: raw.application || null };
+      if (Array.isArray(raw)) return { segments: raw, text: "", auditLog: [] };
+      return { segments: raw.segments || [], text: raw.text || "", application: raw.application || null, auditLog: raw.auditLog || [] };
     }
     const parsed = JSON.parse(raw);
-    if (!parsed) return { segments: [], text: raw };
+    if (!parsed) return { segments: [], text: raw, auditLog: [] };
 
     if (Array.isArray(parsed)) {
-      return { segments: parsed, text: "" };
+      return { segments: parsed, text: "", auditLog: [] };
     }
     if (typeof parsed === 'object') {
       const segs = Array.isArray(parsed.segments) ? parsed.segments : [];
       return {
         segments: segs,
         text: parsed.text || "",
-        application: parsed.application || null
+        application: parsed.application || null,
+        auditLog: parsed.auditLog || []
       };
     }
-    return { segments: [], text: raw };
+    return { segments: [], text: raw, auditLog: [] };
   } catch (e) {
-    return { segments: [], text: raw || "" };
+    return { segments: [], text: raw || "", auditLog: [] };
   }
 };
 
@@ -174,6 +175,9 @@ const calcSplitDisplay = (item, shift) => {
 
 
 export default function AdminAttendance() {
+  /* URL Params */
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlUserId = urlParams.get('userId');
   /* State */
   const [viewMode, setViewMode] = useState("daily"); // daily, weekly, monthly, report, current
   const [baseDate, setBaseDate] = useState(format(new Date(), "yyyy-MM-dd"));
@@ -250,6 +254,27 @@ export default function AdminAttendance() {
   // 乖離理由展開用
   const [expandedReasonId, setExpandedReasonId] = useState(null);
 
+  // 操作ログモーダル用
+  const [logModalItem, setLogModalItem] = useState(null);
+
+  // auditLog記録用ヘルパー
+  const addAuditLog = (commentStr, action, detail) => {
+    const p = parseComment(commentStr);
+    const log = p.auditLog || [];
+    log.push({
+      action,
+      by: "管理者",
+      at: new Date().toISOString(),
+      detail
+    });
+    return { ...p, auditLog: log };
+  };
+
+  const buildCommentWithLog = (commentStr, action, detail, overrides = {}) => {
+    const withLog = addAuditLog(commentStr, action, detail);
+    return JSON.stringify({ ...withLog, ...overrides });
+  };
+
 
 
 
@@ -257,6 +282,19 @@ export default function AdminAttendance() {
     fetchUsers();
     fetchShiftData().then(setShiftMap);
   }, []);
+
+  // URLパラメータからuserIdが指定されている場合、ユーザー名でフィルタリング
+  useEffect(() => {
+    if (urlUserId && users.length > 0) {
+      const targetUser = users.find(u => u.userId === urlUserId);
+      if (targetUser) {
+        const name = targetUser.lastName && targetUser.firstName
+          ? `${targetUser.lastName} ${targetUser.firstName}`
+          : targetUser.userName || targetUser.loginId || "";
+        setFilterName(name.trim());
+      }
+    }
+  }, [users, urlUserId]);
 
   const fetchUsers = async () => {
     try {
@@ -269,7 +307,13 @@ export default function AdminAttendance() {
         const text = await res.text();
         const outer = JSON.parse(text);
         const data = (outer.body && typeof outer.body === "string") ? JSON.parse(outer.body) : outer;
-        const list = Array.isArray(data) ? data : (data.items || []);
+        let list = Array.isArray(data) ? data : (data.items || []);
+        // テストユーザーを除外
+        const EXCLUDED_NAMES = new Set(["bb", "テスト", "テストユーザー"]);
+        list = list.filter(u => {
+          const name = ((u.lastName || "") + (u.firstName || "")).replace(/\s+/g, "").trim();
+          return !EXCLUDED_NAMES.has(name);
+        });
         setUsers(list);
       }
     } catch (e) { console.error(e); }
@@ -581,7 +625,8 @@ export default function AdminAttendance() {
       const finalComment = JSON.stringify({
         segments: p.segments,
         text: (p.text || "") + `\n[再提出依頼]: ${resubmitReason}`,
-        application: newApp
+        application: newApp,
+        auditLog: [...(p.auditLog || []), { action: "resubmission_requested", by: "管理者", at: new Date().toISOString(), detail: `再提出を依頼しました: ${resubmitReason}` }]
       });
 
       await fetch(`${API_BASE}/attendance/update`, {
@@ -650,7 +695,8 @@ export default function AdminAttendance() {
       const finalComment = JSON.stringify({
         segments: p.segments,
         text: p.text,
-        application: newApp
+        application: newApp,
+        auditLog: [...(p.auditLog || []), { action: "approved", by: "管理者", at: new Date().toISOString(), detail: `承認しました${approveReason ? ` (${approveReason})` : ""}` }]
       });
 
       await fetch(`${API_BASE}/attendance/update`, {
@@ -886,9 +932,7 @@ export default function AdminAttendance() {
                   boxShadow: "0 4px 12px rgba(0,0,0,0.1)", minWidth: "180px", padding: "8px 0"
                 }}>
                   {[{ key: "pending", label: "承認待ち" }, { key: "approved", label: "承認済み" }, { key: "working", label: "勤務中" }, { key: "incomplete", label: "未退勤" }, { key: "discrepancy", label: "時間ずれ" }, { key: "resubmission", label: "再提出" }, { key: "error", label: "時間異常" }, { key: "night", label: "深夜勤務" }, { key: "noshift", label: "未出勤" }].map(opt => (
-                    <label key={opt.key} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "6px 12px", cursor: "pointer", fontSize: "0.85rem" }}
-                      onMouseOver={e => e.currentTarget.style.background = '#f3f4f6'}
-                      onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
+                    <label key={opt.key} className="status-dropdown-item">
                       <input type="checkbox" checked={filterStatus.has(opt.key)} onChange={() => {
                         setFilterStatus(prev => {
                           const next = new Set(prev);
@@ -1439,7 +1483,7 @@ export default function AdminAttendance() {
                                     const p = parseComment(item.comment);
                                     const app = p.application || {};
                                     const newApp = { ...app, status: "pending", approvedAt: null };
-                                    const finalComment = JSON.stringify({ segments: p.segments, text: p.text, application: newApp });
+                                    const finalComment = JSON.stringify({ segments: p.segments, text: p.text, application: newApp, auditLog: [...(p.auditLog || []), { action: "approval_cancelled", by: "管理者", at: new Date().toISOString(), detail: "承認を取り消しました" }] });
                                     await fetch(`${API_BASE}/attendance/update`, {
                                       method: "POST",
                                       headers: { "Content-Type": "application/json" },
@@ -1526,6 +1570,19 @@ export default function AdminAttendance() {
                                 </button>
                               </>
                             )}
+
+                            {/* ログボタン */}
+                            <button
+                              className="btn"
+                              onClick={(e) => { e.stopPropagation(); setLogModalItem(item); }}
+                              style={{
+                                fontSize: "11px", padding: "4px 10px",
+                                background: "#f3f4f6", color: "#374151", border: "1px solid #d1d5db", borderRadius: "4px",
+                                cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", gap: "4px"
+                              }}
+                            >
+                              <MessageSquare size={12} /> ログ
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -1766,7 +1823,7 @@ export default function AdminAttendance() {
                         reason: autoReason || existingApp.reason || "-",
                         appliedAt: existingApp.appliedAt || new Date().toISOString()
                       };
-                      const finalComment = JSON.stringify({ segments: p.segments, text: p.text, application: newApp });
+                      const finalComment = JSON.stringify({ segments: p.segments, text: p.text, application: newApp, auditLog: [...(p.auditLog || []), { action: "admin_edited", by: "管理者", at: new Date().toISOString(), detail: `管理者が修正しました（${newIn}〜${newOut}、休憩${newBreak}分）` }] });
                       const res = await fetch(`${API_BASE}/attendance/update`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
@@ -1822,21 +1879,26 @@ export default function AdminAttendance() {
                   🗑️ 勤怠取り消し
                 </h4>
                 <p style={{ fontSize: "0.85rem", color: "#6b7280", marginBottom: "12px" }}>
-                  この勤怠レコードを完全に取り消します。打刻・申請データがすべてリセットされます。
+                  この勤怠レコードの打刻・申請データをリセットします。操作ログは保持されます。
                 </p>
                 <button
                   className="btn"
                   onClick={async () => {
-                    if (!await showConfirm(`${editingItem.userName}さんの${editingItem.workDate}の勤怠を取り消しますか？\n\n⚠️ 打刻・申請データがすべて削除されます。この操作は元に戻せません。`)) return;
+                    if (!await showConfirm(`${editingItem.userName}さんの${editingItem.workDate}の勤怠を取り消しますか？\n\n⚠️ 打刻・申請データがリセットされます。`)) return;
                     setLoading(true);
                     try {
+                      // ログを保持したままリセット
+                      const p = parseComment(editingItem.comment);
+                      const existingLog = p.auditLog || [];
+                      existingLog.push({ action: "cancelled", by: "管理者", at: new Date().toISOString(), detail: "勤怠を取り消しました" });
+                      const resetComment = JSON.stringify({ segments: [], application: null, text: "", auditLog: existingLog });
                       const payload = {
                         userId: editingItem.userId,
                         workDate: editingItem.workDate,
                         clockIn: "",
                         clockOut: "",
                         breaks: [],
-                        comment: ""
+                        comment: resetComment
                       };
                       await fetch(`${API_BASE}/attendance/update`, {
                         method: "POST",
@@ -2159,6 +2221,83 @@ export default function AdminAttendance() {
           </div>
         )
       }
+
+      {/* LINEチャット風 操作ログモーダル */}
+      {logModalItem && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(0,0,0,0.5)", zIndex: 10001,
+          display: "flex", alignItems: "center", justifyContent: "center"
+        }} onClick={() => setLogModalItem(null)}>
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: "#e8ddd3", borderRadius: "16px", width: "90%", maxWidth: "480px",
+              maxHeight: "80vh", display: "flex", flexDirection: "column",
+              boxShadow: "0 16px 48px rgba(0,0,0,0.3)", overflow: "hidden"
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              background: "#7b6b5a", color: "#fff", padding: "14px 20px",
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              borderRadius: "16px 16px 0 0"
+            }}>
+              <div>
+                <div style={{ fontWeight: "bold", fontSize: "15px" }}>操作ログ</div>
+                <div style={{ fontSize: "12px", opacity: 0.8 }}>{logModalItem.userName} - {logModalItem.workDate}</div>
+              </div>
+              <button onClick={() => setLogModalItem(null)} style={{ background: "none", border: "none", color: "#fff", fontSize: "20px", cursor: "pointer", padding: "4px" }}>×</button>
+            </div>
+
+            {/* Chat Area */}
+            <div style={{ flex: 1, overflowY: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: "12px" }}>
+              {(() => {
+                const p = parseComment(logModalItem.comment);
+                const logs = p.auditLog || [];
+                if (logs.length === 0) {
+                  return (
+                    <div style={{ textAlign: "center", color: "#8b7e74", padding: "40px 0", fontSize: "14px" }}>
+                      操作ログはまだありません
+                    </div>
+                  );
+                }
+                return logs.map((log, idx) => {
+                  const date = new Date(log.at);
+                  const timeStr = `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+
+                  // アクションに応じた色
+                  let bubbleBg = "#fff";
+                  let textColor = "#1f2937";
+                  if (log.action === "approved") { bubbleBg = "#dcfce7"; textColor = "#166534"; }
+                  else if (log.action === "approval_cancelled") { bubbleBg = "#fee2e2"; textColor = "#991b1b"; }
+                  else if (log.action === "cancelled") { bubbleBg = "#fef2f2"; textColor = "#dc2626"; }
+                  else if (log.action === "resubmission_requested") { bubbleBg = "#f3e8ff"; textColor = "#7c3aed"; }
+                  else if (log.action === "admin_edited") { bubbleBg = "#eff6ff"; textColor = "#1d4ed8"; }
+
+                  return (
+                    <div key={idx} style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+                      <div style={{
+                        background: bubbleBg, color: textColor,
+                        padding: "10px 14px", borderRadius: "16px 16px 4px 16px",
+                        maxWidth: "80%", fontSize: "14px", lineHeight: "1.5",
+                        boxShadow: "0 1px 2px rgba(0,0,0,0.08)",
+                        wordBreak: "break-word"
+                      }}>
+                        <div style={{ fontWeight: "bold", fontSize: "12px", marginBottom: "4px", opacity: 0.7 }}>{log.by || "管理者"}</div>
+                        {log.detail}
+                      </div>
+                      <div style={{ fontSize: "11px", color: "#8b7e74", marginTop: "4px", paddingRight: "4px" }}>
+                        {timeStr}
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`
           .status-badge.purple { background: #f3e8ff; color: #7c3aed; border: 1px solid #d8b4fe; }

@@ -27,6 +27,7 @@ import StaffManual from "./pages/StaffManual";
 import ShiftGantt from "./pages/ShiftGantt";
 
 import AdminShiftManagement from "./pages/admin/AdminShiftManagement"; // New Component
+import AdminAttendanceSheet from "./pages/admin/AdminAttendanceSheet"; // 勤怠確認シート
 
 import Attendance from "./pages/Attendance";
 
@@ -91,7 +92,7 @@ export default function App() {
 
   const resetLogoutTimer = useCallback(() => {
     // 管理者は自動ログアウトしない
-    if (localStorage.getItem("role") === "admin") {
+    if (localStorage.getItem("role") === "admin" || localStorage.getItem("role") === "super_admin") {
       if (logoutTimerRef.current) {
         clearTimeout(logoutTimerRef.current);
       }
@@ -125,7 +126,7 @@ export default function App() {
     }
 
     // 管理者は自動ログアウトしない
-    if (localStorage.getItem("role") === "admin") return;
+    if (localStorage.getItem("role") === "admin" || localStorage.getItem("role") === "super_admin") return;
 
     // 他タブでのログアウトチェック
     const lastActivity = localStorage.getItem("lastActivity");
@@ -196,8 +197,9 @@ export default function App() {
   const navLinkClass = ({ isActive }) =>
     "tab-link" + (isActive ? " tab-link-active" : "");
 
+  const role = localStorage.getItem("role");
   const isAdmin =
-    isLoggedIn && localStorage.getItem("role") === "admin";
+    isLoggedIn && (role === "admin" || role === "super_admin");
 
   return (
     <Router>
@@ -256,19 +258,19 @@ export default function App() {
 
               <div className="tab">
                 <NavLink
-                  to="/admin/shift"
+                  to="/admin/history"
                   className={navLinkClass}
                 >
-                  シフト管理
+                  レポート
                 </NavLink>
               </div>
 
               <div className="tab">
                 <NavLink
-                  to="/admin/history"
+                  to="/admin/sheet"
                   className={navLinkClass}
                 >
-                  個人履歴
+                  勤怠確認
                 </NavLink>
               </div>
 
@@ -414,6 +416,15 @@ export default function App() {
                 element={
                   <RequireAdmin>
                     <AdminHistory />
+                  </RequireAdmin>
+                }
+              />
+
+              <Route
+                path="/admin/sheet"
+                element={
+                  <RequireAdmin>
+                    <AdminAttendanceSheet />
                   </RequireAdmin>
                 }
               />
