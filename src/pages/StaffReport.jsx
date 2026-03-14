@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { format } from "date-fns";
+import { useNavigate } from "react-router-dom";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import HistoryReport from "../components/HistoryReport";
 import { fetchShiftData, normalizeName } from "../utils/shiftParser";
@@ -18,6 +19,7 @@ function parseComment(raw) {
 }
 
 export default function StaffReport() {
+    const navigate = useNavigate();
     const [user, setUser] = useState(null);
     const [items, setItems] = useState([]);
     const [shiftMap, setShiftMap] = useState({});
@@ -109,6 +111,7 @@ export default function StaffReport() {
                             baseDate={format(currentDate, "yyyy-MM-dd")}
                             viewMode="month"
                             shiftMap={shiftMap}
+                            onRowClick={(dateStr) => navigate(`/attendance?editDate=${dateStr}`)}
                         />
                     )}
                 </div>

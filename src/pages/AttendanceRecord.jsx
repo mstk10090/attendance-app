@@ -14,6 +14,7 @@ import {
   XCircle,
   MessageCircle
 } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSaturday, isSunday, addDays, isSameDay, addMonths, subMonths } from "date-fns";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { ja } from "date-fns/locale";
@@ -119,6 +120,7 @@ const parseComment = (raw) => {
 };
 
 export default function AttendanceRecord({ user: propUser }) {
+  const [searchParams, setSearchParams] = useSearchParams();
   // Use prop or fallback to localStorage
   const user = useMemo(() => {
     if (propUser) return propUser;
@@ -986,6 +988,17 @@ export default function AttendanceRecord({ user: propUser }) {
   };
 
   /* --- ALERTS / NOTIFICATIONS --- */
+
+  // レポートからの遷移: editDateパラメータで自動的に編集フォームを開く
+  useEffect(() => {
+    const editDate = searchParams.get("editDate");
+    if (editDate && items.length > 0) {
+      const item = items.find(i => (i.displayDate || i.workDate) === editDate);
+      handleEdit(editDate, item || null);
+      // パラメータをクリア（再表示防止）
+      setSearchParams({}, { replace: true });
+    }
+  }, [items, searchParams]);
   const alerts = items.filter(item => {
     const p = parseComment(item.comment);
     const app = p.application || {};
