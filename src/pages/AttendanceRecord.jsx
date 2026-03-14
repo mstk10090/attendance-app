@@ -1113,7 +1113,14 @@ export default function AttendanceRecord({ user: propUser }) {
       const shift = getShift(user.userName, lookupDate);
 
       // --- VALIDATION START ---
-      // 0. Reason Required Check
+      // 0. 未退勤チェック（欠勤以外は退勤してから申請）
+      if (reason !== "欠勤" && originalItem && originalItem.clockIn && !originalItem.clockOut) {
+        alert("退勤してから申請してください。\n未退勤の状態では申請できません。");
+        setLoading(false);
+        return;
+      }
+
+      // 0b. Reason Required Check
       if (!reason || reason === "-") {
         alert("修正・申請理由を選択してください");
         setLoading(false);
@@ -2331,19 +2338,32 @@ export default function AttendanceRecord({ user: propUser }) {
                   </button>
                 )}
 
-              <button
-                onClick={handleUpdate}
-                disabled={loading}
-                style={{
-                  flex: 2, padding: "14px", borderRadius: "8px", border: "none",
-                  background: loading ? "#93c5fd" : reason === "欠勤" ? "#ef4444" : "#2563eb",
-                  color: "#fff", fontWeight: "bold", cursor: loading ? "default" : "pointer",
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
-                  boxShadow: reason === "欠勤" ? "0 4px 6px rgba(239, 68, 68, 0.2)" : "0 4px 6px rgba(37, 99, 235, 0.2)"
-                }}
-              >
-                {loading ? "送信中..." : <><CheckCircle size={20} /> {reason === "欠勤" ? "欠勤申請" : "申請を保存"}</>}
-              </button>
+              {(() => {
+                const currentItem = items.find(i => i.workDate === expandedDate);
+                const isUnclocked = currentItem && currentItem.clockIn && !currentItem.clockOut && reason !== "欠勤";
+                return (
+                  <>
+                    {isUnclocked && (
+                      <div style={{ width: "100%", padding: "10px", background: "#fef3c7", borderRadius: "8px", textAlign: "center", fontSize: "13px", color: "#92400e", fontWeight: "bold" }}>
+                        ⚠️ 退勤してから申請してください
+                      </div>
+                    )}
+                    <button
+                      onClick={handleUpdate}
+                      disabled={loading || isUnclocked}
+                      style={{
+                        flex: 2, padding: "14px", borderRadius: "8px", border: "none",
+                        background: isUnclocked ? "#d1d5db" : loading ? "#93c5fd" : reason === "欠勤" ? "#ef4444" : "#2563eb",
+                        color: "#fff", fontWeight: "bold", cursor: (loading || isUnclocked) ? "default" : "pointer",
+                        display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
+                        boxShadow: isUnclocked ? "none" : reason === "欠勤" ? "0 4px 6px rgba(239, 68, 68, 0.2)" : "0 4px 6px rgba(37, 99, 235, 0.2)"
+                      }}
+                    >
+                      {loading ? "送信中..." : <><CheckCircle size={20} /> {isUnclocked ? "退勤後に申請可能" : reason === "欠勤" ? "欠勤申請" : "申請を保存"}</>}
+                    </button>
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
