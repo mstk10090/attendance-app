@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { format, parseISO, startOfYear, endOfYear, eachDayOfInterval, isSaturday, isSunday } from "date-fns";
+import { format, parseISO, startOfYear, endOfYear, startOfMonth, endOfMonth, eachDayOfInterval, isSaturday, isSunday } from "date-fns";
 import { ja } from "date-fns/locale";
 import {
     User, CheckCircle, Calendar, Search, ArrowLeft, Clock, AlertCircle, RefreshCw, Filter, PieChart, BarChart2
@@ -12,6 +12,7 @@ const API_USER_URL = `${API_BASE}/users`;
 
 import { LOCATIONS, DEPARTMENTS, EMPLOYMENT_TYPES, HOLIDAYS } from "../../constants";
 import HistoryReport from "../../components/HistoryReport";
+import { normalizeName, fetchShiftData } from "../../utils/shiftParser";
 
 // Utilities
 const toMin = (t) => {
@@ -41,6 +42,137 @@ const calcRoundedWorkMin = (e) => {
     const raw = calcWorkMin(e);
     if (raw <= 0) return 0;
     return Math.floor(raw / 30) * 30;
+};
+
+const parseCommentLocal = (comment) => {
+    if (!comment) return {};
+    try { return JSON.parse(comment); } catch { return {}; }
+};
+
+// ユーザーのシフトデータを取得（normalizeName で複数キーをフォールバック）
+const getUserShiftsLocal = (shiftMap, user) => {
+    if (!shiftMap || !user) return {};
+    const candidates = [
+        (user.lastName || "") + (user.firstName || ""),
+        (user.userName || ""),
+        (user.loginId || ""),
+    ].filter(Boolean);
+    for (const c of candidates) {
+        const normalized = normalizeName(c);
+        for (const key of Object.keys(shiftMap)) {
+            if (normalizeName(key) === normalized) return shiftMap[key] || {};
+        }
+    }
+    return {};
+};
+
+// 1ユーザー分のstatsを計算
+const calcUserStats = (userItems, user, shiftMap, baseDate, viewMode) => {
+    if (!user || !baseDate) return null;
+    let startD, endD;
+    if (viewMode === "month") {
+        const d = new Date(baseDate.slice(0, 7) + "-01");
+        startD = new Date(d.getFullYear(), d.getMonth(), 1);
+        endD = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+    } else {
+        const y = parseInt(baseDate.slice(0, 4));
+        startD = startOfYear(new Date(y, 0, 1));
+        endD = endOfYear(new Date(y, 0, 1));
+    }
+    const startStr = format(startD, "yyyy-MM-dd");
+    const endStr = format(endD, "yyyy-MM-dd");
+    const monthItems = userItems.filter(i => {
+        const d = i.displayDate || i.workDate;
+        return d >= startStr && d <= endStr;
+    });
+    const approvedItems = monthItems.filter(i => {
+        const p = parseCommentLocal(i.comment);
+        const st = p?.application?.status;
+        // 管理者(a)が承認したapproved + 上位管理者が最終承認したconfirmedを集計対象に
+        // pendingはまだ管理者が承認していないので含めない
+        return st === "approved" || (p?.application?.confirmedBy);
+    });
+    const attendedDates = new Set(approvedItems.filter(i => {
+        const p = parseCommentLocal(i.comment);
+        const effectiveIn = p?.application?.appliedIn || i.clockIn;
+        return !!effectiveIn;
+    }).map(i => i.displayDate || i.workDate));
+    const userShifts = getUserShiftsLocal(shiftMap, user);
+    let lateCount = 0, absentCount = 0, earlyCount = 0, dispatchMin = 0, partTimeMin = 0;
+    monthItems.forEach(i => {
+        const parsed = parseCommentLocal(i.comment);
+        const app = parsed?.application;
+        if (app?.status === "absent") absentCount++;
+        const dateStr = i.displayDate || i.workDate;
+        const shiftForDay = userShifts[dateStr] || null;
+        if (shiftForDay && shiftForDay.start) {
+            const effectiveIn = app?.appliedIn || i.clockIn;
+            if (effectiveIn) {
+                const lateCancelled = app?.lateCancelled || false;
+                const inMin = toMin(effectiveIn);
+                const startMin = toMin(shiftForDay.start);
+                // 申請時間(appliedIn)は「>」で判定（ちょうどは遅刻でない）
+                // 打刻(clockIn)は「>=」で判定（ちょうどでも遅刻）
+                const isLate = app?.appliedIn ? inMin > startMin : inMin >= startMin;
+                if (isLate && !lateCancelled) lateCount++;
+            }
+        }
+        if (app?.reason && app.reason.includes("早退")) earlyCount++;
+    });
+    approvedItems.forEach(i => {
+        const parsed = parseCommentLocal(i.comment);
+        const app = parsed?.application || {};
+        if (app.withdrawn) return;
+        const effectiveIn = app.appliedIn || i.clockIn;
+        const effectiveOut = app.appliedOut || i.clockOut;
+        if (!effectiveIn || !effectiveOut) return;
+        const actualIn = toMin(effectiveIn);
+        const actualOut = toMin(effectiveOut);
+        const roundedIn = Math.ceil(actualIn / 30) * 30;
+        const roundedOut = Math.floor(actualOut / 30) * 30;
+        if (roundedIn >= roundedOut) return;
+        const breakMin = app.breakDuration || calcBreakTime(i);
+        const netWorkMin = Math.max(0, roundedOut - roundedIn - breakMin);
+        const dateStr = i.displayDate || i.workDate;
+        const shift = userShifts[dateStr] || null;
+        let dayDispatch = 0, dayPartTime = 0;
+        if (shift && (shift.dispatchRange || shift.partTimeRange)) {
+            // 勤怠管理と同じロジック: dispatchRangeのフルレンジを派遣時間として使用
+            if (shift.dispatchRange) {
+                const dS = toMin(shift.dispatchRange.start);
+                const dE = toMin(shift.dispatchRange.end);
+                dayDispatch = dE - dS; // シフト範囲固定（overlapではなくフルレンジ）
+            }
+            if (dayDispatch > 8 * 60) { dayPartTime += dayDispatch - 8 * 60; dayDispatch = 8 * 60; }
+            // バイト時間 = 実働 - 派遣時間
+            dayPartTime = Math.max(0, netWorkMin - dayDispatch);
+        } else if (shift && shift.isDispatch) {
+            dayDispatch = Math.min(netWorkMin, 8 * 60);
+            dayPartTime = Math.max(0, netWorkMin - 8 * 60);
+        } else {
+            dayPartTime = netWorkMin;
+        }
+        dayDispatch = Math.floor(dayDispatch / 30) * 30;
+        dayPartTime = Math.floor(dayPartTime / 30) * 30;
+        dispatchMin += dayDispatch;
+        partTimeMin += dayPartTime;
+    });
+    const totalMin = approvedItems.reduce((acc, i) => {
+        const parsed = parseCommentLocal(i.comment);
+        const app = parsed?.application || {};
+        const effectiveIn = app.appliedIn || i.clockIn;
+        const effectiveOut = app.appliedOut || i.clockOut;
+        if (!effectiveIn || !effectiveOut) return acc;
+        const inMin = toMin(effectiveIn);
+        const outMin = toMin(effectiveOut);
+        const breakDur = app.breakDuration || calcBreakTime(i);
+        let wm = Math.max(0, outMin - inMin - breakDur);
+        wm = Math.floor(wm / 30) * 30;
+        return acc + wm;
+    }, 0);
+    return {
+        totalMin, days: attendedDates.size, lateCount, absentCount, earlyCount, dispatchMin, partTimeMin
+    };
 };
 
 const parseStatus = (item) => {
@@ -102,6 +234,23 @@ export default function AdminHistory() {
     const [loadingHistory, setLoadingHistory] = useState(false);
     const [shiftMap, setShiftMap] = useState({});
 
+    // サマリーテーブル用
+    const [allUserStats, setAllUserStats] = useState({});
+    const [loadingSummary, setLoadingSummary] = useState(false);
+    const [summaryShiftMap, setSummaryShiftMap] = useState({});
+
+    // ソート用
+    const [sortKey, setSortKey] = useState(null); // "name"|"type"|"days"|"dispatch"|"partTime"|"total"|"late"|"early"|"absent"
+    const [sortDir, setSortDir] = useState("desc"); // "asc" | "desc"
+    const handleSort = (key) => {
+        if (sortKey === key) {
+            setSortDir(prev => prev === "asc" ? "desc" : "asc");
+        } else {
+            setSortKey(key);
+            setSortDir("desc");
+        }
+    };
+
 
 
     // 1. Fetch Users on Mount
@@ -109,11 +258,111 @@ export default function AdminHistory() {
         fetchUsers();
     }, []);
 
-    // URLパラメータからuserIdを取得して自動選択
+    // シフトデータの初回取得
+    useEffect(() => {
+        fetchShiftData().then(data => setSummaryShiftMap(data || {})).catch(() => { });
+    }, []);
+
+    // 全ユーザーのサマリー取得（月/年が変わるたびに）
+    useEffect(() => {
+        if (users.length === 0 || historyUser) return;
+        fetchAllStats();
+    }, [users, baseDate, viewMode, summaryShiftMap, historyUser]);
+
+    const fetchAllStats = async () => {
+        setLoadingSummary(true);
+        try {
+            const targetPrefix = viewMode === "month" ? baseDate.slice(0, 7) : baseDate.slice(0, 4);
+            const results = {};
+
+            // リトライ付きフェッチ
+            const fetchWithRetry = async (url, retries = 3) => {
+                for (let attempt = 0; attempt < retries; attempt++) {
+                    try {
+                        const res = await fetch(url);
+                        if (res.status === 503 || res.status === 429) {
+                            await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+                            continue;
+                        }
+                        if (!res.ok) return null;
+                        return await res.json();
+                    } catch {
+                        if (attempt < retries - 1) {
+                            await new Promise(r => setTimeout(r, 300 * (attempt + 1)));
+                        }
+                    }
+                }
+                return null;
+            };
+
+            const CHUNK_SIZE = 3;
+            for (let i = 0; i < users.length; i += CHUNK_SIZE) {
+                const chunk = users.slice(i, i + CHUNK_SIZE);
+                const chunkResults = await Promise.all(chunk.map(async (u) => {
+                    try {
+                        // 全代替IDのデータを統合（重複排除で排除されたIDの勤怠データも取得）
+                        const allIds = u.altUserIds && u.altUserIds.length > 0
+                            ? [...new Set(u.altUserIds)]
+                            : [u.userId];
+
+                        let allItems = [];
+                        for (const uid of allIds) {
+                            const data = await fetchWithRetry(`${API_BASE}/attendance?userId=${uid}`);
+                            if (data && data.success && Array.isArray(data.items)) {
+                                allItems.push(...data.items);
+                            }
+                        }
+
+                        if (allItems.length > 0) {
+                            // workDateで重複排除（同じ日に複数IDのデータがある場合）
+                            const dateMap = new Map();
+                            allItems.forEach(item => {
+                                const existing = dateMap.get(item.workDate);
+                                if (!existing || (item.clockIn && !existing.clockIn)) {
+                                    dateMap.set(item.workDate, item);
+                                }
+                            });
+
+                            const normalized = Array.from(dateMap.values()).map(item => {
+                                let displayDate = item.workDate;
+                                if (/^\d{6}-\d{2}-\d{2}$/.test(item.workDate)) {
+                                    const yyyymm = item.workDate.substring(0, 6);
+                                    const dd = item.workDate.substring(10, 12);
+                                    displayDate = `${yyyymm.substring(0, 4)}-${yyyymm.substring(4, 6)}-${dd}`;
+                                }
+                                return { ...item, displayDate };
+                            });
+                            const filtered = normalized.filter(item =>
+                                item.displayDate && item.displayDate.startsWith(targetPrefix)
+                            );
+                            const stats = calcUserStats(filtered, u, summaryShiftMap, baseDate, viewMode);
+                            return { userId: u.userId, stats };
+                        }
+                        return { userId: u.userId, stats: null };
+                    } catch {
+                        return { userId: u.userId, stats: null };
+                    }
+                }));
+                chunkResults.forEach(r => { results[r.userId] = r.stats; });
+                await new Promise(r => setTimeout(r, 200));
+            }
+            setAllUserStats(results);
+        } catch (e) {
+            console.error("Failed to fetch all stats:", e);
+        } finally {
+            setLoadingSummary(false);
+        }
+    };
+
+    // URLパラメータからuserIdを取得して自動選択（常に個人ビューに遷移）
     useEffect(() => {
         const userId = searchParams.get("userId");
-        if (userId && users.length > 0 && !historyUser) {
-            const foundUser = users.find(u => u.userId === userId);
+        if (userId && users.length > 0) {
+            // まずプライマリuserIdで検索、見つからなければaltUserIdsで検索
+            let foundUser = users.find(u => u.userId === userId);
+            if (!foundUser) {
+                foundUser = users.find(u => u.altUserIds && u.altUserIds.includes(userId));
+            }
             if (foundUser) {
                 setHistoryUser(foundUser);
             }
@@ -138,16 +387,55 @@ export default function AdminHistory() {
                     else if (data && Array.isArray(data.Items)) list = data.Items;
                     else if (data && data.success && Array.isArray(data.items)) list = data.items;
 
-                    // loginIdに基づいて重複を排除（最初のエントリ=古いアカウントを保持）
-                    const uniqueMap = new Map();
+                    // 重複排除（AdminUser.jsxと同じ3段階ロジック）
+                    const completenessScore = (u) => {
+                        let score = 0;
+                        if (u.lastName || u.firstName) score += 2;
+                        if (u.defaultLocation && u.defaultLocation !== "未記載") score += 1;
+                        if (u.defaultDepartment && u.defaultDepartment !== "未記載") score += 1;
+                        if (u.startDate) score += 1;
+                        if (u.employmentType) score += 1;
+                        if (u.hourlyWage) score += 1;
+                        return score;
+                    };
+
+                    // Step 1: loginId（大文字小文字を区別せず）で重複排除（代替IDを蓄積）
+                    const loginIdMap = new Map();
                     list.forEach(user => {
-                        if (user.loginId) {
-                            if (!uniqueMap.has(user.loginId)) {
-                                uniqueMap.set(user.loginId, user);
-                            }
+                        if (!user.loginId) return;
+                        const key = user.loginId.toLowerCase();
+                        const existing = loginIdMap.get(key);
+                        if (!existing) {
+                            loginIdMap.set(key, { ...user, altUserIds: [user.userId] });
+                        } else if (completenessScore(user) > completenessScore(existing)) {
+                            // 新しい方を採用し、古い方のIDを代替IDに追加
+                            loginIdMap.set(key, { ...user, altUserIds: [...(existing.altUserIds || [existing.userId]), user.userId] });
+                        } else {
+                            // 既存の方が優秀、新しい方のIDを代替IDに追加
+                            existing.altUserIds = [...(existing.altUserIds || [existing.userId]), user.userId];
                         }
                     });
-                    list = Array.from(uniqueMap.values());
+
+                    // Step 2: 同じ氏名（lastName + firstName）で重複排除
+                    const nameMap = new Map();
+                    Array.from(loginIdMap.values()).forEach(user => {
+                        const ln = (user.lastName || "").trim();
+                        const fn = (user.firstName || "").trim();
+                        if (!ln && !fn) {
+                            nameMap.set(`__no_name__${user.loginId}`, user);
+                            return;
+                        }
+                        const nameKey = `${ln}${fn}`;
+                        const existing = nameMap.get(nameKey);
+                        if (!existing) {
+                            nameMap.set(nameKey, user);
+                        } else if (completenessScore(user) > completenessScore(existing)) {
+                            nameMap.set(nameKey, { ...user, altUserIds: [...new Set([...(existing.altUserIds || [existing.userId]), ...(user.altUserIds || [user.userId])])] });
+                        } else {
+                            existing.altUserIds = [...new Set([...(existing.altUserIds || [existing.userId]), ...(user.altUserIds || [user.userId])])];
+                        }
+                    });
+                    list = Array.from(nameMap.values());
 
                     // テストユーザーを除外
                     const EXCLUDED_NAMES = new Set(["bb", "テスト", "テストユーザー"]);
@@ -171,7 +459,7 @@ export default function AdminHistory() {
     // 2. Fetch History when User is selected or Date/Mode changes
     useEffect(() => {
         if (historyUser) {
-            fetchUserHistory(historyUser.userId);
+            fetchUserHistory(historyUser);
             // Fetch Shifts for this user
             import("../../utils/shiftParser").then(mod => {
                 mod.fetchShiftData().then(data => {
@@ -188,41 +476,59 @@ export default function AdminHistory() {
         }
     }, [historyUser, baseDate, viewMode]);
 
-    const fetchUserHistory = async (userId) => {
+    const fetchUserHistory = async (user) => {
         setLoadingHistory(true);
         try {
-            const res = await fetch(`${API_BASE}/attendance?userId=${userId}`);
-            const data = await res.json();
+            // altUserIdsから全データ取得
+            const allIds = user.altUserIds && user.altUserIds.length > 0
+                ? [...new Set(user.altUserIds)]
+                : [user.userId];
 
-            if (data.success && Array.isArray(data.items)) {
-                let targetPrefix = "";
-                if (viewMode === "month") {
-                    targetPrefix = baseDate.slice(0, 7); // "yyyy-MM"
-                } else {
-                    targetPrefix = baseDate.slice(0, 4); // "yyyy"
-                }
-
-                // Normalize Items
-                const normalized = data.items.map(item => {
-                    let displayDate = item.workDate;
-                    if (/^\d{6}-\d{2}-\d{2}$/.test(item.workDate)) {
-                        const yyyymm = item.workDate.substring(0, 6);
-                        const dd = item.workDate.substring(10, 12);
-                        displayDate = `${yyyymm.substring(0, 4)}-${yyyymm.substring(4, 6)}-${dd}`;
+            let allItems = [];
+            for (const uid of allIds) {
+                try {
+                    const res = await fetch(`${API_BASE}/attendance?userId=${uid}`);
+                    const data = await res.json();
+                    if (data.success && Array.isArray(data.items)) {
+                        allItems.push(...data.items);
                     }
-                    return { ...item, displayDate };
-                });
-
-                const filtered = normalized.filter(item =>
-                    item.displayDate && item.displayDate.startsWith(targetPrefix)
-                );
-
-                // Sort by date
-                filtered.sort((a, b) => a.displayDate.localeCompare(b.displayDate));
-                setUserItems(filtered);
-            } else {
-                setUserItems([]);
+                } catch (e) { /* skip failed fetch */ }
             }
+
+            let targetPrefix = "";
+            if (viewMode === "month") {
+                targetPrefix = baseDate.slice(0, 7);
+            } else {
+                targetPrefix = baseDate.slice(0, 4);
+            }
+
+            // Normalize Items
+            const normalized = allItems.map(item => {
+                let displayDate = item.workDate;
+                if (/^\d{6}-\d{2}-\d{2}$/.test(item.workDate)) {
+                    const yyyymm = item.workDate.substring(0, 6);
+                    const dd = item.workDate.substring(10, 12);
+                    displayDate = `${yyyymm.substring(0, 4)}-${yyyymm.substring(4, 6)}-${dd}`;
+                }
+                return { ...item, displayDate };
+            });
+
+            const filtered = normalized.filter(item =>
+                item.displayDate && item.displayDate.startsWith(targetPrefix)
+            );
+
+            // 日付ごとに重複排除（clockInがあるレコードを優先）
+            const dateMap = new Map();
+            filtered.forEach(item => {
+                const existing = dateMap.get(item.displayDate);
+                if (!existing || (item.clockIn && !existing.clockIn)) {
+                    dateMap.set(item.displayDate, item);
+                }
+            });
+
+            const deduped = Array.from(dateMap.values());
+            deduped.sort((a, b) => a.displayDate.localeCompare(b.displayDate));
+            setUserItems(deduped);
         } catch (e) {
             console.error(e);
         } finally {
@@ -253,8 +559,40 @@ export default function AdminHistory() {
             result = result.filter(u => (u.defaultLocation || "未記載") === filterLoc);
         }
 
+        // 3. Sort
+        if (sortKey) {
+            result.sort((a, b) => {
+                const sa = allUserStats[a.userId];
+                const sb = allUserStats[b.userId];
+                let va, vb;
+                switch (sortKey) {
+                    case "name":
+                        va = `${a.lastName || ""}${a.firstName || ""}`.trim();
+                        vb = `${b.lastName || ""}${b.firstName || ""}`.trim();
+                        return sortDir === "asc" ? va.localeCompare(vb, "ja") : vb.localeCompare(va, "ja");
+                    case "type":
+                        va = a.employmentType || "";
+                        vb = b.employmentType || "";
+                        return sortDir === "asc" ? va.localeCompare(vb, "ja") : vb.localeCompare(va, "ja");
+                    case "days": va = sa?.days ?? -1; vb = sb?.days ?? -1; break;
+                    case "dispatch":
+                        // 非派遣ユーザーは常に最下位に
+                        va = a.employmentType === "派遣" ? (sa?.dispatchMin ?? 0) : -Infinity;
+                        vb = b.employmentType === "派遣" ? (sb?.dispatchMin ?? 0) : -Infinity;
+                        break;
+                    case "partTime": va = sa?.partTimeMin ?? -1; vb = sb?.partTimeMin ?? -1; break;
+                    case "total": va = sa?.totalMin ?? -1; vb = sb?.totalMin ?? -1; break;
+                    case "late": va = sa?.lateCount ?? -1; vb = sb?.lateCount ?? -1; break;
+                    case "early": va = sa?.earlyCount ?? -1; vb = sb?.earlyCount ?? -1; break;
+                    case "absent": va = sa?.absentCount ?? -1; vb = sb?.absentCount ?? -1; break;
+                    default: return 0;
+                }
+                return sortDir === "asc" ? va - vb : vb - va;
+            });
+        }
+
         return result;
-    }, [users, searchQuery, filterType, filterDept, filterLoc]);
+    }, [users, searchQuery, filterType, filterDept, filterLoc, sortKey, sortDir, allUserStats]);
 
     const getDisplayName = (u) => {
         if (!u) return "";
@@ -411,17 +749,54 @@ export default function AdminHistory() {
             </div>
 
             {!historyUser ? (
-                /* --- User Selection Mode --- */
+                /* --- サマリーテーブル一覧モード --- */
                 <div className="card" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", padding: 0 }}>
-                    {/* Search & Filter Header (Refined) */}
+                    {/* Search & Filter Header */}
                     <div style={{ padding: "16px", borderBottom: "1px solid #e5e7eb", background: "#f9fafb", flexShrink: 0 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
                             <h3 style={{ fontSize: "1rem", fontWeight: "bold", color: "#374151" }}>
-                                スタッフ選択
+                                スタッフ 勤務サマリー
                             </h3>
-                            <span style={{ fontSize: "0.8rem", color: "#6b7280", background: "#fff", padding: "2px 8px", borderRadius: "12px", border: "1px solid #e5e7eb" }}>
-                                {filteredUsers.length} 名 表示中
-                            </span>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                {/* 月切り替え */}
+                                <div style={{ display: "flex", alignItems: "center", gap: "4px", background: "#fff", border: "1px solid #e5e7eb", borderRadius: "8px", padding: "2px" }}>
+                                    <button
+                                        onClick={() => {
+                                            const d = new Date(baseDate);
+                                            d.setMonth(d.getMonth() - 1);
+                                            setBaseDate(format(d, "yyyy-MM-dd"));
+                                        }}
+                                        style={{ border: "none", background: "transparent", cursor: "pointer", padding: "4px 8px", borderRadius: "6px", fontSize: "1rem", color: "#374151", fontWeight: "bold" }}
+                                        onMouseEnter={e => e.target.style.background = "#f3f4f6"}
+                                        onMouseLeave={e => e.target.style.background = "transparent"}
+                                    >
+                                        &lt;
+                                    </button>
+                                    <span style={{ fontWeight: "bold", fontSize: "0.95rem", color: "#1f2937", minWidth: "120px", textAlign: "center" }}>
+                                        {baseDate.slice(0, 4)}年 {baseDate.slice(5, 7)}月
+                                    </span>
+                                    <button
+                                        onClick={() => {
+                                            const d = new Date(baseDate);
+                                            d.setMonth(d.getMonth() + 1);
+                                            setBaseDate(format(d, "yyyy-MM-dd"));
+                                        }}
+                                        style={{ border: "none", background: "transparent", cursor: "pointer", padding: "4px 8px", borderRadius: "6px", fontSize: "1rem", color: "#374151", fontWeight: "bold" }}
+                                        onMouseEnter={e => e.target.style.background = "#f3f4f6"}
+                                        onMouseLeave={e => e.target.style.background = "transparent"}
+                                    >
+                                        &gt;
+                                    </button>
+                                </div>
+                                {loadingSummary && (
+                                    <span style={{ fontSize: "0.8rem", color: "#f59e0b", display: "flex", alignItems: "center", gap: "4px" }}>
+                                        <RefreshCw size={14} className="spin" /> 集計中...
+                                    </span>
+                                )}
+                                <span style={{ fontSize: "0.8rem", color: "#6b7280", background: "#fff", padding: "2px 8px", borderRadius: "12px", border: "1px solid #e5e7eb" }}>
+                                    {filteredUsers.length} 名
+                                </span>
+                            </div>
                         </div>
 
                         {/* Search Bar */}
@@ -446,32 +821,18 @@ export default function AdminHistory() {
 
                         {/* Filters Row */}
                         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                            <select
-                                className="input"
-                                value={filterType}
-                                onChange={e => setFilterType(e.target.value)}
-                                style={{ flex: 1, minWidth: "90px", fontSize: "0.85rem", padding: "6px", borderRadius: "6px" }}
-                            >
+                            <select className="input" value={filterType} onChange={e => setFilterType(e.target.value)}
+                                style={{ flex: 1, minWidth: "90px", fontSize: "0.85rem", padding: "6px", borderRadius: "6px" }}>
                                 <option value="">形態: 全て</option>
                                 {EMPLOYMENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                             </select>
-
-                            <select
-                                className="input"
-                                value={filterDept}
-                                onChange={e => setFilterDept(e.target.value)}
-                                style={{ flex: 1, minWidth: "90px", fontSize: "0.85rem", padding: "6px", borderRadius: "6px" }}
-                            >
+                            <select className="input" value={filterDept} onChange={e => setFilterDept(e.target.value)}
+                                style={{ flex: 1, minWidth: "90px", fontSize: "0.85rem", padding: "6px", borderRadius: "6px" }}>
                                 <option value="">部署: 全て</option>
                                 {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
                             </select>
-
-                            <select
-                                className="input"
-                                value={filterLoc}
-                                onChange={e => setFilterLoc(e.target.value)}
-                                style={{ flex: 1, minWidth: "90px", fontSize: "0.85rem", padding: "6px", borderRadius: "6px" }}
-                            >
+                            <select className="input" value={filterLoc} onChange={e => setFilterLoc(e.target.value)}
+                                style={{ flex: 1, minWidth: "90px", fontSize: "0.85rem", padding: "6px", borderRadius: "6px" }}>
                                 <option value="">勤務地: 全て</option>
                                 {LOCATIONS.map(l => <option key={l} value={l}>{l}</option>)}
                             </select>
@@ -489,38 +850,94 @@ export default function AdminHistory() {
                         )}
                     </div>
 
-                    {/* Scrollable Content */}
-                    <div style={{ flex: 1, overflowY: "auto", padding: "20px" }}>
+                    {/* テーブル */}
+                    <div style={{ flex: 1, overflowY: "auto" }}>
                         {loadingUsers ? (
                             <div style={{ padding: "60px", textAlign: "center", color: "#6b7280" }}>
                                 <div className="spin" style={{ display: "inline-block", marginBottom: "8px" }}><RefreshCw size={24} /></div>
                                 <div>スタッフ一覧を読み込み中...</div>
                             </div>
-                        ) : users.length === 0 ? (
-                            <div style={{ padding: "40px", textAlign: "center", color: "#9ca3af" }}>データがありません (API接続を確認してください)</div>
                         ) : (
-                            <div className="user-grid">
-                                {filteredUsers.map(u => (
-                                    <button
-                                        key={u.userId}
-                                        className="user-card-btn"
-                                        onClick={() => setHistoryUser(u)}
-                                    >
-                                        <div className="user-avatar">
-                                            <User size={20} />
-                                        </div>
-                                        <div className="user-info">
-                                            <div className="user-name">{getDisplayName(u)}</div>
-                                            <div className="user-sub">{getSubInfo(u)}</div>
-                                        </div>
-                                    </button>
-                                ))}
-                                {filteredUsers.length === 0 && (
-                                    <div style={{ gridColumn: "1 / -1", textAlign: "center", color: "#9ca3af", padding: "20px" }}>
-                                        条件に一致するスタッフがいません
-                                    </div>
-                                )}
-                            </div>
+                            <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: "0.95rem" }}>
+                                <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
+                                    <tr style={{ background: "#f9fafb" }}>
+                                        {[
+                                            { key: "name", label: "氏名", align: "left", color: "#6b7280" },
+                                            { key: "type", label: "形態", align: "center", color: "#6b7280" },
+                                            { key: "days", label: "出勤日", align: "right", color: "#6b7280" },
+                                            { key: "dispatch", label: "派遣時間", align: "right", color: "#2563eb" },
+                                            { key: "partTime", label: "バイト時間", align: "right", color: "#ea580c" },
+                                            { key: "total", label: "合計時間", align: "right", color: "#374151" },
+                                            { key: "late", label: "遅刻", align: "center", color: "#dc2626" },
+                                            { key: "early", label: "早退", align: "center", color: "#7c3aed" },
+                                            { key: "absent", label: "欠勤", align: "center", color: "#6b7280" },
+                                        ].map(col => (
+                                            <th
+                                                key={col.key}
+                                                onClick={() => handleSort(col.key)}
+                                                style={{
+                                                    padding: col.key === "name" ? "10px 12px" : "10px 8px",
+                                                    textAlign: col.align,
+                                                    borderBottom: "1px solid #e5e7eb",
+                                                    color: col.color,
+                                                    fontWeight: 600,
+                                                    whiteSpace: "nowrap",
+                                                    cursor: "pointer",
+                                                    userSelect: "none",
+                                                    background: sortKey === col.key ? "#eef2ff" : "transparent",
+                                                    transition: "background 0.15s",
+                                                }}
+                                            >
+                                                <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                                    {col.label}
+                                                    <span style={{ display: "inline-flex", flexDirection: "column", fontSize: "0.6rem", lineHeight: 1, gap: "0px" }}>
+                                                        <span style={{ color: sortKey === col.key && sortDir === "asc" ? col.color : "#d1d5db" }}>▲</span>
+                                                        <span style={{ color: sortKey === col.key && sortDir === "desc" ? col.color : "#d1d5db" }}>▼</span>
+                                                    </span>
+                                                </span>
+                                            </th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredUsers.length === 0 ? (
+                                        <tr><td colSpan="9" style={{ textAlign: "center", padding: "40px", color: "#9ca3af" }}>条件に一致するスタッフがいません</td></tr>
+                                    ) : filteredUsers.map(u => {
+                                        const s = allUserStats[u.userId];
+                                        const fmtH = (min) => min != null ? `${Math.floor(min / 60)}h${(min % 60).toString().padStart(2, "0")}m` : "-";
+                                        return (
+                                            <tr
+                                                key={u.userId}
+                                                onClick={() => setHistoryUser(u)}
+                                                style={{ cursor: "pointer", borderBottom: "1px solid #f3f4f6", transition: "background 0.15s" }}
+                                                onMouseEnter={e => e.currentTarget.style.background = "#f0f9ff"}
+                                                onMouseLeave={e => e.currentTarget.style.background = ""}
+                                            >
+                                                <td style={{ padding: "10px 12px", fontWeight: "bold", color: "#111827" }}>
+                                                    <div>{getDisplayName(u)}</div>
+                                                    <div style={{ fontSize: "0.75rem", color: "#9ca3af", fontWeight: "normal" }}>{u.loginId}</div>
+                                                </td>
+                                                <td style={{ padding: "10px 8px", textAlign: "center" }}>
+                                                    <span style={{
+                                                        padding: "2px 8px", borderRadius: "12px", fontSize: "0.75rem", fontWeight: 600,
+                                                        background: u.employmentType === "派遣" ? "#dbeafe" : "#ffedd5",
+                                                        color: u.employmentType === "派遣" ? "#1d4ed8" : "#c2410c"
+                                                    }}>
+                                                        {u.employmentType || "未設定"}
+                                                    </span>
+                                                </td>
+                                                <td style={{ padding: "12px 10px", textAlign: "right", color: "#374151", fontSize: "0.95rem" }}>{s ? `${s.days}日` : "-"}</td>
+                                                <td style={{ padding: "12px 10px", textAlign: "right", color: u.employmentType === "派遣" ? "#2563eb" : "#d1d5db", fontWeight: s?.dispatchMin ? 600 : 400, fontSize: "0.95rem" }}>{u.employmentType === "派遣" ? (s ? fmtH(s.dispatchMin) : "-") : "-"}</td>
+                                                <td style={{ padding: "12px 10px", textAlign: "right", color: "#ea580c", fontWeight: s?.partTimeMin ? 600 : 400, fontSize: "0.95rem" }}>{s ? fmtH(s.partTimeMin) : "-"}</td>
+                                                <td style={{ padding: "12px 10px", textAlign: "right", fontWeight: 600, color: "#111827", fontSize: "0.95rem" }}>{s ? fmtH(s.totalMin) : "-"}</td>
+                                                <td style={{ padding: "12px 10px", textAlign: "center", color: s?.lateCount ? "#dc2626" : "#d1d5db", fontWeight: s?.lateCount ? 700 : 400, fontSize: "0.95rem" }}>{s ? s.lateCount : "-"}</td>
+                                                <td style={{ padding: "12px 10px", textAlign: "center", color: s?.earlyCount ? "#7c3aed" : "#d1d5db", fontWeight: s?.earlyCount ? 700 : 400, fontSize: "0.95rem" }}>{s ? s.earlyCount : "-"}</td>
+                                                <td style={{ padding: "12px 10px", textAlign: "center", color: s?.absentCount ? "#6b7280" : "#d1d5db", fontWeight: s?.absentCount ? 700 : 400, fontSize: "0.95rem" }}>{s ? s.absentCount : "-"}</td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
                         )}
                     </div>
                 </div>
@@ -567,6 +984,14 @@ export default function AdminHistory() {
                                 baseDate={baseDate}
                                 viewMode={viewMode}
                                 shiftMap={shiftMap}
+                                adminMode={true}
+                                onRowClick={(dateStr, item) => {
+                                    // 勤怠管理画面にユーザーID+日付付きで遷移
+                                    const userId = historyUser?.userId || item?.userId;
+                                    if (userId) {
+                                        navigate(`/admin/attendance?userId=${userId}&date=${dateStr}`);
+                                    }
+                                }}
                             />
                         )}
                     </div>

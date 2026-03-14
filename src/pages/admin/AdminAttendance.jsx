@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addDays, addMonths, subMonths, startOfYear, endOfYear, isSaturday, isSunday } from "date-fns";
 import { ja } from "date-fns/locale";
 import { Search, Filter, AlertTriangle, CheckCircle, XCircle, Clock, MapPin, Download, Save, X, Briefcase, FileText, Send, PieChart, BarChart, ClipboardCheck, Trash2, MessageSquare } from "lucide-react";
@@ -178,8 +178,10 @@ export default function AdminAttendance() {
   /* URL Params */
   const urlParams = new URLSearchParams(window.location.search);
   const urlUserId = urlParams.get('userId');
+  const urlDate = urlParams.get('date');
   /* State */
-  const [viewMode, setViewMode] = useState("daily"); // daily, weekly, monthly, report, current
+  const [viewMode, setViewMode] = useState("custom"); // daily, weekly, monthly, report, current, custom
+  const isSuperAdmin = localStorage.getItem("role") === "super_admin";
   const [baseDate, setBaseDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [items, setItems] = useState([]);
   const [shiftMap, setShiftMap] = useState({}); // Stores shift data
@@ -220,6 +222,14 @@ export default function AdminAttendance() {
   const [filterLocation, setFilterLocation] = useState("all");
   const [filterDepartment, setFilterDepartment] = useState("all");
 
+  // カスタム検索用State
+  const [customDateFrom, setCustomDateFrom] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [customDateTo, setCustomDateTo] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [customStatuses, setCustomStatuses] = useState(new Set([
+    "pending", "approved", "working", "incomplete", "discrepancy", "resubmission", "error", "night", "noshift", "absent", "sa_return_admin", "sa_return_staff"
+  ]));
+  const [customSearchTriggered, setCustomSearchTriggered] = useState(false);
+
   // 外クリックでステータスドロップダウンを閉じる
   React.useEffect(() => {
     const handleClickOutside = (e) => {
@@ -251,11 +261,18 @@ export default function AdminAttendance() {
   const [selectedCancelReason, setSelectedCancelReason] = useState("");
   const [customCancelReason, setCustomCancelReason] = useState("");
 
+  // 上位管理者アクション用
+  const [saActionModal, setSaActionModal] = useState(null); // { item, type: 'return_admin'|'return_staff'|'cancel' }
+  const [saActionComment, setSaActionComment] = useState("");
+
   // 乖離理由展開用
   const [expandedReasonId, setExpandedReasonId] = useState(null);
 
   // 操作ログモーダル用
   const [logModalItem, setLogModalItem] = useState(null);
+
+  // 承認確認モーダル用
+  const [approveConfirmItem, setApproveConfirmItem] = useState(null);
 
   // auditLog記録用ヘルパー
   const addAuditLog = (commentStr, action, detail) => {
@@ -294,7 +311,13 @@ export default function AdminAttendance() {
         setFilterName(name.trim());
       }
     }
-  }, [users, urlUserId]);
+    // URLパラメータで日付が指定されている場合、日付範囲を設定して自動検索
+    if (urlDate) {
+      setCustomDateFrom(urlDate);
+      setCustomDateTo(urlDate);
+      setCustomSearchTriggered(true);
+    }
+  }, [users, urlUserId, urlDate]);
 
   const fetchUsers = async () => {
     try {
@@ -309,7 +332,7 @@ export default function AdminAttendance() {
         const data = (outer.body && typeof outer.body === "string") ? JSON.parse(outer.body) : outer;
         let list = Array.isArray(data) ? data : (data.items || []);
         // テストユーザーを除外
-        const EXCLUDED_NAMES = new Set(["bb", "テスト", "テストユーザー"]);
+        const EXCLUDED_NAMES = new Set(["bb", "テスト", "テストユーザー", "不明"]);
         list = list.filter(u => {
           const name = ((u.lastName || "") + (u.firstName || "")).replace(/\s+/g, "").trim();
           return !EXCLUDED_NAMES.has(name);
@@ -320,11 +343,20 @@ export default function AdminAttendance() {
   }
 
   /* Data Fetching */
+  // カスタム日付のRefを保持（fetchRange再計算の抑制用）
+  const customDateFromRef = useRef(customDateFrom);
+  const customDateToRef = useRef(customDateTo);
+  useEffect(() => { customDateFromRef.current = customDateFrom; }, [customDateFrom]);
+  useEffect(() => { customDateToRef.current = customDateTo; }, [customDateTo]);
+
   const fetchRange = useMemo(() => {
     const d = new Date(baseDate);
     if (viewMode === "current") return { start: baseDate, end: baseDate };
 
-    if (viewMode === "daily") {
+    if (viewMode === "custom") {
+      // customSearchTriggeredが変わった時のみ最新の日付を使う
+      return { start: customDateFromRef.current, end: customDateToRef.current };
+    } else if (viewMode === "daily") {
       return { start: baseDate, end: baseDate };
     } else if (viewMode === "weekly") {
       return {
@@ -338,7 +370,7 @@ export default function AdminAttendance() {
         end: format(endOfMonth(d), "yyyy-MM-dd"),
       };
     }
-  }, [viewMode, baseDate]);
+  }, [viewMode, baseDate, customSearchTriggered]);
 
   /* Currently Working Logic */
   const currentlyWorkingData = useMemo(() => {
@@ -407,15 +439,68 @@ export default function AdminAttendance() {
       });
       const uniqueItems = Array.from(nameMap.values());
 
+      // ユーザーマスタを確実に取得（usersステートが空の場合はAPIから直接取得）
+      let allUsers = users;
+      if (allUsers.length === 0) {
+        try {
+          const token = localStorage.getItem("token");
+          const headers = {};
+          if (token) headers["Authorization"] = token;
+          const uRes = await fetch(API_USER_URL, { headers });
+          if (uRes.ok) {
+            const uText = await uRes.text();
+            const uOuter = JSON.parse(uText);
+            const uData = (uOuter.body && typeof uOuter.body === "string") ? JSON.parse(uOuter.body) : uOuter;
+            allUsers = Array.isArray(uData) ? uData : (uData.items || []);
+          }
+        } catch (e) { console.warn("Failed to fetch users for staff list:", e); }
+      }
+      // loginIdベースで重複排除（新ID=user-2026...を優先、旧ID=user-177...を除外）
+      {
+        const byLogin = new Map();
+        for (const u of allUsers) {
+          const lid = u.loginId || u.userId;
+          const existing = byLogin.get(lid);
+          if (!existing || (u.userId || "").localeCompare(existing.userId || "") > 0) {
+            byLogin.set(lid, u);
+          }
+        }
+        allUsers = Array.from(byLogin.values());
+      }
+      // 除外対象をフィルタ
+      const EXCLUDED_FULL_NAMES = new Set(["不明", "bb", "テスト", "テストユーザー"]);
+      allUsers = allUsers.filter(u => {
+        const name = ((u.lastName || "") + (u.firstName || "")).replace(/\s+/g, "").trim();
+        return name && !EXCLUDED_FULL_NAMES.has(name);
+      });
+
       const processedItems = uniqueItems.map(item => {
         const p = parseComment(item.comment);
         const segments = (item.segments && item.segments.length > 0) ? item.segments : p.segments;
+        // DBユーザーマスタの名前で上書き（正式な漢字を使用）
+        let displayName = item.userName;
+        const allU = allUsers.length > 0 ? allUsers : users;
+        if (allU.length > 0) {
+          const normalizedItemName = normalizeName(item.userName || "");
+          const matchedUser = allU.find(u => {
+            const fullName = (u.lastName || "") + (u.firstName || "");
+            return normalizeName(fullName) === normalizedItemName;
+          });
+          if (matchedUser) {
+            displayName = (matchedUser.lastName || "") + (matchedUser.firstName || "");
+          }
+        }
+        // 不明・空名のレコードを除外
         return {
           ...item,
+          userName: displayName,
           segments,
           _parsedHtmlComment: p.text,
-          _application: p.application // { status, reason, originalIn... }
+          _application: p.application
         };
+      }).filter(item => {
+        const name = (item.userName || "").replace(/\s+/g, "").trim();
+        return name && name !== "不明" && name !== "-" && name !== "不明-";
       });
 
       // Sort
@@ -440,10 +525,11 @@ export default function AdminAttendance() {
               if (!sd.start && !sd.end) continue; // シフトデータが空の場合スキップ
               const normalizedShiftName = normalizeName(shiftUserName);
               if (existingKeys.has(`${normalizedShiftName}_${dateKey}`)) continue;
-              const matchedUser = users.find(u => normalizeName((u.lastName || "") + (u.firstName || "")) === normalizedShiftName);
+              const matchedUser = allUsers.find(u => normalizeName((u.lastName || "") + (u.firstName || "")) === normalizedShiftName) || users.find(u => normalizeName((u.lastName || "") + (u.firstName || "")) === normalizedShiftName);
+              const correctName = matchedUser ? (matchedUser.lastName || "") + (matchedUser.firstName || "") : shiftUserName;
               processedItems.push({
                 userId: matchedUser?.userId || `shift_${shiftUserName}_${dateKey}`,
-                userName: shiftUserName,
+                userName: correctName,
                 workDate: dateKey,
                 clockIn: "",
                 clockOut: "",
@@ -469,6 +555,55 @@ export default function AdminAttendance() {
         console.warn("Failed to fetch confirmed shifts for admin:", e.message);
       }
 
+      // シフトも勤怠もないユーザーを空行として追加（管理者が修正・欠勤登録可能にする）
+      if (allUsers.length > 0) {
+        const EXCLUDED_NAMES = new Set(["bb", "テスト", "テストユーザー", "不明"]);
+        const staffUsers = allUsers.filter(u => {
+          const name = ((u.lastName || "") + (u.firstName || "")).replace(/\s+/g, "").trim();
+          return !EXCLUDED_NAMES.has(name) && u.role !== "admin" && u.role !== "super_admin";
+        });
+
+        const existingKeys = new Set(processedItems.map(i => {
+          const normalizedName = normalizeName(i.userName || "");
+          return `${normalizedName}_${i.workDate}`;
+        }));
+
+        const days = eachDayOfInterval({ start, end });
+        for (const day of days) {
+          const dateStr = format(day, "yyyy-MM-dd");
+          for (const u of staffUsers) {
+            const fullName = (u.lastName || "") + (u.firstName || "");
+            const normalizedName = normalizeName(fullName);
+            const key = `${normalizedName}_${dateStr}`;
+            if (existingKeys.has(key)) continue;
+
+            processedItems.push({
+              userId: u.userId,
+              userName: fullName,
+              workDate: dateStr,
+              clockIn: "",
+              clockOut: "",
+              breaks: [],
+              comment: "",
+              location: u.defaultLocation || "",
+              department: u.defaultDepartment || "",
+              segments: [],
+              _parsedHtmlComment: "",
+              _application: null,
+              _shiftOnly: true,
+              _noShift: true
+            });
+            existingKeys.add(key);
+          }
+        }
+
+        // 最終ソート
+        processedItems.sort((a, b) => {
+          if (a.workDate !== b.workDate) return a.workDate.localeCompare(b.workDate);
+          return (a.userName || "").localeCompare(b.userName || "");
+        });
+      }
+
       setItems(processedItems);
     } catch (e) {
       console.error(e);
@@ -483,8 +618,6 @@ export default function AdminAttendance() {
   }, [fetchRange.start, fetchRange.end]);
 
 
-
-
   // アイテムのステータスカテゴリを返す
   const getItemCategory = (item) => {
     const appStatus = item._application?.status;
@@ -492,6 +625,8 @@ export default function AdminAttendance() {
     if (appStatus === "pending") return "pending";
     if (appStatus === "approved") return "approved";
     if (appStatus === "resubmission_requested") return "resubmission";
+    if (appStatus === "sa_return_admin") return "sa_return_admin";
+    if (appStatus === "sa_return_staff") return "sa_return_staff";
     if (appStatus === "absent") return "absent";
     if (item.clockIn && item.clockOut) {
       if (toMin(item.clockIn) > toMin(item.clockOut)) return "error";
@@ -511,7 +646,7 @@ export default function AdminAttendance() {
   /* Filtering Logic */
   const filteredItems = useMemo(() => {
     return items.filter(item => {
-      if (filterName && !item.userName.includes(filterName)) return false;
+      if (filterName && !normalizeName(item.userName).includes(normalizeName(filterName))) return false;
 
       if (filterLocation !== "all") {
         const hasLoc =
@@ -553,7 +688,7 @@ export default function AdminAttendance() {
   /* Mark Absent Logic */
   const handleMarkAbsent = async (userId, userName, dateStr) => {
     if (!await showConfirm(`${userName}さんを「欠勤」として登録しますか？`)) return;
-
+    setLoading(true);
     try {
       const payload = {
         userId: userId,
@@ -568,17 +703,24 @@ export default function AdminAttendance() {
         })
       };
 
-      await fetch(`${API_BASE}/attendance/update`, {
+      const res = await fetch(`${API_BASE}/attendance/update`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
+      if (!res.ok) {
+        alert(`欠勤登録に失敗しました: ${res.status}`);
+        return;
+      }
+
       alert("欠勤登録しました");
-      window.location.reload();
+      fetchAttendances();
     } catch (e) {
       console.error(e);
       alert("エラーが発生しました");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -731,6 +873,58 @@ export default function AdminAttendance() {
     }
   };
 
+  // 管理者による承認取消（approved → pending に戻す）
+  const handleRevokeApproval = async (item) => {
+    if (!await showConfirm("この勤怠の承認を取り消しますか？\n承認待ち状態に戻ります。")) return;
+    const scrollY = window.scrollY;
+    setLoading(true);
+    try {
+      const p = parseComment(item.comment);
+      const existingApp = p.application || {};
+      const newApp = {
+        ...existingApp,
+        status: 'pending',
+      };
+      // confirmedByがあれば削除
+      delete newApp.confirmedBy;
+      delete newApp.confirmedAt;
+
+      const finalComment = JSON.stringify({
+        segments: p.segments,
+        text: p.text,
+        application: newApp,
+        auditLog: [...(p.auditLog || []), { action: "revoke_approval", by: "管理者", at: new Date().toISOString(), detail: "管理者が承認を取り消しました" }]
+      });
+
+      await fetch(`${API_BASE}/attendance/update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: item.userId,
+          workDate: item.workDate,
+          clockIn: item.clockIn,
+          clockOut: item.clockOut,
+          breaks: item.breaks || [],
+          comment: finalComment
+        }),
+      });
+
+      setItems(prev => prev.map(i =>
+        (i.userId === item.userId && i.workDate === item.workDate)
+          ? { ...i, comment: finalComment, _application: newApp }
+          : i
+      ));
+      fetchAttendances().then(() => {
+        requestAnimationFrame(() => window.scrollTo(0, scrollY));
+      });
+      requestAnimationFrame(() => window.scrollTo(0, scrollY));
+    } catch (e) {
+      alert("処理に失敗しました");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleCancelAbsent = async (item) => {
     if (!await showConfirm("欠勤を取り消しますか？\n(未申請状態に戻ります)")) return;
     setLoading(true);
@@ -863,19 +1057,20 @@ export default function AdminAttendance() {
           <div style={{ display: "flex", gap: "16px", marginBottom: "16px", alignItems: "center" }}>
             <button className="icon-btn" onClick={() => {
               const d = new Date(baseDate);
-              if (viewMode === "daily") setBaseDate(format(addDays(d, -1), "yyyy-MM-dd"));
+              if (viewMode === "daily" || viewMode === "custom") setBaseDate(format(addDays(d, -1), "yyyy-MM-dd"));
               if (viewMode === "weekly") setBaseDate(format(addDays(d, -7), "yyyy-MM-dd"));
               if (viewMode === "monthly" || viewMode === "report") setBaseDate(format(subMonths(d, 1), "yyyy-MM-dd"));
             }}>{"<"}</button>
 
             <span style={{ fontWeight: "bold", fontSize: "1.1rem" }}>
               {viewMode === "daily" && format(new Date(baseDate), "yyyy年M月d日 (E)", { locale: ja })}
-              {viewMode !== "daily" && `${fetchRange.start} 〜 ${fetchRange.end}`}
+              {viewMode === "custom" && `${fetchRange.start} 〜 ${fetchRange.end}`}
+              {viewMode !== "daily" && viewMode !== "custom" && `${fetchRange.start} 〜 ${fetchRange.end}`}
             </span>
 
             <button className="icon-btn" onClick={() => {
               const d = new Date(baseDate);
-              if (viewMode === "daily") setBaseDate(format(addDays(d, 1), "yyyy-MM-dd"));
+              if (viewMode === "daily" || viewMode === "custom") setBaseDate(format(addDays(d, 1), "yyyy-MM-dd"));
               if (viewMode === "weekly") setBaseDate(format(addDays(d, 7), "yyyy-MM-dd"));
               if (viewMode === "monthly" || viewMode === "report") setBaseDate(format(addMonths(d, 1), "yyyy-MM-dd"));
             }}>{">"}</button>
@@ -896,8 +1091,157 @@ export default function AdminAttendance() {
           </div>
         )}
 
+        {/* 検索パネル（カスタム含む全モードで表示、current除く） */}
+        {viewMode !== "current" && (
+          <div style={{
+            background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "10px",
+            padding: "20px", marginBottom: "16px"
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px", borderBottom: "1px solid #e2e8f0", paddingBottom: "12px" }}>
+              <Search size={18} color="#3b82f6" />
+              <span style={{ fontWeight: "bold", fontSize: "1rem", color: "#1e40af" }}>検索条件</span>
+            </div>
+
+            {/* 期間指定 */}
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px", flexWrap: "wrap" }}>
+              <span style={{ fontWeight: "600", fontSize: "0.9rem", color: "#374151", minWidth: "70px" }}>期間指定:</span>
+              <input
+                type="date"
+                value={customDateFrom}
+                onChange={e => setCustomDateFrom(e.target.value)}
+                style={{
+                  padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: "6px",
+                  fontSize: "0.9rem", background: "#fff", outline: "none"
+                }}
+              />
+              <span style={{ color: "#6b7280", fontWeight: "500" }}>～</span>
+              <input
+                type="date"
+                value={customDateTo}
+                onChange={e => setCustomDateTo(e.target.value)}
+                style={{
+                  padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: "6px",
+                  fontSize: "0.9rem", background: "#fff", outline: "none"
+                }}
+              />
+            </div>
+
+            {/* ステータスチェックボックス */}
+            <div style={{ marginBottom: "16px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+                <span style={{ fontWeight: "600", fontSize: "0.9rem", color: "#374151", minWidth: "70px" }}>ステータス:</span>
+                <button
+                  onClick={() => {
+                    const allKeys = ["pending", "approved", "working", "incomplete", "discrepancy", "resubmission", "error", "night", "noshift", "absent", "sa_return_admin", "sa_return_staff"];
+                    setCustomStatuses(prev => prev.size === allKeys.length ? new Set() : new Set(allKeys));
+                  }}
+                  style={{
+                    padding: "3px 10px", border: "1px solid #d1d5db", borderRadius: "4px",
+                    background: "#fff", fontSize: "0.75rem", cursor: "pointer", color: "#6b7280"
+                  }}
+                >
+                  {customStatuses.size === 12 ? "全解除" : "全選択"}
+                </button>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", paddingLeft: "78px" }}>
+                {[
+                  { key: "pending", label: "承認待ち", color: "#f59e0b" },
+                  { key: "approved", label: "承認済み", color: "#22c55e" },
+                  { key: "resubmission", label: "再提出", color: "#a855f7" },
+                  { key: "working", label: "勤務中", color: "#3b82f6" },
+                  { key: "incomplete", label: "未退勤", color: "#ef4444" },
+                  { key: "discrepancy", label: "時間ずれ", color: "#f97316" },
+                  { key: "error", label: "時間異常", color: "#dc2626" },
+                  { key: "night", label: "深夜勤務", color: "#6366f1" },
+                  { key: "noshift", label: "未出勤", color: "#9ca3af" },
+                  { key: "absent", label: "欠勤", color: "#78716c" },
+                  { key: "sa_return_admin", label: "上位差戻(管)", color: "#be123c" },
+                  { key: "sa_return_staff", label: "上位差戻(ス)", color: "#c2410c" },
+                ].map(opt => (
+                  <label key={opt.key} style={{
+                    display: "flex", alignItems: "center", gap: "5px",
+                    padding: "5px 10px", borderRadius: "6px",
+                    border: customStatuses.has(opt.key) ? `1.5px solid ${opt.color}` : "1.5px solid #e5e7eb",
+                    background: customStatuses.has(opt.key) ? `${opt.color}10` : "#fff",
+                    cursor: "pointer", fontSize: "0.82rem", fontWeight: "500",
+                    transition: "all 0.15s", userSelect: "none"
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={customStatuses.has(opt.key)}
+                      onChange={() => {
+                        setCustomStatuses(prev => {
+                          const next = new Set(prev);
+                          if (next.has(opt.key)) next.delete(opt.key); else next.add(opt.key);
+                          return next;
+                        });
+                      }}
+                      style={{ accentColor: opt.color, width: "15px", height: "15px" }}
+                    />
+                    <span style={{ color: customStatuses.has(opt.key) ? opt.color : "#6b7280" }}>{opt.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* スタッフ名・勤務地・部署 */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", marginBottom: "16px", alignItems: "center" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <span style={{ fontSize: "0.85rem", color: "#374151", fontWeight: "500" }}>スタッフ名:</span>
+                <input
+                  type="text"
+                  placeholder="名前で検索"
+                  value={filterName}
+                  onChange={e => setFilterName(e.target.value)}
+                  style={{
+                    padding: "7px 10px", border: "1px solid #d1d5db", borderRadius: "6px",
+                    fontSize: "0.85rem", background: "#fff", outline: "none", width: "150px"
+                  }}
+                />
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <MapPin size={15} color="#6b7280" />
+                <select className="input" value={filterLocation} onChange={e => setFilterLocation(e.target.value)} style={{ padding: "7px 10px", fontSize: "0.85rem" }}>
+                  <option value="all">全勤務地</option>
+                  {LOCATIONS.filter(l => l !== "未記載").map(l => <option key={l} value={l}>{l}</option>)}
+                </select>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <Briefcase size={15} color="#6b7280" />
+                <select className="input" value={filterDepartment} onChange={e => setFilterDepartment(e.target.value)} style={{ padding: "7px 10px", fontSize: "0.85rem" }}>
+                  <option value="all">全部署</option>
+                  {DEPARTMENTS.filter(d => d !== "未記載").map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+            </div>
+
+            {/* 照会ボタン */}
+            <div style={{ display: "flex", justifyContent: "center" }}>
+              <button
+                onClick={() => {
+                  setCustomSearchTriggered(prev => !prev);
+                  setFilterStatus(customStatuses);
+                  fetchAttendances();
+                }}
+                style={{
+                  padding: "10px 40px", borderRadius: "8px", border: "none",
+                  background: "linear-gradient(135deg, #3b82f6, #2563eb)",
+                  color: "#fff", fontSize: "0.95rem", fontWeight: "bold",
+                  cursor: "pointer", boxShadow: "0 2px 8px rgba(37,99,235,0.3)",
+                  display: "flex", alignItems: "center", gap: "8px",
+                  transition: "all 0.2s"
+                }}
+                onMouseEnter={e => e.target.style.transform = "translateY(-1px)"}
+                onMouseLeave={e => e.target.style.transform = "translateY(0)"}
+              >
+                <Search size={16} /> 照会
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Filters */}
-        {viewMode !== "report" && viewMode !== "current" && viewMode !== "shift_check" && (
+        {viewMode !== "report" && viewMode !== "current" && viewMode !== "shift_check" && viewMode !== "custom" && (
           <div className="filter-bar">
             {/* Same Filters ... */}
             <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
@@ -920,7 +1264,7 @@ export default function AdminAttendance() {
               >
                 {(() => {
                   if (filterStatus.size === 0) return "全ステータス ▼";
-                  const labels = { pending: "承認待ち", approved: "承認済み", working: "勤務中", incomplete: "未退勤", discrepancy: "時間ずれ", resubmission: "再提出", error: "時間異常", night: "深夜勤務", noshift: "未出勤" };
+                  const labels = { pending: "承認待ち", approved: "承認済み", working: "勤務中", incomplete: "未退勤", discrepancy: "時間ずれ", resubmission: "再提出", error: "時間異常", night: "深夜勤務", noshift: "未出勤", sa_return_admin: "上位差戻(管)", sa_return_staff: "上位差戻(ス)" };
                   const selected = [...filterStatus].map(k => labels[k] || k);
                   return selected.join(", ") + " ▼";
                 })()}
@@ -931,7 +1275,7 @@ export default function AdminAttendance() {
                   background: "#fff", border: "1px solid #d1d5db", borderRadius: "8px",
                   boxShadow: "0 4px 12px rgba(0,0,0,0.1)", minWidth: "180px", padding: "8px 0"
                 }}>
-                  {[{ key: "pending", label: "承認待ち" }, { key: "approved", label: "承認済み" }, { key: "working", label: "勤務中" }, { key: "incomplete", label: "未退勤" }, { key: "discrepancy", label: "時間ずれ" }, { key: "resubmission", label: "再提出" }, { key: "error", label: "時間異常" }, { key: "night", label: "深夜勤務" }, { key: "noshift", label: "未出勤" }].map(opt => (
+                  {[{ key: "pending", label: "承認待ち" }, { key: "approved", label: "承認済み" }, { key: "working", label: "勤務中" }, { key: "incomplete", label: "未退勤" }, { key: "discrepancy", label: "時間ずれ" }, { key: "resubmission", label: "再提出" }, { key: "error", label: "時間異常" }, { key: "night", label: "深夜勤務" }, { key: "noshift", label: "未出勤" }, { key: "sa_return_admin", label: "上位差戻(管)" }, { key: "sa_return_staff", label: "上位差戻(ス)" }].map(opt => (
                     <label key={opt.key} className="status-dropdown-item">
                       <input type="checkbox" checked={filterStatus.has(opt.key)} onChange={() => {
                         setFilterStatus(prev => {
@@ -1057,10 +1401,12 @@ export default function AdminAttendance() {
                   const hasError = dayItems.some(i => (i.clockIn && i.clockOut && calcWorkMin(i) <= 0));
                   const pendingCount = dayItems.filter(i => i._application?.status === "pending").length;
                   const resubmitCount = dayItems.filter(i => i._application?.status === "resubmission_requested").length;
+                  const saReturnCount = dayItems.filter(i => ["sa_return_admin", "sa_return_staff"].includes(i._application?.status)).length;
 
                   let bg = isCurrentMonth ? "#fff" : "#f9fafb";
                   if (hasError) bg = "#fef2f2";
                   else if (pendingCount > 0) bg = "#fff7ed";
+                  else if (saReturnCount > 0) bg = "#fef2f2"; // Red for SA return
                   else if (resubmitCount > 0) bg = "#f3e8ff"; // Purpleish for resubmit
 
                   return (
@@ -1147,13 +1493,16 @@ export default function AdminAttendance() {
                       else shiftCheck = "ok";
                     }
 
-                    const isShiftOnly = item._shiftOnly && !item.clockIn;
+                    const category = getItemCategory(item);
+                    const isShiftOnly = (item._shiftOnly && !item.clockIn) || (category === "noshift");
 
                     let bg = "#fff";
                     if (isShiftOnly) bg = "#fef2f2"; // Red (未出勤)
                     else if (rowAppStatus === "approved") bg = "#d1fae5"; // Stronger green for approved
                     else if (rowAppStatus === "pending") bg = "#fff7ed"; // Orange
                     else if (rowAppStatus === "resubmission_requested") bg = "#fcf4ff"; // Purple
+                    else if (rowAppStatus === "sa_return_admin") bg = "#fef2f2"; // Red
+                    else if (rowAppStatus === "sa_return_staff") bg = "#fff7ed"; // Orange
                     else if (isIncomplete) bg = "#fee2e2"; // Red (Forgot Clockout)
                     else if ((shiftCheck === "overtime" || shiftCheck === "late_overtime") && isUnapplied) bg = "#eff6ff"; // Light blue for overtime unapplied
                     else if (shiftCheck === "ok" && isUnapplied) bg = "#f0fdf4"; // Light green for auto-approvable
@@ -1246,6 +1595,8 @@ export default function AdminAttendance() {
                           {!isShiftOnly && rowAppStatus === "pending" && <span className="status-badge orange" style={{ fontSize: "11px" }}>承認待</span>}
                           {!isShiftOnly && rowAppStatus === "approved" && <span className="status-badge" style={{ background: "#059669", color: "#fff", fontSize: "11px", fontWeight: "bold", padding: "3px 8px" }}>✅ 承認済{item._application?.adminEdited && <span style={{ fontSize: "9px", opacity: 0.8 }}> (管理者)</span>}</span>}
                           {!isShiftOnly && rowAppStatus === "resubmission_requested" && <span className="status-badge purple" style={{ fontSize: "11px" }}>再提出</span>}
+                          {!isShiftOnly && rowAppStatus === "sa_return_admin" && <span className="status-badge" style={{ background: "#be123c", color: "#fff", fontSize: "11px", fontWeight: "bold", padding: "3px 8px" }}>🔴 上位差戻(管)</span>}
+                          {!isShiftOnly && rowAppStatus === "sa_return_staff" && <span className="status-badge" style={{ background: "#c2410c", color: "#fff", fontSize: "11px", fontWeight: "bold", padding: "3px 8px" }}>🟠 上位差戻(ス)</span>}
                           {!isShiftOnly && isUnapplied && !isWorking && !isIncomplete && <span className="status-badge orange" style={{ fontSize: "11px" }}>承認待</span>}
                         </td>
                         <td style={{ padding: "10px 8px", fontSize: "14px", fontFamily: "monospace", fontWeight: "bold" }}>
@@ -1473,25 +1824,11 @@ export default function AdminAttendance() {
                         </td>
                         <td style={{ fontSize: "13px", padding: "10px 8px" }}>
                           <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                            {/* 承認済み → 承認取消のみ */}
-                            {rowAppStatus === "approved" && (
+                            {/* 承認済み → 管理者の承認取消（非上位管理者） */}
+                            {rowAppStatus === "approved" && !isSuperAdmin && (
                               <button
                                 className="btn"
-                                onClick={async () => {
-                                  if (!await showConfirm(`${item.userName}さんの承認を取り消しますか？`)) return;
-                                  try {
-                                    const p = parseComment(item.comment);
-                                    const app = p.application || {};
-                                    const newApp = { ...app, status: "pending", approvedAt: null };
-                                    const finalComment = JSON.stringify({ segments: p.segments, text: p.text, application: newApp, auditLog: [...(p.auditLog || []), { action: "approval_cancelled", by: "管理者", at: new Date().toISOString(), detail: "承認を取り消しました" }] });
-                                    await fetch(`${API_BASE}/attendance/update`, {
-                                      method: "POST",
-                                      headers: { "Content-Type": "application/json" },
-                                      body: JSON.stringify({ userId: item.userId, workDate: item.workDate, comment: finalComment })
-                                    });
-                                    fetchAttendances();
-                                  } catch (e) { console.error(e); alert("承認取消に失敗しました"); }
-                                }}
+                                onClick={() => handleRevokeApproval(item)}
                                 style={{
                                   fontSize: "11px", padding: "4px 10px",
                                   background: "#fee2e2", color: "#991b1b", border: "1px solid #fca5a5", borderRadius: "4px",
@@ -1502,20 +1839,128 @@ export default function AdminAttendance() {
                               </button>
                             )}
 
-                            {/* 未承認（clockInあり）→ 承認 + 修正 + 再提出 */}
-                            {!isShiftOnly && rowAppStatus !== "approved" && (
+                            {/* 承認済み → 上位管理者アクション（super_adminのみ） */}
+                            {rowAppStatus === "approved" && isSuperAdmin && (
                               <>
                                 <button
                                   className="btn"
-                                  onClick={() => handleApprove(item)}
+                                  onClick={() => setApproveConfirmItem(item)}
                                   style={{
                                     fontSize: "11px", padding: "4px 10px",
                                     background: "#10b981", color: "#fff", border: "none", borderRadius: "4px",
                                     cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", gap: "4px"
                                   }}
                                 >
-                                  <CheckCircle size={12} /> 承認
+                                  <CheckCircle size={12} /> 最終承認
                                 </button>
+                                <button
+                                  className="btn"
+                                  onClick={() => { setSaActionModal({ item, type: "return_admin" }); setSaActionComment(""); }}
+                                  style={{
+                                    fontSize: "11px", padding: "4px 10px",
+                                    background: "#2563eb", color: "#fff", border: "none", borderRadius: "4px",
+                                    cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", gap: "4px"
+                                  }}
+                                >
+                                  🔵 井本へ再提出
+                                </button>
+                                <button
+                                  className="btn"
+                                  onClick={() => { setSaActionModal({ item, type: "return_staff" }); setSaActionComment(""); }}
+                                  style={{
+                                    fontSize: "11px", padding: "4px 10px",
+                                    background: "#f97316", color: "#fff", border: "none", borderRadius: "4px",
+                                    cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", gap: "4px"
+                                  }}
+                                >
+                                  🟠 スタッフへ再提出
+                                </button>
+                                <button
+                                  className="btn"
+                                  onClick={() => { setSaActionModal({ item, type: "cancel" }); setSaActionComment(""); }}
+                                  style={{
+                                    fontSize: "11px", padding: "4px 10px",
+                                    background: "#fee2e2", color: "#991b1b", border: "1px solid #fca5a5", borderRadius: "4px",
+                                    cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", gap: "4px"
+                                  }}
+                                >
+                                  <XCircle size={12} /> 承認取消
+                                </button>
+                              </>
+                            )}
+
+                            {/* 上位管理者差戻（管理者向け）→ 再承認 + 修正（上位管理者コメント表示） */}
+                            {rowAppStatus === "sa_return_admin" && (
+                              <>
+                                {item._application?.superAdminComment && (
+                                  <div style={{ width: "100%", padding: "4px 8px", background: "#fef2f2", borderRadius: "4px", fontSize: "11px", color: "#991b1b", marginBottom: "4px" }}>
+                                    📝 上位管理者: {item._application.superAdminComment}
+                                  </div>
+                                )}
+                                <button
+                                  className="btn"
+                                  onClick={() => setApproveConfirmItem(item)}
+                                  style={{
+                                    fontSize: "11px", padding: "4px 10px",
+                                    background: "#10b981", color: "#fff", border: "none", borderRadius: "4px",
+                                    cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", gap: "4px"
+                                  }}
+                                >
+                                  <CheckCircle size={12} /> 再承認
+                                </button>
+                                <button
+                                  className="btn"
+                                  onClick={() => openEdit(item)}
+                                  style={{
+                                    fontSize: "11px", padding: "4px 10px",
+                                    background: "#3b82f6", color: "#fff", border: "none", borderRadius: "4px",
+                                    cursor: "pointer", fontWeight: "bold"
+                                  }}
+                                >
+                                  修正
+                                </button>
+                              </>
+                            )}
+
+                            {/* 上位管理者差戻（スタッフ向け）→ 管理者は修正可能 + 上位管理者コメント表示 */}
+                            {rowAppStatus === "sa_return_staff" && (
+                              <>
+                                {item._application?.superAdminComment && (
+                                  <div style={{ width: "100%", padding: "4px 8px", background: "#fff7ed", borderRadius: "4px", fontSize: "11px", color: "#c2410c", marginBottom: "4px" }}>
+                                    📝 上位管理者: {item._application.superAdminComment}
+                                  </div>
+                                )}
+                                <button
+                                  className="btn"
+                                  onClick={() => openEdit(item)}
+                                  style={{
+                                    fontSize: "11px", padding: "4px 10px",
+                                    background: "#3b82f6", color: "#fff", border: "none", borderRadius: "4px",
+                                    cursor: "pointer", fontWeight: "bold"
+                                  }}
+                                >
+                                  修正
+                                </button>
+                                <span style={{ fontSize: "10px", color: "#9ca3af" }}>※スタッフ再申請待ち</span>
+                              </>
+                            )}
+
+                            {/* 未承認（clockInあり）→ 承認（super_adminのみ） + 修正 + 再提出 */}
+                            {!isShiftOnly && rowAppStatus !== "approved" && rowAppStatus !== "sa_return_admin" && rowAppStatus !== "sa_return_staff" && (
+                              <>
+                                {isSuperAdmin ? (
+                                  <button
+                                    className="btn"
+                                    onClick={() => setApproveConfirmItem(item)}
+                                    style={{
+                                      fontSize: "11px", padding: "4px 10px",
+                                      background: "#10b981", color: "#fff", border: "none", borderRadius: "4px",
+                                      cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", gap: "4px"
+                                    }}
+                                  >
+                                    <CheckCircle size={12} /> 承認
+                                  </button>
+                                ) : null}
                                 <button
                                   className="btn"
                                   onClick={() => openEdit(item)}
@@ -1879,25 +2324,25 @@ export default function AdminAttendance() {
                   🗑️ 勤怠取り消し
                 </h4>
                 <p style={{ fontSize: "0.85rem", color: "#6b7280", marginBottom: "12px" }}>
-                  この勤怠レコードの打刻・申請データをリセットします。操作ログは保持されます。
+                  申請内容・実働・判定・理由をリセットします。打刻時間は保持されます。
                 </p>
                 <button
                   className="btn"
                   onClick={async () => {
-                    if (!await showConfirm(`${editingItem.userName}さんの${editingItem.workDate}の勤怠を取り消しますか？\n\n⚠️ 打刻・申請データがリセットされます。`)) return;
+                    if (!await showConfirm(`${editingItem.userName}さんの${editingItem.workDate}の勤怠を取り消しますか？\n\n⚠️ 申請内容・実働・判定・理由がリセットされます。\n（打刻時間は保持されます）`)) return;
                     setLoading(true);
                     try {
-                      // ログを保持したままリセット
+                      // ログを保持したまま申請内容のみリセット（打刻は維持）
                       const p = parseComment(editingItem.comment);
                       const existingLog = p.auditLog || [];
-                      existingLog.push({ action: "cancelled", by: "管理者", at: new Date().toISOString(), detail: "勤怠を取り消しました" });
-                      const resetComment = JSON.stringify({ segments: [], application: null, text: "", auditLog: existingLog });
+                      existingLog.push({ action: "cancelled", by: "管理者", at: new Date().toISOString(), detail: "勤怠を取り消しました（申請内容・実働・判定・理由をリセット）" });
+                      const resetComment = JSON.stringify({ segments: p.segments || [], application: null, text: "", auditLog: existingLog });
                       const payload = {
                         userId: editingItem.userId,
                         workDate: editingItem.workDate,
-                        clockIn: "",
-                        clockOut: "",
-                        breaks: [],
+                        clockIn: editingItem.clockIn || "",
+                        clockOut: editingItem.clockOut || "",
+                        breaks: editingItem.breaks || [],
                         comment: resetComment
                       };
                       await fetch(`${API_BASE}/attendance/update`, {
@@ -1939,6 +2384,257 @@ export default function AdminAttendance() {
           </div>
         )
       }
+
+      {/* 承認確認モーダル */}
+      {approveConfirmItem && (() => {
+        const acItem = approveConfirmItem;
+        const acShift = findShiftForItem(acItem);
+        const acApp = acItem._application || {};
+        const acClockIn = acItem.clockIn || "-";
+        const acClockOut = acItem.clockOut || "-";
+        const acAppliedIn = acApp.appliedIn || "-";
+        const acAppliedOut = acApp.appliedOut || "-";
+        const acReason = acApp.reason || "-";
+        const acSubReason = acApp.subReason || "";
+        const acDetailText = acApp.detailText || acApp.subReasonText || "";
+
+        let shiftDisplay = "-";
+        if (acShift) {
+          if (acShift.isOff) {
+            shiftDisplay = "休み";
+          } else {
+            const parts = [];
+            if (acShift.start && acShift.end) parts.push(`${acShift.start}-${acShift.end}`);
+            if (acShift.partStart && acShift.partEnd) parts.push(`バイト ${acShift.partStart}-${acShift.partEnd}`);
+            shiftDisplay = parts.join(" / ") || "-";
+          }
+        }
+
+        let workHours = "-";
+        if (acAppliedIn !== "-" && acAppliedOut !== "-") {
+          const diff = toMin(acAppliedOut) - toMin(acAppliedIn);
+          const breakMin = acApp.breakDuration || 0;
+          const net = diff - breakMin;
+          if (net > 0) workHours = `${(net / 60).toFixed(1)}H`;
+        }
+
+        return (
+          <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", justifyContent: "center", alignItems: "center" }}>
+            <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} onClick={() => setApproveConfirmItem(null)} />
+            <div style={{
+              position: "relative", background: "#fff", borderRadius: "14px",
+              padding: "28px", maxWidth: "480px", width: "90%",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.3)"
+            }}>
+              <h3 style={{ margin: "0 0 20px 0", fontSize: "1.15rem", color: "#1f2937", display: "flex", alignItems: "center", gap: "8px" }}>
+                <CheckCircle size={22} color="#10b981" /> 承認確認
+              </h3>
+
+              <div style={{ fontSize: "0.95rem", marginBottom: "16px" }}>
+                <strong>{acItem.userName}</strong>
+                <span style={{ color: "#6b7280", marginLeft: "8px" }}>{acItem.workDate}</span>
+              </div>
+
+              <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "20px", fontSize: "0.9rem" }}>
+                <tbody>
+                  <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+                    <td style={{ padding: "10px 8px", color: "#6b7280", fontWeight: "600", width: "110px", background: "#f9fafb" }}>📅 シフト</td>
+                    <td style={{ padding: "10px 8px", fontWeight: "bold" }}>{shiftDisplay}</td>
+                  </tr>
+                  <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+                    <td style={{ padding: "10px 8px", color: "#6b7280", fontWeight: "600", background: "#f9fafb" }}>⏰ 実績（打刻）</td>
+                    <td style={{ padding: "10px 8px" }}>
+                      <span style={{ fontWeight: "bold" }}>{acClockIn}</span>
+                      <span style={{ color: "#9ca3af", margin: "0 6px" }}>→</span>
+                      <span style={{ fontWeight: "bold" }}>{acClockOut}</span>
+                    </td>
+                  </tr>
+                  <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+                    <td style={{ padding: "10px 8px", color: "#6b7280", fontWeight: "600", background: "#f9fafb" }}>📝 申請時間</td>
+                    <td style={{ padding: "10px 8px" }}>
+                      <span style={{ fontWeight: "bold", color: "#2563eb" }}>{acAppliedIn}</span>
+                      <span style={{ color: "#9ca3af", margin: "0 6px" }}>→</span>
+                      <span style={{ fontWeight: "bold", color: "#2563eb" }}>{acAppliedOut}</span>
+                      <span style={{ color: "#6b7280", marginLeft: "10px", fontSize: "0.85rem" }}>({workHours})</span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: "10px 8px", color: "#6b7280", fontWeight: "600", background: "#f9fafb" }}>❓ 申請理由</td>
+                    <td style={{ padding: "10px 8px" }}>
+                      <span style={{ fontWeight: "bold", color: acReason !== "-" ? "#ef4444" : "#6b7280" }}>{acReason}</span>
+                      {acSubReason && <span style={{ color: "#6b7280", marginLeft: "6px", fontSize: "0.85rem" }}>({acSubReason})</span>}
+                      {acDetailText && <div style={{ fontSize: "0.82rem", color: "#6b7280", marginTop: "4px" }}>詳細: {acDetailText}</div>}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div style={{ display: "flex", gap: "12px" }}>
+                <button
+                  onClick={() => setApproveConfirmItem(null)}
+                  style={{
+                    flex: 1, padding: "12px", borderRadius: "8px",
+                    border: "1px solid #d1d5db", background: "#fff",
+                    fontSize: "0.95rem", cursor: "pointer", fontWeight: "600", color: "#374151"
+                  }}
+                >
+                  キャンセル
+                </button>
+                <button
+                  onClick={() => {
+                    handleApprove(acItem);
+                    setApproveConfirmItem(null);
+                  }}
+                  style={{
+                    flex: 1, padding: "12px", borderRadius: "8px",
+                    border: "none", background: "linear-gradient(135deg, #10b981, #059669)",
+                    color: "#fff", fontSize: "0.95rem", cursor: "pointer", fontWeight: "bold",
+                    boxShadow: "0 2px 8px rgba(16,185,129,0.3)",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: "6px"
+                  }}
+                >
+                  <CheckCircle size={18} /> 承認する
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 上位管理者アクションモーダル */}
+      {saActionModal && (() => {
+        const saItem = saActionModal.item;
+        const saType = saActionModal.type;
+        const titleMap = { return_admin: "🔵 井本へ再提出", return_staff: "🟠 スタッフへ再提出", cancel: "🔴 承認取消" };
+        const descMap = {
+          return_admin: "管理者（井本さん）にこの勤怠を差し戻します。\n管理者に再確認を依頼します。",
+          return_staff: "スタッフにこの勤怠を差し戻します。\nスタッフに再申請を依頼します。",
+          cancel: "この勤怠の承認を取り消します。\n承認待ち状態に戻ります。"
+        };
+        const colorMap = { return_admin: "#2563eb", return_staff: "#f97316", cancel: "#dc2626" };
+
+        return (
+          <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", justifyContent: "center", alignItems: "center" }}>
+            <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} onClick={() => setSaActionModal(null)} />
+            <div style={{
+              position: "relative", background: "#fff", borderRadius: "14px",
+              padding: "28px", maxWidth: "500px", width: "90%",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.3)"
+            }}>
+              <h3 style={{ margin: "0 0 8px 0", fontSize: "1.15rem", color: "#1f2937" }}>
+                {titleMap[saType]}
+              </h3>
+              <div style={{ fontSize: "0.9rem", color: "#6b7280", marginBottom: "16px", whiteSpace: "pre-line" }}>
+                {descMap[saType]}
+              </div>
+
+              <div style={{ fontSize: "0.95rem", marginBottom: "16px", padding: "10px", background: "#f9fafb", borderRadius: "8px" }}>
+                <strong>{saItem.userName}</strong>
+                <span style={{ color: "#6b7280", marginLeft: "8px" }}>{saItem.workDate}</span>
+              </div>
+
+              <div style={{ marginBottom: "20px" }}>
+                <label style={{ fontSize: "0.9rem", fontWeight: "600", color: "#374151", display: "block", marginBottom: "6px" }}>
+                  📝 コメント（理由）
+                </label>
+                <textarea
+                  value={saActionComment}
+                  onChange={e => setSaActionComment(e.target.value)}
+                  placeholder={saType === "return_admin" ? "井本さんへの確認依頼内容を入力..." : saType === "return_staff" ? "スタッフへの再提出依頼内容を入力..." : "承認取消の理由を入力..."}
+                  style={{
+                    width: "100%", minHeight: "80px", padding: "10px",
+                    border: "1px solid #d1d5db", borderRadius: "8px",
+                    fontSize: "0.9rem", resize: "vertical", boxSizing: "border-box"
+                  }}
+                />
+              </div>
+
+              <div style={{ display: "flex", gap: "12px" }}>
+                <button
+                  onClick={() => setSaActionModal(null)}
+                  style={{
+                    flex: 1, padding: "12px", borderRadius: "8px",
+                    border: "1px solid #d1d5db", background: "#fff",
+                    fontSize: "0.95rem", cursor: "pointer", fontWeight: "600", color: "#374151"
+                  }}
+                >
+                  キャンセル
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!saActionComment.trim() && saType !== "cancel") {
+                      alert("コメントを入力してください");
+                      return;
+                    }
+                    setLoading(true);
+                    try {
+                      const p = parseComment(saItem.comment);
+                      const app = p.application || {};
+                      let newApp, logAction, logDetail;
+
+                      if (saType === "return_admin") {
+                        newApp = { ...app, status: "sa_return_admin", superAdminComment: saActionComment.trim(), returnedAt: new Date().toISOString() };
+                        logAction = "sa_return_admin";
+                        logDetail = `上位管理者が管理者へ差し戻しました: ${saActionComment.trim()}`;
+                      } else if (saType === "return_staff") {
+                        newApp = { ...app, status: "sa_return_staff", superAdminComment: saActionComment.trim(), returnedAt: new Date().toISOString() };
+                        logAction = "sa_return_staff";
+                        logDetail = `上位管理者がスタッフへ差し戻しました: ${saActionComment.trim()}`;
+                      } else {
+                        // cancel: ステータスのみpendingに戻す（申請内容・打刻は保持）
+                        newApp = {
+                          ...app,
+                          status: "pending",
+                          confirmedBy: null,
+                          confirmedAt: null,
+                          superAdminComment: saActionComment.trim() || null,
+                          withdrawn: true, withdrawnAt: new Date().toISOString()
+                        };
+                        logAction = "approval_cancelled";
+                        logDetail = `上位管理者が承認を取り消しました${saActionComment.trim() ? `: ${saActionComment.trim()}` : ""}`;
+                      }
+
+                      const finalComment = JSON.stringify({
+                        segments: p.segments, text: p.text, application: newApp,
+                        auditLog: [...(p.auditLog || []), { action: logAction, by: "上位管理者", at: new Date().toISOString(), detail: logDetail }]
+                      });
+
+                      await fetch(`${API_BASE}/attendance/update`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          userId: saItem.userId, workDate: saItem.workDate,
+                          clockIn: saItem.clockIn || "", clockOut: saItem.clockOut || "",
+                          breaks: saItem.breaks || [], comment: finalComment
+                        })
+                      });
+
+                      setSaActionModal(null);
+                      fetchAttendances();
+                    } catch (e) {
+                      console.error(e);
+                      alert("エラーが発生しました");
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                  style={{
+                    flex: 1, padding: "12px", borderRadius: "8px",
+                    border: "none", background: colorMap[saType],
+                    color: "#fff", fontSize: "0.95rem", cursor: "pointer", fontWeight: "bold",
+                    boxShadow: `0 2px 8px ${colorMap[saType]}50`,
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: "6px"
+                  }}
+                >
+                  {saType === "return_admin" && "井本へ差し戻す"}
+                  {saType === "return_staff" && "スタッフへ差し戻す"}
+                  {saType === "cancel" && <><XCircle size={18} /> 承認取消</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 確認モーダル */}
       {
@@ -2274,6 +2970,9 @@ export default function AdminAttendance() {
                   else if (log.action === "cancelled") { bubbleBg = "#fef2f2"; textColor = "#dc2626"; }
                   else if (log.action === "resubmission_requested") { bubbleBg = "#f3e8ff"; textColor = "#7c3aed"; }
                   else if (log.action === "admin_edited") { bubbleBg = "#eff6ff"; textColor = "#1d4ed8"; }
+                  else if (log.action === "sa_return_admin") { bubbleBg = "#fef2f2"; textColor = "#be123c"; }
+                  else if (log.action === "sa_return_staff") { bubbleBg = "#fff7ed"; textColor = "#c2410c"; }
+                  else if (log.action === "confirmed") { bubbleBg = "#fef9c3"; textColor = "#854d0e"; }
 
                   return (
                     <div key={idx} style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>

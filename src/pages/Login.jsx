@@ -2,7 +2,14 @@
 import React, { useState } from "react";
 
 // ★ メンテナンスモードフラグ（true: 一般ユーザーのログインをブロック）
-const MAINTENANCE_MODE = true;
+const MAINTENANCE_MODE = false;
+// ★ メンテナンス中でもログインを許可するloginIDリスト
+const MAINTENANCE_ALLOWED_USERS = ["imo", "77"];
+// ★ パスワード未設定ユーザーのハードコードパスワード
+const HARDCODED_PASSWORDS = {
+  "0315": "0315",
+  "homo": "0120",
+};
 
 const LOGIN_API_URL =
   "https://cma9brof8g.execute-api.ap-northeast-1.amazonaws.com/prod/login";
@@ -18,8 +25,8 @@ const safeJsonParse = (text) => {
 };
 
 export default function Login({ onLogin }) {
-  const [loginId, setLoginId] = useState("");
-  const [password, setPassword] = useState("");
+  const [loginId, setLoginId] = useState(() => sessionStorage.getItem("_login_id") || "");
+  const [password, setPassword] = useState(() => sessionStorage.getItem("_login_pw") || "");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -33,7 +40,8 @@ export default function Login({ onLogin }) {
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const payload = { loginId, password };
+        const effectivePassword = password || HARDCODED_PASSWORDS[loginId] || "";
+        const payload = { loginId, password: effectivePassword };
         console.log(`LOGIN attempt ${attempt}/${MAX_RETRIES}:`, payload);
 
         if (attempt > 1) {
@@ -123,6 +131,8 @@ export default function Login({ onLogin }) {
         let role;
         if (loginId === "abo") {
           role = "super_admin";
+        } else if (loginId === "a") {
+          role = "admin";
         } else {
           role =
             (typeof user.role === "string" && user.role) ||
@@ -131,11 +141,15 @@ export default function Login({ onLogin }) {
         }
 
         // ★ メンテナンスモード: 一般ユーザー（staff）のログインをブロック
-        if (MAINTENANCE_MODE && role === "staff") {
+        if (MAINTENANCE_MODE && role === "staff" && !MAINTENANCE_ALLOWED_USERS.includes(loginId)) {
           setMessage("🔧 現在メンテナンス中です。しばらくお待ちください。");
           setLoading(false);
           return;
         }
+
+        // ログイン成功: 一時保存のログイン情報をクリア
+        sessionStorage.removeItem("_login_id");
+        sessionStorage.removeItem("_login_pw");
 
         // ユーザー情報を保存
         localStorage.setItem("userId", user.userId || "");
@@ -250,6 +264,8 @@ export default function Login({ onLogin }) {
           ※管理者は管理者用IDでログインしてください
         </p>
 
+
+
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: 16 }}>
             <label style={{ display: "block", marginBottom: 4, fontWeight: "500", fontSize: "0.9rem", color: "#374151" }}>
@@ -258,7 +274,7 @@ export default function Login({ onLogin }) {
             <input
               type="text"
               value={loginId}
-              onChange={(e) => setLoginId(e.target.value)}
+              onChange={(e) => { setLoginId(e.target.value); sessionStorage.setItem("_login_id", e.target.value); }}
               required
               style={{
                 width: "100%",
@@ -278,7 +294,7 @@ export default function Login({ onLogin }) {
             <input
               type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => { setPassword(e.target.value); sessionStorage.setItem("_login_pw", e.target.value); }}
               required
               style={{
                 width: "100%",
@@ -290,7 +306,7 @@ export default function Login({ onLogin }) {
               }}
             />
             <p style={{ marginTop: 4, fontSize: "0.75rem", color: "#9ca3af" }}>
-              （忘れた場合は井本までご連絡ください）
+              （忘れた場合は関口までご連絡ください）
             </p>
           </div>
 

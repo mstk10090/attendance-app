@@ -54,36 +54,54 @@ export default function App() {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
 
-    // Check IP
-    const checkIp = async () => {
-      // 1. Check Device Bypass
-      if (localStorage.getItem("device_allowed") === "true") {
-        setIpStatus("allowed");
-        return;
-      }
+    checkIpAccess();
+  }, []);
 
+  // IP Check with retry and fallback
+  const checkIpAccess = async () => {
+    setIpStatus("loading");
+
+    // 1. Check Device Bypass
+    if (localStorage.getItem("device_allowed") === "true") {
+      setIpStatus("allowed");
+      return;
+    }
+
+    // IP取得サービスのリスト（フォールバック用）
+    const IP_SERVICES = [
+      "https://api.ipify.org?format=json",
+      "https://api.myip.com",
+      "https://ipinfo.io/json",
+    ];
+
+    for (let attempt = 0; attempt < IP_SERVICES.length; attempt++) {
       try {
-        const res = await fetch("https://api.ipify.org?format=json");
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8秒タイムアウト
+
+        const res = await fetch(IP_SERVICES[attempt], { signal: controller.signal });
+        clearTimeout(timeoutId);
         const data = await res.json();
         const ip = data.ip;
         setClientIp(ip);
 
-        // Check against allowed list
         if (ALLOWED_IPS.includes(ip)) {
           setIpStatus("allowed");
+          return;
         } else {
           setIpStatus("denied");
+          return;
         }
       } catch (e) {
-        console.error("IP check failed", e);
-        // Fallback: If check fails, maybe deny or allow? 
-        // Strict security -> Deny. 
-        setIpStatus("denied");
+        console.warn(`IP check attempt ${attempt + 1} failed (${IP_SERVICES[attempt]}):`, e);
+        if (attempt === IP_SERVICES.length - 1) {
+          // 全サービス失敗 → ネットワーク不安定なのでアクセス許可（セキュリティよりUX優先）
+          console.warn("All IP check services failed. Allowing access as fallback.");
+          setIpStatus("allowed");
+        }
       }
-    };
-    checkIp();
-  }, []);
-
+    }
+  };
 
 
   // 自動ログアウト（5分無操作）
@@ -159,7 +177,7 @@ export default function App() {
   if (ipStatus === "loading") {
     return (
       <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh", flexDirection: "column" }}>
-        <p>Checking Access Permission...</p>
+        <p style={{ fontSize: "16px", color: "#666" }}>🔄 接続確認中...</p>
       </div>
     );
   }
@@ -170,6 +188,25 @@ export default function App() {
       <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh", flexDirection: "column", color: "#d32f2f" }}>
         <h1>Access Denied</h1>
         <p>このIPアドレス({clientIp})からのアクセスは許可されていません。</p>
+        <button
+          onClick={checkIpAccess}
+          style={{
+            marginTop: "16px",
+            padding: "12px 24px",
+            border: "none",
+            borderRadius: "8px",
+            background: "#1976d2",
+            color: "#fff",
+            fontSize: "16px",
+            cursor: "pointer",
+            fontWeight: "bold"
+          }}
+        >
+          🔄 再試行
+        </button>
+        <p style={{ color: "#666", fontSize: "13px", marginTop: "12px" }}>
+          Wi-Fiに接続してから再試行してください
+        </p>
       </div>
     );
   }

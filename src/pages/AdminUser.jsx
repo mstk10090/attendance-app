@@ -29,7 +29,8 @@ const PASSWORD_MAP = {
   "shotarotakada": "0108", "osu2026": "0423", "77": "0315", "nasimtakaki": "0929",
   "ama722": "0306", "takutaku303": "0721", "mudai0825": "0825", "kaiwtnb66": "6666",
   "daichi0502": "0502", "adachi0512": "9110", "eitaw0320": "1061", "emma": "0428",
-  "yuri0713": "0713", "moomin10": "4211", "MasatokiSekiguchi": "4011"
+  "yuri0713": "0713", "moomin10": "4211", "MasatokiSekiguchi": "4011",
+  "0315": "0315", "homo": "0120", "zz1": "2222", "yushimizu0901": "0901"
 };
 
 export default function AdminUser() {

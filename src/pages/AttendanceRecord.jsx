@@ -948,6 +948,7 @@ export default function AttendanceRecord({ user: propUser }) {
     const p = parseComment(item.comment);
     const app = p.application || {};
     const isResubmit = app.status === "resubmission_requested";
+    const isSaReturnStaff = app.status === "sa_return_staff";
 
     const workMin = calcWorkMin(item);
     const isError = (item.clockIn && item.clockOut && workMin <= 0);
@@ -956,7 +957,7 @@ export default function AttendanceRecord({ user: propUser }) {
     const isPast = item.workDate < today;
     const isIncomplete = (item.clockIn && !item.clockOut && isPast);
 
-    return isResubmit || isError || isIncomplete;
+    return isResubmit || isSaReturnStaff || isError || isIncomplete;
   }).sort((a, b) => b.workDate.localeCompare(a.workDate)); // Newest first
 
   /* --- ACTIONS --- */
@@ -1400,7 +1401,7 @@ export default function AttendanceRecord({ user: propUser }) {
   // 再提出依頼のカウントと日付リスト
   const resubmissionItems = items.filter(i => {
     const p = parseComment(i.comment);
-    return p.application?.status === "resubmission_requested";
+    return p.application?.status === "resubmission_requested" || p.application?.status === "sa_return_staff";
   });
   const resubmissionCount = resubmissionItems.length;
   const resubmissionDates = resubmissionItems.map(i => {
@@ -1409,9 +1410,13 @@ export default function AttendanceRecord({ user: propUser }) {
     const dayNames = ["日", "月", "火", "水", "木", "金", "土"];
     const p = parseComment(i.comment);
     const adminComment = p.application?.adminComment || "";
+    const superAdminComment = p.application?.superAdminComment || "";
+    const isSaReturn = p.application?.status === "sa_return_staff";
     return {
       label: `${d.getMonth() + 1}/${d.getDate()}(${dayNames[d.getDay()]})`,
-      adminComment
+      adminComment,
+      superAdminComment,
+      isSaReturn
     };
   });
 
@@ -1845,9 +1850,11 @@ export default function AttendanceRecord({ user: propUser }) {
             </div>
             <div style={{ marginLeft: "26px", fontSize: "0.85rem" }}>
               {resubmissionDates.map((rd, idx) => (
-                <div key={idx} style={{ marginBottom: "4px", padding: "4px 8px", background: "#f3e8ff", borderRadius: "4px" }}>
+                <div key={idx} style={{ marginBottom: "4px", padding: "4px 8px", background: rd.isSaReturn ? "#fff7ed" : "#f3e8ff", borderRadius: "4px", border: rd.isSaReturn ? "1px solid #fed7aa" : "none" }}>
                   <strong>{rd.label}</strong>
-                  {rd.adminComment && <span style={{ marginLeft: "8px", color: "#6b21a8" }}>— {rd.adminComment}</span>}
+                  {rd.isSaReturn && <span style={{ marginLeft: "6px", padding: "1px 6px", background: "#c2410c", color: "#fff", borderRadius: "3px", fontSize: "10px", fontWeight: "bold" }}>上位管理者</span>}
+                  {rd.superAdminComment && <div style={{ marginTop: "2px", color: "#c2410c", fontSize: "0.82rem" }}>📝 {rd.superAdminComment}</div>}
+                  {rd.adminComment && !rd.isSaReturn && <span style={{ marginLeft: "8px", color: "#6b21a8" }}>— {rd.adminComment}</span>}
                 </div>
               ))}
               <div style={{ marginTop: "6px", fontSize: "0.8rem", color: "#9333ea" }}>

@@ -180,7 +180,7 @@ const getUserShifts = (shiftMap, user) => {
     return {};
 };
 
-export default function HistoryReport({ user, items, baseDate, viewMode, shiftMap, onRowClick, onWithdraw }) {
+export default function HistoryReport({ user, items, baseDate, viewMode, shiftMap, onRowClick, onWithdraw, adminMode }) {
     const [expandedReasonId, setExpandedReasonId] = useState(null);
 
 
@@ -209,9 +209,14 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
 
         const approvedItems = monthItems.filter(i => {
             const p = parseComment(i.comment);
-            return p?.application?.status === "approved";
+            const st = p?.application?.status;
+            return st === "approved" || (p?.application?.confirmedBy);
         });
-        const attendedDates = new Set(approvedItems.filter(i => i.clockIn).map(i => i.displayDate || i.workDate));
+        const attendedDates = new Set(approvedItems.filter(i => {
+            const p = parseComment(i.comment);
+            const effectiveIn = p?.application?.appliedIn || i.clockIn;
+            return !!effectiveIn;
+        }).map(i => i.displayDate || i.workDate));
         const userShifts = getUserShifts(shiftMap, user);
 
         // シフト日数（休み以外）
@@ -240,9 +245,15 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
             // 遅刻
             const dateStr = i.displayDate || i.workDate;
             const shiftForDay = userShifts[dateStr] || null;
-            if (shiftForDay && shiftForDay.start && i.clockIn) {
+            const effectiveClockIn = app?.appliedIn || i.clockIn;
+            if (shiftForDay && shiftForDay.start && effectiveClockIn) {
                 const lateCancelled = app?.lateCancelled || false;
-                if (toMin(i.clockIn) >= toMin(shiftForDay.start) && !lateCancelled) {
+                const inMin = toMin(effectiveClockIn);
+                const startMin = toMin(shiftForDay.start);
+                // 申請時間(appliedIn)は「>」で判定（ちょうどは遅刻でない）
+                // 打刻(clockIn)は「>=」で判定（ちょうどでも遅刻）
+                const isLate = app?.appliedIn ? inMin > startMin : inMin >= startMin;
+                if (isLate && !lateCancelled) {
                     lateCount++;
                 }
             }
@@ -250,12 +261,11 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
             if (app?.reason && app.reason.includes("早退")) earlyCount++;
         });
 
-        // 派遣/バイト時間の計算（承認済みのみ）
+        // 派遣/バイト時間の計算（承認済みのみ）— 勤怠管理と同じフルレンジ方式
         approvedItems.forEach(i => {
             const parsed = parseComment(i.comment);
             const app = parsed?.application || {};
             if (app.withdrawn) return;
-            // appliedIn/Out（申請時間）があればそちらを優先、なければ打刻時間を使用
             const effectiveIn = app.appliedIn || i.clockIn;
             const effectiveOut = app.appliedOut || i.clockOut;
             if (!effectiveIn || !effectiveOut) return;
@@ -265,6 +275,7 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
             const roundedOut = Math.floor(actualOut / 30) * 30;
             if (roundedIn >= roundedOut) return;
             const breakMin = app.breakDuration || calcBreakTime(i);
+            const netWorkMin = Math.max(0, roundedOut - roundedIn - breakMin);
             const dateStr = i.displayDate || i.workDate;
             const shift = userShifts[dateStr] || null;
 
@@ -272,42 +283,23 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
             let dayPartTime = 0;
 
             if (shift && (shift.dispatchRange || shift.partTimeRange)) {
+                // 勤怠管理と同じロジック: dispatchRangeのフルレンジを派遣時間として使用
                 if (shift.dispatchRange) {
                     const dS = toMin(shift.dispatchRange.start);
                     const dE = toMin(shift.dispatchRange.end);
-                    const oS = Math.max(roundedIn, dS);
-                    const oE = Math.min(roundedOut, dE);
-                    if (oS < oE) dayDispatch = oE - oS;
+                    dayDispatch = dE - dS; // シフト範囲固定
                 }
                 if (dayDispatch > 8 * 60) {
                     dayPartTime += dayDispatch - 8 * 60;
                     dayDispatch = 8 * 60;
                 }
-                if (shift.partTimeRange) {
-                    const pS = toMin(shift.partTimeRange.start);
-                    const pE = toMin(shift.partTimeRange.end);
-                    const oS = Math.max(roundedIn, pS);
-                    const oE = Math.min(roundedOut, pE);
-                    if (oS < oE) {
-                        let pt = oE - oS;
-                        dayPartTime += pt;
-                    }
-                }
-                if (!shift.partTimeRange && shift.dispatchRange) {
-                    const dE = toMin(shift.dispatchRange.end);
-                    if (roundedOut > dE) {
-                        let extra = roundedOut - dE;
-                        dayPartTime += extra;
-                    }
-                }
+                // バイト時間 = 実働 - 派遣時間
+                dayPartTime = Math.max(0, netWorkMin - dayDispatch);
             } else if (shift && shift.isDispatch) {
-                const wm = Math.max(0, roundedOut - roundedIn - breakMin);
-                dayDispatch = Math.min(wm, 8 * 60);
-                let part = Math.max(0, wm - 8 * 60);
-                dayPartTime = part;
+                dayDispatch = Math.min(netWorkMin, 8 * 60);
+                dayPartTime = Math.max(0, netWorkMin - 8 * 60);
             } else {
-                let partTotal = Math.max(0, roundedOut - roundedIn - breakMin);
-                dayPartTime = partTotal;
+                dayPartTime = netWorkMin;
             }
 
             dayDispatch = Math.floor(dayDispatch / 30) * 30;
@@ -437,7 +429,7 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                 // 承認済み・承認待ちは編集不可（取り下げ or 再申請で編集可能）
                                 // 本日は退勤済みの場合のみ編集可能
                                 const todayClockedOut = isToday && item.clockIn && item.clockOut;
-                                const isInteractive = !isApproved && (!isToday || todayClockedOut) && (!isFuture || status);
+                                const isInteractive = adminMode ? (!isFuture || !!status) : (!isApproved && (!isToday || todayClockedOut) && (!isFuture || status));
 
                                 // Shift Lookup（背景色判定のために先に行う）
                                 let shift = null;
@@ -599,9 +591,10 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                             }
                                         }}
                                         title={
-                                            isApproved ? "承認済みのため修正できません" :
+                                            isApproved && !adminMode ? "承認済みのため修正できません" :
                                                 isFuture ? "翌日以降の修正はできません" :
-                                                    "クリックで修正"
+                                                    adminMode ? "クリックで勤怠管理画面を開く" :
+                                                        "クリックで修正"
                                         }
                                     >
                                         <td style={{ padding: "12px 16px", borderRight: "1px solid #f3f4f6", fontWeight: "500", color: "#374151" }}>
@@ -642,9 +635,16 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                             {item.clockIn ? (
                                                 <div>
                                                     <span>{formatTimeHHMM(item.clockIn)}</span>
-                                                    {/* 遅刻判定：シフト開始より遅く出勤した場合 */}
-                                                    {shift && shift.start && toMin(item.clockIn) >= toMin(shift.start) && (() => {
+                                                    {/* 遅刻判定：申請時間はシフト開始より厳密に遅い場合のみ、打刻はちょうどでも遅刻 */}
+                                                    {shift && shift.start && (() => {
                                                         const parsed = parseComment(item.comment);
+                                                        const app = parsed?.application;
+                                                        const effectiveIn = app?.appliedIn || item.clockIn;
+                                                        if (!effectiveIn) return null;
+                                                        const inMin = toMin(effectiveIn);
+                                                        const startMin = toMin(shift.start);
+                                                        const isLate = app?.appliedIn ? inMin > startMin : inMin >= startMin;
+                                                        if (!isLate) return null;
                                                         const lateCancelled = parsed?.application?.lateCancelled;
                                                         if (lateCancelled) {
                                                             const reason = parsed?.application?.lateCancelReason;
