@@ -53,8 +53,15 @@ export default function MyPage({ onLogout }) {
   const [lateViewMode, setLateViewMode] = useState("month"); // "month" or "year"
   const [shiftMap, setShiftMap] = useState({}); // シフトデータ
 
-  // シフトデータを取得
+  // シフトデータを取得（キャッシュ優先）
   useEffect(() => {
+    try {
+      const cached = localStorage.getItem("shift_data_cache");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Object.keys(parsed).length > 0) setShiftMap(parsed);
+      }
+    } catch (e) { /* ignore */ }
     fetchShiftData().then(data => setShiftMap(data));
   }, []);
 

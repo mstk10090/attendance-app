@@ -39,8 +39,19 @@ export default function StaffReport() {
         });
     }, []);
 
-    // シフトデータ取得
+    // シフトデータ取得（キャッシュ優先でバックグラウンド更新）
     useEffect(() => {
+        // ① キャッシュから即座に読み込み
+        try {
+            const cached = localStorage.getItem("shift_data_cache");
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (Object.keys(parsed).length > 0) {
+                    setShiftMap(parsed);
+                }
+            }
+        } catch (e) { /* ignore */ }
+        // ② バックグラウンドで最新を取得
         fetchShiftData().then(setShiftMap).catch(console.error);
     }, []);
 

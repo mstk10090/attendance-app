@@ -445,7 +445,7 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                 const hasShift = shift && !shift.isOff;
                                 const noAttendance = !item.clockIn && !item.clockOut;
                                 const isPast = dateStr < todayStr;
-                                const isShiftMissing = hasShift && noAttendance && isPast && status !== "approved" && status !== "pending" && status !== "absent";
+                                const isShiftMissing = hasShift && noAttendance && isPast && status !== "approved" && status !== "pending" && status !== "absent" && status !== "resubmission_requested" && status !== "sa_return_staff";
 
                                 // 行全体の背景色を決定
                                 const isImplicitPending = hasAttendance && item.clockIn && item.clockOut && !status;
