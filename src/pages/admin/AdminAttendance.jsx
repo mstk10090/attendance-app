@@ -1492,6 +1492,44 @@ export default function AdminAttendance() {
           ) : (
             /* Table View */
             <div className="table-wrap" style={{ width: "100%" }}>
+              {/* 一括承認ボタン */}
+              {(() => {
+                const pendingInView = filteredItems.filter(i => i._application?.status === "pending");
+                if (pendingInView.length === 0) return null;
+                return (
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 16px", background: "#f0fdf4", borderRadius: "8px", marginBottom: "12px", border: "1px solid #bbf7d0" }}>
+                    <span style={{ fontSize: "13px", color: "#166534", fontWeight: "bold" }}>
+                      📋 表示中の承認待ち: {pendingInView.length}件
+                    </span>
+                    <button
+                      onClick={async () => {
+                        if (!confirm(`表示中の承認待ち ${pendingInView.length}件 を一括承認しますか？`)) return;
+                        setLoading(true);
+                        let successCount = 0;
+                        for (const item of pendingInView) {
+                          try {
+                            await handleApprove(item);
+                            successCount++;
+                          } catch (e) {
+                            console.error("一括承認エラー:", item.userName, e);
+                          }
+                        }
+                        setLoading(false);
+                        alert(`${successCount}件を承認しました`);
+                      }}
+                      disabled={loading}
+                      style={{
+                        padding: "6px 16px", borderRadius: "6px", border: "none",
+                        background: loading ? "#93c5fd" : "#10b981", color: "#fff",
+                        fontWeight: "bold", fontSize: "13px", cursor: loading ? "default" : "pointer",
+                        display: "flex", alignItems: "center", gap: "6px"
+                      }}
+                    >
+                      <CheckCircle size={14} /> 一括承認
+                    </button>
+                  </div>
+                );
+              })()}
               <table className="admin-table" style={{ width: "100%", tableLayout: "fixed" }}>
                 <thead>
                   <tr>
@@ -2011,19 +2049,17 @@ export default function AdminAttendance() {
                             {/* 未承認（clockInあり）→ 承認（super_adminのみ） + 修正 + 再提出 */}
                             {!isShiftOnly && rowAppStatus !== "approved" && rowAppStatus !== "sa_return_admin" && rowAppStatus !== "sa_return_staff" && (
                               <>
-                                {isSuperAdmin ? (
-                                  <button
-                                    className="btn"
-                                    onClick={() => setApproveConfirmItem(item)}
-                                    style={{
-                                      fontSize: "11px", padding: "4px 10px",
-                                      background: "#10b981", color: "#fff", border: "none", borderRadius: "4px",
-                                      cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", gap: "4px"
-                                    }}
-                                  >
-                                    <CheckCircle size={12} /> 承認
-                                  </button>
-                                ) : null}
+                                <button
+                                  className="btn"
+                                  onClick={() => setApproveConfirmItem(item)}
+                                  style={{
+                                    fontSize: "11px", padding: "4px 10px",
+                                    background: "#10b981", color: "#fff", border: "none", borderRadius: "4px",
+                                    cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", gap: "4px"
+                                  }}
+                                >
+                                  <CheckCircle size={12} /> 承認
+                                </button>
                                 <button
                                   className="btn"
                                   onClick={() => openEdit(item)}
