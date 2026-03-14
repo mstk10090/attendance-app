@@ -1575,14 +1575,16 @@ export default function AdminAttendance() {
 
                     // シフトとの比較判定
                     let shiftCheck = null; // null=判定不可, "ok"=問題なし, "late"=遅刻, "early"=早退, "both"=遅刻+早退, "overtime"=残業, "late_overtime"=遅刻+残業
-                    if (shift && !shift.isOff && item.clockIn && item.clockOut) {
+                    const appForCheck = item._application || {};
+                    const effectiveIn = item.clockIn || appForCheck.appliedIn;
+                    const effectiveOut = item.clockOut || appForCheck.appliedOut;
+                    if (shift && !shift.isOff && effectiveIn && effectiveOut) {
                       const shiftStartMin = toMin(shift.start);
                       const shiftEndMin = toMin(shift.end);
                       // 管理者修正済みの場合は申請時間ベースで判定
-                      const app = item._application || {};
-                      const isAdminEdited = !!app.adminEdited;
-                      const checkIn = isAdminEdited && app.appliedIn ? toMin(app.appliedIn) : toMin(item.clockIn);
-                      const checkOut = isAdminEdited && app.appliedOut ? toMin(app.appliedOut) : toMin(item.clockOut);
+                      const isAdminEdited = !!appForCheck.adminEdited;
+                      const checkIn = (isAdminEdited && appForCheck.appliedIn) ? toMin(appForCheck.appliedIn) : toMin(effectiveIn);
+                      const checkOut = (isAdminEdited && appForCheck.appliedOut) ? toMin(appForCheck.appliedOut) : toMin(effectiveOut);
 
                       // 管理者修正: ぴったりは遅刻にしない(>)、通常打刻: ぴったりは遅刻(>=)
                       const isLate = isAdminEdited ? checkIn > shiftStartMin : checkIn >= shiftStartMin;
