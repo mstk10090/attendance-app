@@ -30,6 +30,7 @@ import AdminShiftManagement from "./pages/admin/AdminShiftManagement"; // New Co
 import AdminAttendanceSheet from "./pages/admin/AdminAttendanceSheet"; // 勤怠確認シート
 
 import Attendance from "./pages/Attendance";
+import StaffReport from "./pages/StaffReport";
 
 import "./ripple.css";
 import "./App.css";
@@ -349,15 +350,6 @@ export default function App() {
             <>
               <div className="tab">
                 <NavLink
-                  to="/manual"
-                  className={navLinkClass}
-                >
-                  操作マニュアル
-                </NavLink>
-              </div>
-
-              <div className="tab">
-                <NavLink
                   to="/attendance"
                   className={navLinkClass}
                 >
@@ -367,24 +359,12 @@ export default function App() {
 
               <div className="tab">
                 <NavLink
-                  to="/shift"
+                  to="/report"
                   className={navLinkClass}
                 >
-                  シフト管理
+                  レポート
                 </NavLink>
               </div>
-
-              {/* <div className="tab">
-                <NavLink to="/" className={navLinkClass}>
-                  確定シフト
-                </NavLink>
-              </div> */}
-
-              {/* <div className="tab">
-                <NavLink to="/request" className={navLinkClass}>
-                  希望シフト
-                </NavLink>
-              </div> */}
 
               <div className="tab">
                 <NavLink to="/mypage" className={navLinkClass}>
@@ -535,6 +515,7 @@ export default function App() {
               />
               <Route path="/shift/:date" element={<ShiftDetail />} />
               <Route path="/attendance" element={<Attendance />} />
+              <Route path="/report" element={<StaffReport />} />
               <Route path="/shift" element={<ShiftGantt />} />
               <Route path="/manual" element={<StaffManual />} />
               <Route path="*" element={<Navigate to="/attendance" replace />} />

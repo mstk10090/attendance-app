@@ -19,6 +19,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { ja } from "date-fns/locale";
 import { HOLIDAYS, LOCATIONS, DEPARTMENTS, REASON_OPTIONS, REASON_SUB_OPTIONS, ABSENT_REASONS } from "../constants";
 import HistoryReport from "../components/HistoryReport";
+import StaffManual from "./StaffManual";
 import { normalizeName } from "../utils/shiftParser";
 import "../App.css";
 
@@ -1976,42 +1977,8 @@ export default function AttendanceRecord({ user: propUser }) {
       </div>
 
 
-      {/* 4. HISTORY SECTION */}
-      <div className="card" style={{ padding: "0", overflow: "hidden" }}>
-        <div style={{ padding: "24px", borderBottom: "1px solid #e5e7eb", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h3 style={{ fontSize: "1.1rem", fontWeight: "bold", margin: 0 }}>勤務履歴・レポート</h3>
-
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <button
-              onClick={handlePrevMonth}
-              style={{ background: "#fff", border: "1px solid #d1d5db", borderRadius: "6px", padding: "6px 12px", cursor: "pointer", display: "flex", alignItems: "center", transition: "all 0.2s" }}
-            >
-              <ChevronLeft size={16} /> <span style={{ fontSize: "0.85rem", marginLeft: "4px" }}>先月</span>
-            </button>
-
-            <span style={{ fontWeight: "bold", fontSize: "1rem", minWidth: "100px", textAlign: "center" }}>{format(currentDate, "yyyy年 M月")}</span>
-
-            <button
-              onClick={handleNextMonth}
-              style={{ background: "#fff", border: "1px solid #d1d5db", borderRadius: "6px", padding: "6px 12px", cursor: "pointer", display: "flex", alignItems: "center", transition: "all 0.2s" }}
-            >
-              <span style={{ fontSize: "0.85rem", marginRight: "4px" }}>翌月</span> <ChevronRight size={16} />
-            </button>
-          </div>
-        </div>
-
-        <div style={{ padding: "24px" }}>
-          <HistoryReport
-            user={user}
-            items={items}
-            baseDate={format(currentDate, "yyyy-MM-dd")}
-            viewMode="month"
-            shiftMap={shiftMap}
-            onRowClick={(dateStr, item) => handleEdit(dateStr, item)}
-            onWithdraw={(dateStr, item) => handleWithdraw(dateStr)}
-          />
-        </div>
-      </div>
+      {/* 4. MANUAL SECTION */}
+      <StaffManual />
 
       {/* --- EDIT FORM (Rendered when expandedDate is set) --- */}
       {expandedDate && (
