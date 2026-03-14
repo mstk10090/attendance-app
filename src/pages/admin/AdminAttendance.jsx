@@ -1871,6 +1871,36 @@ export default function AdminAttendance() {
                             if (!shiftCheck && item.clockIn && item.clockOut && !shift) {
                               return <span style={{ color: "#9ca3af", fontSize: "11px" }}>シフト未登録</span>;
                             }
+                            if (category === "absent") {
+                              return (
+                                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                                  <span style={{ color: "#800000", fontWeight: "bold", fontSize: "12px" }}>欠勤</span>
+                                  <button
+                                    onClick={async () => {
+                                      if (!confirm(`${item.userName}の欠勤を取り消しますか？`)) return;
+                                      setLoading(true);
+                                      try {
+                                        const p = parseComment(item.comment);
+                                        const newComment = JSON.stringify({
+                                          segments: p.segments,
+                                          text: "",
+                                          application: null,
+                                          auditLog: [...(p.auditLog || []), { action: "absent_cancelled", by: "管理者", at: new Date().toISOString(), detail: "欠勤を取り消しました" }]
+                                        });
+                                        await fetch(`${API_BASE}/attendance/update`, {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ userId: item.userId, workDate: item.workDate, clockIn: "", clockOut: "", breaks: [], comment: newComment }),
+                                        });
+                                        setItems(prev => prev.map(i => (i.userId === item.userId && i.workDate === item.workDate) ? { ...i, comment: newComment, _application: null } : i));
+                                      } catch (e) { console.error("欠勤取消エラー:", e); }
+                                      setLoading(false);
+                                    }}
+                                    style={{ fontSize: "10px", padding: "2px 6px", background: "#f3f4f6", border: "1px solid #d1d5db", borderRadius: "4px", cursor: "pointer" }}
+                                  >取消</button>
+                                </div>
+                              );
+                            }
                             return null;
                           })()}
                         </td>
