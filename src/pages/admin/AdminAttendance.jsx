@@ -929,19 +929,42 @@ export default function AdminAttendance() {
     if (!await showConfirm("欠勤を取り消しますか？\n(未申請状態に戻ります)")) return;
     setLoading(true);
     try {
+      // 元のcommentからapplication以外の情報を保持
+      const parsed = parseComment(item.comment);
+      const newComment = JSON.stringify({
+        segments: parsed.segments || [],
+        text: "",
+        application: null,
+        auditLog: [
+          ...(parsed.auditLog || []),
+          {
+            action: "absent_cancelled",
+            by: localStorage.getItem("loginId") || "admin",
+            at: new Date().toISOString(),
+            note: "管理者が欠勤を取り消し"
+          }
+        ]
+      });
+
       const payload = {
         userId: item.userId,
         workDate: item.workDate,
         clockIn: "",
         clockOut: "",
         breaks: [],
-        comment: ""
+        comment: newComment
       };
-      await fetch(`${API_BASE}/attendance/update`, {
+      const res = await fetch(`${API_BASE}/attendance/update`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+
+      if (!res.ok) {
+        alert(`欠勤取消に失敗しました: ${res.status}`);
+        return;
+      }
+
       alert("欠勤を取り消しました");
       setEditingItem(null);
       fetchAttendances();
