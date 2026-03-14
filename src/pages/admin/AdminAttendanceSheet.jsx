@@ -350,42 +350,47 @@ export default function AdminAttendanceSheet() {
         // 表示用の開始/終了/時間を決定
         let displayIn = "";
         let displayOut = "";
+        let dispatchHours = "";
+        let partTimeHours = "";
 
         if (status === "scheduled") {
-            // シフトのみ（打刻なし）→ 時刻は表示しない（背景色のみ白にする）
-            // 実際の勤怠データがないため空のまま
+            // シフトのみ（打刻なし）→ 時刻は表示しない
         } else if (clockIn) {
-            // 打刻がある場合
-            const isDispatch = (shift && shift.isDispatch) || (!shift && isDispatchUser(user));
-            if (isDispatch && shift && shift.partTimeRange) {
-                // 派遣: シフトにバイト時間範囲がある場合 → そこだけ計算
-                const ptStart = toMin(shift.partTimeRange.start);
+            displayIn = clockIn.substring(0, 5);
+            displayOut = clockOut ? clockOut.substring(0, 5) : "";
+
+            if (clockIn && clockOut) {
                 const inMin = toMin(clockIn);
-                const actualStartMin = Math.max(inMin, ptStart);
-                displayIn = `${String(Math.floor(actualStartMin / 60)).padStart(2, "0")}:${String(actualStartMin % 60).padStart(2, "0")}`;
-                displayOut = clockOut ? clockOut.substring(0, 5) : "";
-                if (clockOut) {
-                    const outMin = toMin(clockOut);
-                    const workMin = Math.max(0, outMin - actualStartMin);
-                    hours = roundHalf(workMin / 60);
-                }
-            } else if (isDispatch && !shift) {
-                // 派遣: 過去月などシフトデータなし → 打刻時間をそのままバイト時間として表示
-                displayIn = clockIn.substring(0, 5);
-                displayOut = clockOut ? clockOut.substring(0, 5) : "";
-                if (clockOut) {
-                    hours = calcHours(clockIn, clockOut);
-                }
-            } else {
-                displayIn = clockIn.substring(0, 5);
-                displayOut = clockOut ? clockOut.substring(0, 5) : "";
-                if (clockOut) {
-                    hours = calcHours(clockIn, clockOut);
+                const outMin = toMin(clockOut);
+                // 休憩時間を考慮
+                const breakDur = app?.breakDuration || 0;
+                const totalMin = Math.max(0, outMin - inMin - breakDur);
+                // 30分単位に丸める
+                const roundedMin = Math.floor(totalMin / 30) * 30;
+
+                const isDispatch = (shift && shift.isDispatch) || (!shift && isDispatchUser(user));
+
+                if (isDispatch && shift) {
+                    // 派遣ユーザー: dispatchRangeで派遣時間を計算
+                    let dMin = 0;
+                    if (shift.dispatchRange) {
+                        const dispStart = toMin(shift.dispatchRange.start);
+                        const dispEnd = toMin(shift.dispatchRange.end);
+                        dMin = dispEnd - dispStart;
+                    } else {
+                        dMin = Math.min(roundedMin, 8 * 60);
+                    }
+                    const pMin = Math.max(0, roundedMin - dMin);
+                    dispatchHours = roundHalf(dMin / 60);
+                    partTimeHours = roundHalf(pMin / 60);
+                    hours = roundHalf(roundedMin / 60);
+                } else {
+                    hours = roundHalf(roundedMin / 60);
                 }
             }
         }
 
-        return { status, clockIn, clockOut, displayIn, displayOut, hours, confirmedBy, att, shift, app };
+        return { status, clockIn, clockOut, displayIn, displayOut, hours, dispatchHours, partTimeHours, confirmedBy, att, shift, app };
     }, [attendanceMap, getUserShift, isDispatchUser]);
 
     // セルクリック → モーダル表示（データがあるセル全般）
@@ -696,7 +701,12 @@ export default function AdminAttendanceSheet() {
                                                         fontWeight: cell.hours ? "bold" : "normal",
                                                         minWidth: "36px"
                                                     }} onClick={handleClick}>
-                                                        {cell.hours && parseFloat(cell.hours) > 0 ? cell.hours : ""}
+                                                        {cell.dispatchHours && parseFloat(cell.dispatchHours) > 0 ? (
+                                                            <div style={{ lineHeight: "1.2" }}>
+                                                                <div style={{ color: "#2563eb", fontSize: "10px" }}>{cell.dispatchHours}</div>
+                                                                <div style={{ color: "#16a34a", fontSize: "10px" }}>{cell.partTimeHours || 0}</div>
+                                                            </div>
+                                                        ) : cell.hours && parseFloat(cell.hours) > 0 ? cell.hours : ""}
                                                     </td>
                                                 </React.Fragment>
                                             );
