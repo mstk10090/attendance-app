@@ -528,7 +528,7 @@ export default function AdminUser() {
                               {displayName}
                             </div>
                             <div style={{ fontSize: "0.75rem", color: "#9ca3af", marginTop: "2px" }}>
-                              {u.loginId} <span style={{ opacity: 0.6 }}>({u.userId})</span>
+                              {u.loginId}
                             </div>
                           </td>
 
@@ -664,15 +664,9 @@ export default function AdminUser() {
               </div>
 
               <input
-                type="text"
-                className="input"
+                type="hidden"
                 value={userId}
-                onChange={(e) => setUserId(e.target.value)}
-                readOnly={mode === "edit"}
-                style={{ background: mode === "edit" ? "#f3f4f6" : "#fff", color: mode === "edit" ? "#888" : "inherit" }}
-                placeholder="未入力の場合は自動生成されます"
               />
-              {mode === "edit" && <p className="hint">※ ユーザーIDは変更できません</p>}
             </div>
           </div>
 
