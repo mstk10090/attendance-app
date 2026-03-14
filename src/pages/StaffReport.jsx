@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
-import { format, startOfMonth, endOfMonth, eachDayOfInterval } from "date-fns";
+import { format } from "date-fns";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import HistoryReport from "../components/HistoryReport";
 import { fetchShiftData, normalizeName } from "../utils/shiftParser";
@@ -42,38 +42,27 @@ export default function StaffReport() {
         fetchShiftData().then(setShiftMap).catch(console.error);
     }, []);
 
-    // 勤怠データ取得
+    // 勤怠データ取得（AttendanceRecordと同じAPI方式）
     useEffect(() => {
         if (!user) return;
         const fetchData = async () => {
             setLoading(true);
-            const start = startOfMonth(currentDate);
-            const end = endOfMonth(currentDate);
-            const days = eachDayOfInterval({ start, end });
-
-            const allItems = [];
-            const CHUNK = 10;
-            for (let i = 0; i < days.length; i += CHUNK) {
-                const chunk = days.slice(i, i + CHUNK);
-                const results = await Promise.all(
-                    chunk.map(async (d) => {
-                        const ds = format(d, "yyyy-MM-dd");
-                        try {
-                            const res = await fetch(`${API_BASE}/attendance?userId=${user.userId}&date=${ds}`);
-                            if (!res.ok) return [];
-                            const data = await res.json();
-                            return (data.items || [])
-                                .filter(item => item.userId === user.userId)
-                                .map(item => ({
-                                    ...item,
-                                    _application: parseComment(item.comment)?.application || null,
-                                }));
-                        } catch { return []; }
-                    })
-                );
-                results.forEach(r => allItems.push(...r));
+            try {
+                const res = await fetch(`${API_BASE}/attendance?userId=${user.userId}`);
+                const data = await res.json();
+                if (data.success) {
+                    const monthStr = format(currentDate, "yyyy-MM");
+                    const filtered = (data.items || [])
+                        .filter(item => (item.workDate || "").startsWith(monthStr))
+                        .map(item => ({
+                            ...item,
+                            _application: parseComment(item.comment)?.application || null,
+                        }));
+                    setItems(filtered);
+                }
+            } catch (e) {
+                console.error("StaffReport fetch error:", e);
             }
-            setItems(allItems);
             setLoading(false);
         };
         fetchData();
