@@ -196,10 +196,16 @@ export default function AttendanceRecord({ user: propUser }) {
 
   // --- SHIFT DATA INTEGRATION ---
   const [shiftMap, setShiftMap] = useState({}); // { [userName]: { [dayInt]: { start, end } } }
+  const [shiftLoaded, setShiftLoaded] = useState(false);
+  const shiftModuleRef = React.useRef(null);
 
   useEffect(() => {
     import("../utils/shiftParser").then(mod => {
-      mod.fetchShiftData().then(data => setShiftMap(data));
+      shiftModuleRef.current = mod;
+      mod.fetchShiftData().then(data => {
+        setShiftMap(data);
+        setShiftLoaded(true);
+      }).catch(() => setShiftLoaded(true)); // エラー時もロード済み扱い
     });
   }, []);
 
@@ -481,7 +487,30 @@ export default function AttendanceRecord({ user: propUser }) {
 
     const nowTime = format(new Date(), "HH:mm");
     const lookupDate = activeItem.displayDate || activeItem.workDate;
-    const shift = getShift(user.userName, lookupDate);
+
+    // シフト未読み込みの場合、再取得を試みる
+    let shift = getShift(user.userName, lookupDate);
+    if (!shift && !shiftLoaded && shiftModuleRef.current) {
+      try {
+        const freshData = await shiftModuleRef.current.fetchShiftData();
+        setShiftMap(freshData);
+        setShiftLoaded(true);
+        // 新しいデータで再検索
+        const uName = user.userName;
+        if (uName && freshData) {
+          const normalized = (uName || "").replace(/\s+/g, "").trim();
+          const dateStr = lookupDate;
+          shift = freshData[normalized]?.[dateStr] || null;
+          if (!shift) {
+            const loginId = user.loginId || localStorage.getItem("loginId");
+            if (loginId) shift = freshData[loginId]?.[dateStr] || null;
+          }
+        }
+      } catch (e) {
+        console.warn("シフト再取得失敗:", e);
+      }
+    }
+
     const clockInTime = activeItem.clockIn;
 
     // シフトがある場合：シフト通りかチェック
@@ -493,7 +522,7 @@ export default function AttendanceRecord({ user: propUser }) {
 
       // シフト通りの判定:
       // - 出勤: シフト開始前に打刻
-      // - 退勤: シフト終了後30分未満は問題なし、30分以上は乖離（残業）扱い
+      // - 退勤: シフト終了後30分未満は問題なし【30分以上は乖離（残業）扱い
       const isClockInOk = clockInMin < shiftStartMin;
       const isClockOutOk = clockOutMin >= shiftEndMin && clockOutMin < shiftEndMin + 30;
       const isOnTime = isClockInOk && isClockOutOk;
@@ -530,24 +559,8 @@ export default function AttendanceRecord({ user: propUser }) {
       return;
     }
 
-    // シフトなし → 申請モーダルを表示（シフト未登録として理由入力を求める）
-    setDiscrepancyInfo({
-      shiftStart: null,
-      shiftEnd: null,
-      clockIn: clockInTime,
-      clockOutTime: nowTime
-    });
-    setDiscrepancyReason("シフトなし");
-    setDiscrepancySubReason("");
-    setDiscrepancySubReasonText("");
-    setDiscrepancyText("");
-    setForgotClockActualIn("");
-    setForgotClockActualOut("");
-    // デフォルト値: 打刻時間の30分丸め
-    setDiscrepancyAppliedIn(roundTimeToHalfHour(clockInTime, "ceil"));
-    setDiscrepancyAppliedOut(roundTimeToHalfHour(nowTime, "floor"));
-    setDiscrepancyMode("clockOut");
-    setDiscrepancyModalOpen(true);
+    // シフトなし → 即退勤（乖離モーダルを出さない）
+    await executeClockOut(nowTime);
   };
 
   // 実際の退勤処理（乖離なしの場合 or モーダル入力後に呼ばれる）
