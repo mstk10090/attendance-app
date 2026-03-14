@@ -274,8 +274,11 @@ export default function AdminUser() {
       return;
     }
 
-    // Duplicate Check (Only on Create)
-    if (mode === "create" && users.some(u => u.loginId === loginId.trim())) {
+    // Duplicate Check (Create: 重複禁止, Edit: 自分以外と重複禁止)
+    const isDuplicate = users.some(u =>
+      u.loginId === loginId.trim() && (mode === "create" || u.userId !== userId)
+    );
+    if (isDuplicate) {
       setMessage("❌ このログインIDは既に使用されています");
       setLoading(false);
       return;
