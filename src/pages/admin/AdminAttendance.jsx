@@ -226,7 +226,7 @@ export default function AdminAttendance() {
   const [customDateFrom, setCustomDateFrom] = useState(format(new Date(), "yyyy-MM-dd"));
   const [customDateTo, setCustomDateTo] = useState(format(new Date(), "yyyy-MM-dd"));
   const [customStatuses, setCustomStatuses] = useState(new Set([
-    "pending", "approved", "working", "incomplete", "discrepancy", "resubmission", "error", "night", "noshift", "absent", "sa_return_admin", "sa_return_staff"
+    "pending", "approved", "working", "incomplete", "discrepancy", "resubmission", "error", "night", "noshift", "no_shift_day", "absent", "sa_return_admin", "sa_return_staff"
   ]));
   const [customSearchTriggered, setCustomSearchTriggered] = useState(false);
 
@@ -639,7 +639,13 @@ export default function AdminAttendance() {
     if (app.reason && (app.reason === "寝坊" || app.reason.includes("早退"))) return "discrepancy";
     if (item.clockIn && app.appliedIn && toMin(item.clockIn) > toMin(app.appliedIn)) return "discrepancy";
     if (item.clockOut && app.appliedOut && toMin(item.clockOut) < toMin(app.appliedOut)) return "discrepancy";
-    if (!item.clockIn) return "noshift";
+    if (!item.clockIn) {
+      // シフトがあるのに打刻なし → 未出勤、シフトもなし → シフトなし
+      if (item._noShift) return "no_shift_day";
+      if (item._shiftOnly) return "noshift";
+      // APIから来たレコードだがclockInなし → シフト有無を確認
+      return "noshift";
+    }
     return "other";
   };
 
@@ -1174,7 +1180,7 @@ export default function AdminAttendance() {
                 <span style={{ fontWeight: "600", fontSize: "0.9rem", color: "#374151", minWidth: "70px" }}>ステータス:</span>
                 <button
                   onClick={() => {
-                    const allKeys = ["pending", "approved", "working", "incomplete", "discrepancy", "resubmission", "error", "night", "noshift", "absent", "sa_return_admin", "sa_return_staff"];
+                    const allKeys = ["pending", "approved", "working", "incomplete", "discrepancy", "resubmission", "error", "night", "noshift", "no_shift_day", "absent", "sa_return_admin", "sa_return_staff"];
                     setCustomStatuses(prev => prev.size === allKeys.length ? new Set() : new Set(allKeys));
                   }}
                   style={{
@@ -1195,7 +1201,8 @@ export default function AdminAttendance() {
                   { key: "discrepancy", label: "時間ずれ", color: "#f97316" },
                   { key: "error", label: "時間異常", color: "#dc2626" },
                   { key: "night", label: "深夜勤務", color: "#6366f1" },
-                  { key: "noshift", label: "未出勤", color: "#9ca3af" },
+                  { key: "noshift", label: "未出勤", color: "#ef4444" },
+                  { key: "no_shift_day", label: "シフトなし", color: "#9ca3af" },
                   { key: "absent", label: "欠勤", color: "#78716c" },
                   { key: "sa_return_admin", label: "上位差戻(管)", color: "#be123c" },
                   { key: "sa_return_staff", label: "上位差戻(ス)", color: "#c2410c" },
@@ -1306,7 +1313,7 @@ export default function AdminAttendance() {
               >
                 {(() => {
                   if (filterStatus.size === 0) return "全ステータス ▼";
-                  const labels = { pending: "承認待ち", approved: "承認済み", working: "勤務中", incomplete: "未退勤", discrepancy: "時間ずれ", resubmission: "再提出", error: "時間異常", night: "深夜勤務", noshift: "未出勤", sa_return_admin: "上位差戻(管)", sa_return_staff: "上位差戻(ス)" };
+                  const labels = { pending: "承認待ち", approved: "承認済み", working: "勤務中", incomplete: "未退勤", discrepancy: "時間ずれ", resubmission: "再提出", error: "時間異常", night: "深夜勤務", noshift: "未出勤", no_shift_day: "シフトなし", sa_return_admin: "上位差戻(管)", sa_return_staff: "上位差戻(ス)" };
                   const selected = [...filterStatus].map(k => labels[k] || k);
                   return selected.join(", ") + " ▼";
                 })()}
@@ -1317,7 +1324,7 @@ export default function AdminAttendance() {
                   background: "#fff", border: "1px solid #d1d5db", borderRadius: "8px",
                   boxShadow: "0 4px 12px rgba(0,0,0,0.1)", minWidth: "180px", padding: "8px 0"
                 }}>
-                  {[{ key: "pending", label: "承認待ち" }, { key: "approved", label: "承認済み" }, { key: "working", label: "勤務中" }, { key: "incomplete", label: "未退勤" }, { key: "discrepancy", label: "時間ずれ" }, { key: "resubmission", label: "再提出" }, { key: "error", label: "時間異常" }, { key: "night", label: "深夜勤務" }, { key: "noshift", label: "未出勤" }, { key: "sa_return_admin", label: "上位差戻(管)" }, { key: "sa_return_staff", label: "上位差戻(ス)" }].map(opt => (
+                  {[{ key: "pending", label: "承認待ち" }, { key: "approved", label: "承認済み" }, { key: "working", label: "勤務中" }, { key: "incomplete", label: "未退勤" }, { key: "discrepancy", label: "時間ずれ" }, { key: "resubmission", label: "再提出" }, { key: "error", label: "時間異常" }, { key: "night", label: "深夜勤務" }, { key: "noshift", label: "未出勤" }, { key: "no_shift_day", label: "シフトなし" }, { key: "sa_return_admin", label: "上位差戻(管)" }, { key: "sa_return_staff", label: "上位差戻(ス)" }].map(opt => (
                     <label key={opt.key} className="status-dropdown-item">
                       <input type="checkbox" checked={filterStatus.has(opt.key)} onChange={() => {
                         setFilterStatus(prev => {
@@ -1536,10 +1543,12 @@ export default function AdminAttendance() {
                     }
 
                     const category = getItemCategory(item);
-                    const isShiftOnly = (item._shiftOnly && !item.clockIn) || (category === "noshift");
+                    const isShiftOnly = (item._shiftOnly && !item.clockIn) || (category === "noshift") || (category === "no_shift_day");
+                    const isNoShiftDay = category === "no_shift_day";
 
                     let bg = "#fff";
-                    if (isShiftOnly) bg = "#fef2f2"; // Red (未出勤)
+                    if (isShiftOnly && !isNoShiftDay) bg = "#fef2f2"; // Red (未出勤: シフトあり未打刻)
+                    else if (isNoShiftDay) bg = "#f9fafb"; // Light gray (シフトなし)
                     else if (rowAppStatus === "approved") bg = "#d1fae5"; // Stronger green for approved
                     else if (rowAppStatus === "pending") bg = "#fff7ed"; // Orange
                     else if (rowAppStatus === "resubmission_requested") bg = "#fcf4ff"; // Purple
@@ -1631,7 +1640,8 @@ export default function AdminAttendance() {
                           })()}
                         </td>
                         <td style={{ padding: "10px 8px" }}>
-                          {isShiftOnly && <span className="status-badge" style={{ background: "#fee2e2", color: "#991b1b", border: "1px solid #fca5a5", fontSize: "11px", fontWeight: "bold" }}>未出勤</span>}
+                          {isShiftOnly && !isNoShiftDay && <span className="status-badge" style={{ background: "#fee2e2", color: "#991b1b", border: "1px solid #fca5a5", fontSize: "11px", fontWeight: "bold" }}>未出勤</span>}
+                          {isNoShiftDay && <span className="status-badge" style={{ background: "#f3f4f6", color: "#6b7280", border: "1px solid #d1d5db", fontSize: "11px", fontWeight: "bold" }}>シフトなし</span>}
                           {!isShiftOnly && isWorking && <span className="status-badge green" style={{ background: "#dcfce7", color: "#166534", border: "1px solid #bbf7d0", fontSize: "11px" }}>出勤中</span>}
                           {!isShiftOnly && isIncomplete && <span className="status-badge red" style={{ fontSize: "11px" }}>未退勤</span>}
                           {!isShiftOnly && rowAppStatus === "pending" && <span className="status-badge orange" style={{ fontSize: "11px" }}>承認待</span>}
