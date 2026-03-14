@@ -1492,18 +1492,26 @@ export default function AdminAttendance() {
           ) : (
             /* Table View */
             <div className="table-wrap" style={{ width: "100%" }}>
-              {/* 一括承認ボタン */}
-              {(() => {
-                const pendingInView = filteredItems.filter(i => i._application?.status === "pending");
+              {/* 一括承認ボタン（通常管理者のみ） */}
+              {!isSuperAdmin && (() => {
+                const pendingInView = filteredItems.filter(i => {
+                  if (i._application?.status !== "pending") return false;
+                  // シフトありかつ問題なしのみ
+                  const cat = getItemCategory(i);
+                  if (cat === "noshift" || cat === "no_shift_day" || cat === "absent") return false;
+                  // clockIn/clockOutが揃っていること
+                  if (!i.clockIn || !i.clockOut) return false;
+                  return true;
+                });
                 if (pendingInView.length === 0) return null;
                 return (
                   <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 16px", background: "#f0fdf4", borderRadius: "8px", marginBottom: "12px", border: "1px solid #bbf7d0" }}>
                     <span style={{ fontSize: "13px", color: "#166534", fontWeight: "bold" }}>
-                      📋 表示中の承認待ち: {pendingInView.length}件
+                      📋 承認待ち（問題なし）: {pendingInView.length}件
                     </span>
                     <button
                       onClick={async () => {
-                        if (!confirm(`表示中の承認待ち ${pendingInView.length}件 を一括承認しますか？`)) return;
+                        if (!confirm(`承認待ち（問題なし） ${pendingInView.length}件 を一括承認しますか？`)) return;
                         setLoading(true);
                         let successCount = 0;
                         for (const item of pendingInView) {
@@ -2049,17 +2057,19 @@ export default function AdminAttendance() {
                             {/* 未承認（clockInあり）→ 承認（super_adminのみ） + 修正 + 再提出 */}
                             {!isShiftOnly && rowAppStatus !== "approved" && rowAppStatus !== "sa_return_admin" && rowAppStatus !== "sa_return_staff" && (
                               <>
-                                <button
-                                  className="btn"
-                                  onClick={() => setApproveConfirmItem(item)}
-                                  style={{
-                                    fontSize: "11px", padding: "4px 10px",
-                                    background: "#10b981", color: "#fff", border: "none", borderRadius: "4px",
-                                    cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", gap: "4px"
-                                  }}
-                                >
-                                  <CheckCircle size={12} /> 承認
-                                </button>
+                                {!isSuperAdmin && (
+                                  <button
+                                    className="btn"
+                                    onClick={() => setApproveConfirmItem(item)}
+                                    style={{
+                                      fontSize: "11px", padding: "4px 10px",
+                                      background: "#10b981", color: "#fff", border: "none", borderRadius: "4px",
+                                      cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", gap: "4px"
+                                    }}
+                                  >
+                                    <CheckCircle size={12} /> 承認
+                                  </button>
+                                )}
                                 <button
                                   className="btn"
                                   onClick={() => openEdit(item)}
