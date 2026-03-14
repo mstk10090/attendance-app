@@ -256,7 +256,7 @@ export default function AdminAttendance() {
   const [customResubmitReason, setCustomResubmitReason] = useState("");
 
   // 取消理由選択用
-  const CANCEL_REASONS = ["tapo確認済", "遅延証確認済"];
+  const CANCEL_REASONS = ["tapo確認済"];
   const [cancelTarget, setCancelTarget] = useState(null); // { item, type }
   const [selectedCancelReason, setSelectedCancelReason] = useState("");
   const [customCancelReason, setCustomCancelReason] = useState("");
