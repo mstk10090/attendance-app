@@ -247,8 +247,8 @@ export default function AdminUser() {
 
     setUserId(u.userId || "");
     setLoginId(u.loginId || "");
-    // Pre-fill password for display (per user request)
-    setPassword(u.password || "");
+    // passwordDisplayがあれば表示（編集可能）
+    setPassword(u.passwordDisplay || PASSWORD_MAP[u.loginId] || "");
 
     setLastName(u.lastName || "");
     setFirstName(u.firstName || "");
@@ -631,12 +631,9 @@ export default function AdminUser() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required={mode === "create"}
-                    readOnly={mode === "edit"}
-                    placeholder={mode === "create" ? "パスワードを入力" : ""}
+                    placeholder={mode === "create" ? "パスワードを入力" : "変更する場合のみ入力"}
                     style={{
-                      paddingRight: "40px",
-                      background: mode === "edit" ? "#f3f4f6" : "#fff",
-                      color: mode === "edit" ? "#888" : "inherit"
+                      paddingRight: "40px"
                     }}
                   />
                   <button
@@ -659,7 +656,7 @@ export default function AdminUser() {
                 {mode === "create" ? (
                   <p className="hint">※ 初期パスワードを設定してください</p>
                 ) : (
-                  <p className="hint">※ パスワードは変更できません（表示のみ）</p>
+                  <p className="hint">※ パスワードを変更する場合は入力してください</p>
                 )}
               </div>
 
