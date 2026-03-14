@@ -383,7 +383,8 @@ export default function AdminAttendanceSheet() {
                     const pMin = Math.max(0, roundedMin - dMin);
                     dispatchHours = roundHalf(dMin / 60);
                     partTimeHours = roundHalf(pMin / 60);
-                    hours = roundHalf(roundedMin / 60);
+                    // 勤怠確認シートにはバイト時間のみ表示
+                    hours = partTimeHours;
                 } else {
                     hours = roundHalf(roundedMin / 60);
                 }
@@ -701,12 +702,7 @@ export default function AdminAttendanceSheet() {
                                                         fontWeight: cell.hours ? "bold" : "normal",
                                                         minWidth: "36px"
                                                     }} onClick={handleClick}>
-                                                        {cell.dispatchHours && parseFloat(cell.dispatchHours) > 0 ? (
-                                                            <div style={{ lineHeight: "1.2" }}>
-                                                                <div style={{ color: "#2563eb", fontSize: "10px" }}>{cell.dispatchHours}</div>
-                                                                <div style={{ color: "#16a34a", fontSize: "10px" }}>{cell.partTimeHours || 0}</div>
-                                                            </div>
-                                                        ) : cell.hours && parseFloat(cell.hours) > 0 ? cell.hours : ""}
+                                                        {cell.hours && parseFloat(cell.hours) > 0 ? cell.hours : ""}
                                                     </td>
                                                 </React.Fragment>
                                             );
