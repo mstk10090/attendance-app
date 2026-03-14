@@ -219,6 +219,12 @@ export default function App() {
     localStorage.setItem("lastActivity", Date.now().toString());
     localStorage.setItem("isLoggedIn", "true");
     setIsLoggedIn(true);
+    // ログイン後は必ず出退勤入力ページへ遷移
+    const isAdminUser = localStorage.getItem("isAdmin") === "true";
+    const targetPath = isAdminUser ? "/admin/attendance" : "/attendance";
+    if (window.location.pathname !== targetPath) {
+      window.history.replaceState(null, "", targetPath);
+    }
   };
 
   const handleLogout = () => {
