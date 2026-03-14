@@ -649,16 +649,22 @@ export default function AdminAttendance() {
       if (filterName && !normalizeName(item.userName).includes(normalizeName(filterName))) return false;
 
       if (filterLocation !== "all") {
+        // item.location → segments → ユーザーマスタのdefaultLocationの順でフォールバック
+        const matchedUser = users.find(u => u.userId === item.userId);
         const hasLoc =
           item.location === filterLocation ||
-          (item.segments || []).some(s => s.location === filterLocation);
+          (item.segments || []).some(s => s.location === filterLocation) ||
+          (!item.location && matchedUser?.defaultLocation === filterLocation);
         if (!hasLoc) return false;
       }
 
       if (filterDepartment !== "all") {
+        // item.department → segments → ユーザーマスタのdefaultDepartmentの順でフォールバック
+        const matchedUser = users.find(u => u.userId === item.userId);
         const hasDept =
           item.department === filterDepartment ||
-          (item.segments || []).some(s => s.department === filterDepartment);
+          (item.segments || []).some(s => s.department === filterDepartment) ||
+          (!item.department && matchedUser?.defaultDepartment === filterDepartment);
         if (!hasDept) return false;
       }
 
