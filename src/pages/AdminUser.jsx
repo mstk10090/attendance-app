@@ -531,7 +531,7 @@ export default function AdminUser() {
 
                           {/* Password Column */}
                           <td style={{ padding: "12px 16px", textAlign: "center", fontFamily: "monospace", fontSize: "0.9rem", color: "#374151", background: "#fff" }}>
-                            {PASSWORD_MAP[u.loginId] || u.passwordDisplay || u.password || "-"}
+                            {u.passwordDisplay || PASSWORD_MAP[u.loginId] || "-"}
                           </td>
 
                           {/* Start Date Column */}
