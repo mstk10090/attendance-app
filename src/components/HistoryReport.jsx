@@ -449,9 +449,12 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
 
                                 // 行全体の背景色を決定
                                 const isImplicitPending = hasAttendance && item.clockIn && item.clockOut && !status;
+                                const isResubmission = status === "resubmission_requested" || status === "sa_return_staff";
                                 let bg = "#fff";
                                 if (isApproved) {
                                     bg = "#f0fdf4"; // 緑（済）
+                                } else if (isResubmission) {
+                                    bg = "#faf5ff"; // 紫（再提出依頼）
                                 } else if (isPending || isImplicitPending) {
                                     bg = "#fff7ed"; // オレンジ（承認待ち）
                                 } else if (isError || incomplete || status === "absent" || isShiftMissing) {
