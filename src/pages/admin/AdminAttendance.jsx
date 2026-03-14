@@ -1552,7 +1552,7 @@ export default function AdminAttendance() {
                     }
 
                     const category = getItemCategory(item);
-                    const isShiftOnly = (item._shiftOnly && !item.clockIn) || (category === "noshift") || (category === "no_shift_day");
+                    const isShiftOnly = category !== "absent" && ((item._shiftOnly && !item.clockIn) || (category === "noshift") || (category === "no_shift_day"));
                     const isNoShiftDay = category === "no_shift_day";
 
                     let bg = "#fff";
