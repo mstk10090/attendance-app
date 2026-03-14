@@ -1888,7 +1888,7 @@ export default function AdminAttendance() {
                         <td style={{ fontSize: "13px", padding: "10px 8px" }}>
                           <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                             {/* 承認済み → 管理者の承認取消（非上位管理者） */}
-                            {rowAppStatus === "approved" && !isSuperAdmin && item._application?.reason !== "欠勤" && (
+                            {rowAppStatus === "approved" && !isSuperAdmin && (
                               <button
                                 className="btn"
                                 onClick={() => handleRevokeApproval(item)}
@@ -1903,7 +1903,7 @@ export default function AdminAttendance() {
                             )}
 
                             {/* 承認済み → 上位管理者アクション（super_adminのみ） */}
-                            {rowAppStatus === "approved" && isSuperAdmin && item._application?.reason !== "欠勤" && (
+                            {rowAppStatus === "approved" && isSuperAdmin && (
                               <>
                                 <button
                                   className="btn"
