@@ -806,22 +806,35 @@ export default function AdminAttendance() {
       // 申請がない場合（未申請）でも承認できるように、新規にapplicationを作成
       const existingApp = p.application || {};
 
-      // 未申請の場合、打刻時間を30分単位に丸めて申請時間とする
+      // 管理者がモーダルで時間を編集した場合はそちらを優先
+      const adminEditIn = document.getElementById('adminEditIn')?.value || '';
+      const adminEditOut = document.getElementById('adminEditOut')?.value || '';
+
+      // 未申請または申請時間が空の場合、管理者編集→打刻時間の順で補完
       let appliedIn = existingApp.appliedIn || '';
       let appliedOut = existingApp.appliedOut || '';
-      if (!existingApp.appliedIn && item.clockIn) {
-        // 出勤は30分切り上げ
-        const inMin = Math.ceil(toMin(item.clockIn) / 30) * 30;
-        const inH = String(Math.floor(inMin / 60)).padStart(2, '0');
-        const inM = String(inMin % 60).padStart(2, '0');
-        appliedIn = `${inH}:${inM}`;
+
+      // appliedInが空の場合: 管理者編集 → 打刻の30分丸め
+      if (!appliedIn) {
+        if (adminEditIn) {
+          appliedIn = adminEditIn;
+        } else if (item.clockIn) {
+          const inMin = Math.ceil(toMin(item.clockIn) / 30) * 30;
+          const inH = String(Math.floor(inMin / 60)).padStart(2, '0');
+          const inM = String(inMin % 60).padStart(2, '0');
+          appliedIn = `${inH}:${inM}`;
+        }
       }
-      if (!existingApp.appliedOut && item.clockOut) {
-        // 退勤は30分切り捨て
-        const outMin = Math.floor(toMin(item.clockOut) / 30) * 30;
-        const outH = String(Math.floor(outMin / 60)).padStart(2, '0');
-        const outM = String(outMin % 60).padStart(2, '0');
-        appliedOut = `${outH}:${outM}`;
+      // appliedOutが空の場合: 管理者編集 → 打刻の30分丸め
+      if (!appliedOut) {
+        if (adminEditOut) {
+          appliedOut = adminEditOut;
+        } else if (item.clockOut) {
+          const outMin = Math.floor(toMin(item.clockOut) / 30) * 30;
+          const outH = String(Math.floor(outMin / 60)).padStart(2, '0');
+          const outM = String(outMin % 60).padStart(2, '0');
+          appliedOut = `${outH}:${outM}`;
+        }
       }
 
       const newApp = {

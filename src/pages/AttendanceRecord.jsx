@@ -2274,7 +2274,7 @@ export default function AttendanceRecord({ user: propUser }) {
               {(() => {
                 const itm = items.find(i => i.workDate === expandedDate);
                 const app = itm ? parseComment(itm.comment).application : null;
-                return app?.status === "pending";
+                return app?.status === "pending" || app?.status === "absent";
               })() && (
                   <button
                     type="button"
