@@ -492,7 +492,33 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                 if (status === "approved") {
                                     statusDisplay = <span className="status-badge green">済</span>;
                                 } else if (status === "absent") {
-                                    statusDisplay = <span className="status-badge red">欠勤</span>;
+                                    statusDisplay = (
+                                        <>
+                                            <span className="status-badge red">欠勤</span>
+                                            {onWithdraw && !adminMode && (
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        if (window.confirm("欠勤を取り下げますか？")) {
+                                                            onWithdraw(item.workDate, item);
+                                                        }
+                                                    }}
+                                                    style={{
+                                                        marginLeft: "6px",
+                                                        background: "#ef4444",
+                                                        color: "#fff",
+                                                        border: "none",
+                                                        padding: "2px 8px",
+                                                        borderRadius: "4px",
+                                                        fontSize: "0.7rem",
+                                                        cursor: "pointer"
+                                                    }}
+                                                >
+                                                    取下げ
+                                                </button>
+                                            )}
+                                        </>
+                                    );
                                 } else if (status === "resubmission_requested") {
                                     const adminComment = extractAdminComment(item);
                                     statusDisplay = (
