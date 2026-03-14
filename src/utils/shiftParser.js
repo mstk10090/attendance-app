@@ -161,7 +161,16 @@ function getTodayStr() {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
-export async function fetchShiftData(forceRefresh = false, additionalSources = []) {
+export async function fetchShiftData(forceRefresh = false, additionalSources = [], onCacheReady = null) {
+    // キャッシュ優先: キャッシュがあれば即座にコールバックで返す（ネットワーク取得を待たない）
+    if (onCacheReady) {
+        const cachedData = loadShiftCache();
+        if (Object.keys(cachedData).length > 0) {
+            console.log("Shift cache available, returning immediately");
+            onCacheReady(cachedData);
+        }
+    }
+
     const shifts = {};
 
     const SHEET_TO_LOCATION = {

@@ -504,9 +504,9 @@ export default function AttendanceRecord({ user: propUser }) {
     const nowTime = format(new Date(), "HH:mm");
     const lookupDate = activeItem.displayDate || activeItem.workDate;
 
-    // シフト未読み込みの場合、再取得を試みる
+    // シフトが見つからない場合、再取得を試みる（キャッシュに当日分がない場合の対策）
     let shift = getShift(user.userName, lookupDate);
-    if (!shift && !shiftLoaded && shiftModuleRef.current) {
+    if (!shift && shiftModuleRef.current) {
       try {
         const freshData = await shiftModuleRef.current.fetchShiftData();
         setShiftMap(freshData);
