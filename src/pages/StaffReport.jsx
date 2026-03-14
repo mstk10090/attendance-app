@@ -24,12 +24,17 @@ export default function StaffReport() {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [loading, setLoading] = useState(true);
 
-    // ユーザー情報取得
+    // ユーザー情報取得（AttendanceRecordと同じ方式）
     useEffect(() => {
-        const stored = localStorage.getItem("user");
-        if (stored) {
-            try { setUser(JSON.parse(stored)); } catch { }
-        }
+        const uid = localStorage.getItem("userId");
+        if (!uid) return;
+        setUser({
+            userId: uid,
+            userName: localStorage.getItem("userName"),
+            defaultLocation: localStorage.getItem("defaultLocation") || "未記載",
+            defaultDepartment: localStorage.getItem("defaultDepartment") || "未記載",
+            employmentType: localStorage.getItem("employmentType") || ""
+        });
     }, []);
 
     // シフトデータ取得
