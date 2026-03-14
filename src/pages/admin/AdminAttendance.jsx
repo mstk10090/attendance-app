@@ -1948,7 +1948,14 @@ export default function AdminAttendance() {
                                 style={{ display: "flex", alignItems: "flex-start", gap: "6px", lineHeight: "1.3", cursor: detail ? "pointer" : "default" }}
                                 onClick={() => detail && setExpandedReasonId(isExpanded ? null : itemKey)}
                               >
-                                <span style={{ fontWeight: "bold", color: "#ef4444", flexShrink: 0 }}>{mainReason}</span>
+                                {(() => {
+                                  const lc = item._application?.lateCancelled;
+                                  const ec = item._application?.earlyCancelled;
+                                  const isCancelled = (mainReason === "遅刻" && lc) || (mainReason === "早退" && ec) || (mainReason === "遅刻+早退" && lc && ec);
+                                  return isCancelled
+                                    ? <span style={{ textDecoration: "line-through", color: "#9ca3af", fontWeight: "normal" }}>{mainReason}（取消済）</span>
+                                    : <span style={{ fontWeight: "bold", color: "#ef4444" }}>{mainReason}</span>;
+                                })()}
                                 {detail && (
                                   <span style={{
                                     color: "#6b7280", fontSize: "11px",

@@ -258,7 +258,8 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                 }
             }
             // 早退
-            if (app?.reason && app.reason.includes("早退")) earlyCount++;
+            const earlyCancelled = app?.earlyCancelled || false;
+            if (app?.reason && app.reason.includes("早退") && !earlyCancelled) earlyCount++;
         });
 
         // 派遣/バイト時間の計算（承認済みのみ）— 勤怠管理と同じフルレンジ方式
@@ -733,7 +734,16 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                                             }
                                                         }}
                                                     >
-                                                        <span className="status-badge gray" style={{ flexShrink: 0 }}>{reason}</span>
+                                                        {(() => {
+                                                            const parsed = parseComment(item.comment);
+                                                            const app = parsed?.application;
+                                                            const lc = app?.lateCancelled;
+                                                            const ec = app?.earlyCancelled;
+                                                            const isCancelled = (reason === "遅刻" && lc) || (reason === "早退" && ec) || (reason === "遅刻+早退" && lc && ec);
+                                                            return isCancelled
+                                                                ? <span style={{ textDecoration: "line-through", color: "#9ca3af" }}>{reason}（取消済）</span>
+                                                                : <span className="status-badge gray" style={{ flexShrink: 0 }}>{reason}</span>;
+                                                        })()}
                                                         {reasonDetail && reasonDetail.trim() && (
                                                             <span style={{
                                                                 color: "#6b7280", fontSize: "11px",
