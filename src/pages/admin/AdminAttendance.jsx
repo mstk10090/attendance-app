@@ -1860,19 +1860,36 @@ export default function AdminAttendance() {
                               );
                             }
                             if (shiftCheck === "both") {
-                              if (lateCancelled && earlyCancelled) {
-                                const lReason = item._application?.lateCancelReason;
-                                const eReason = item._application?.earlyCancelReason;
-                                const reasons = [lReason, eReason].filter(Boolean).join(" / ");
-                                return <span style={{ color: "#6b7280", fontSize: "11px" }} title={reasons ? `理由: ${reasons}` : ""}>遅刻+早退取消済{reasons ? ` (${reasons})` : ""}</span>;
-                              }
                               return (
                                 <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                                  <span style={{ color: "#ef4444", fontWeight: "bold", fontSize: "12px" }}>⚠️ 遅刻+早退</span>
-                                  <button
-                                    onClick={() => openCancelModal(item, "both")}
-                                    style={{ fontSize: "10px", padding: "2px 6px", background: "#f3f4f6", border: "1px solid #d1d5db", borderRadius: "4px", cursor: "pointer" }}
-                                  >取消</button>
+                                  {/* 遅刻部分 */}
+                                  {lateCancelled ? (
+                                    <span style={{ color: "#6b7280", fontSize: "11px", textDecoration: "line-through" }}>
+                                      遅刻（取消済）{item._application?.lateCancelReason ? ` (${item._application.lateCancelReason})` : ""}
+                                    </span>
+                                  ) : (
+                                    <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                                      <span style={{ color: "#ef4444", fontWeight: "bold", fontSize: "12px" }}>⚠️ 遅刻</span>
+                                      <button
+                                        onClick={() => openCancelModal(item, "late")}
+                                        style={{ fontSize: "10px", padding: "2px 6px", background: "#f3f4f6", border: "1px solid #d1d5db", borderRadius: "4px", cursor: "pointer" }}
+                                      >取消</button>
+                                    </div>
+                                  )}
+                                  {/* 早退部分 */}
+                                  {earlyCancelled ? (
+                                    <span style={{ color: "#6b7280", fontSize: "11px", textDecoration: "line-through" }}>
+                                      早退（取消済）{item._application?.earlyCancelReason ? ` (${item._application.earlyCancelReason})` : ""}
+                                    </span>
+                                  ) : (
+                                    <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                                      <span style={{ color: "#f59e0b", fontWeight: "bold", fontSize: "12px" }}>⚠️ 早退</span>
+                                      <button
+                                        onClick={() => openCancelModal(item, "early")}
+                                        style={{ fontSize: "10px", padding: "2px 6px", background: "#f3f4f6", border: "1px solid #d1d5db", borderRadius: "4px", cursor: "pointer" }}
+                                      >取消</button>
+                                    </div>
+                                  )}
                                 </div>
                               );
                             }
