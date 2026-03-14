@@ -180,7 +180,7 @@ export default function AdminAttendance() {
   const urlUserId = urlParams.get('userId');
   const urlDate = urlParams.get('date');
   /* State */
-  const [viewMode, setViewMode] = useState("custom"); // daily, weekly, monthly, report, current, custom
+  const [viewMode, setViewMode] = useState("daily"); // daily, weekly, monthly, report, current, custom
   const isSuperAdmin = localStorage.getItem("role") === "super_admin";
   const [baseDate, setBaseDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [items, setItems] = useState([]);
