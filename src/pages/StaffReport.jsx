@@ -62,10 +62,12 @@ export default function StaffReport() {
                             const res = await fetch(`${API_BASE}/attendance?userId=${user.userId}&date=${ds}`);
                             if (!res.ok) return [];
                             const data = await res.json();
-                            return (data.items || []).map(item => ({
-                                ...item,
-                                _application: parseComment(item.comment)?.application || null,
-                            }));
+                            return (data.items || [])
+                                .filter(item => item.userId === user.userId)
+                                .map(item => ({
+                                    ...item,
+                                    _application: parseComment(item.comment)?.application || null,
+                                }));
                         } catch { return []; }
                     })
                 );
