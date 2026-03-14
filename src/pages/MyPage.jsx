@@ -418,27 +418,6 @@ export default function MyPage({ onLogout }) {
 
 
 
-
-        {/* Stats Grid */}
-        <div className="stats-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-          <div className="stat-box">
-            <div className="stat-icon i-blue"><Clock size={20} /></div>
-            <div className="stat-val">{loading ? "-" : stats.totalHours.toFixed(1)}<span className="unit">h</span></div>
-            <div className="stat-label">総勤務時間</div>
-            {isDispatch && (
-              <div style={{ fontSize: "10px", color: "#666", marginTop: "4px" }}>
-                (派遣: {stats.dispatchHours.toFixed(1)}h / {stats.paidHours.toFixed(1)}h)
-              </div>
-            )}
-          </div>
-
-          <div className="stat-box">
-            <div className="stat-icon i-green"><Calendar size={20} /></div>
-            <div className="stat-val">{loading ? "-" : `${stats.totalDays} / ${scheduledDays}`}<span className="unit">日</span></div>
-            <div className="stat-label">出勤日数 (実績 / 規定)</div>
-          </div>
-        </div>
-
         {/* --- 遅刻・欠勤・早退件数セクション --- */}
         <div className="bonus-section" style={{ background: "rgba(255,255,255,0.9)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
