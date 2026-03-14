@@ -1907,7 +1907,10 @@ export default function AttendanceRecord({ user: propUser }) {
                 </div>
               ))}
               <div style={{ marginTop: "6px", fontSize: "0.8rem", color: "#9333ea" }}>
-                上記の日付の勤怠履歴から再申請してください。
+                <a href="/report" style={{ color: "#7c3aed", fontWeight: "bold", textDecoration: "underline" }}>
+                  レポートタブ
+                </a>
+                から該当日を確認し、再申請してください。
               </div>
             </div>
           </div>
