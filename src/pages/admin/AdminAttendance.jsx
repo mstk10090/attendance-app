@@ -628,6 +628,8 @@ export default function AdminAttendance() {
     if (appStatus === "sa_return_admin") return "sa_return_admin";
     if (appStatus === "sa_return_staff") return "sa_return_staff";
     if (appStatus === "absent") return "absent";
+    // approved でも欠勤理由のレコードは欠勤扱い
+    if (appStatus === "approved" && item._application?.reason === "欠勤") return "absent";
     if (item.clockIn && item.clockOut) {
       if (toMin(item.clockIn) > toMin(item.clockOut)) return "error";
       if (calcWorkMin(item) <= 0) return "error";
@@ -817,6 +819,13 @@ export default function AdminAttendance() {
 
       // 申請がない場合（未申請）でも承認できるように、新規にapplicationを作成
       const existingApp = p.application || {};
+
+      // 欠勤レコードは承認フローに入らない
+      if (existingApp.status === "absent" || existingApp.reason === "欠勤") {
+        alert("欠勤レコードは承認対象ではありません");
+        setLoading(false);
+        return;
+      }
 
       // 管理者がモーダルで時間を編集した場合はそちらを優先
       const adminEditIn = document.getElementById('adminEditIn')?.value || '';
@@ -1877,7 +1886,7 @@ export default function AdminAttendance() {
                         <td style={{ fontSize: "13px", padding: "10px 8px" }}>
                           <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                             {/* 承認済み → 管理者の承認取消（非上位管理者） */}
-                            {rowAppStatus === "approved" && !isSuperAdmin && (
+                            {rowAppStatus === "approved" && !isSuperAdmin && item._application?.reason !== "欠勤" && (
                               <button
                                 className="btn"
                                 onClick={() => handleRevokeApproval(item)}
@@ -1892,7 +1901,7 @@ export default function AdminAttendance() {
                             )}
 
                             {/* 承認済み → 上位管理者アクション（super_adminのみ） */}
-                            {rowAppStatus === "approved" && isSuperAdmin && (
+                            {rowAppStatus === "approved" && isSuperAdmin && item._application?.reason !== "欠勤" && (
                               <>
                                 <button
                                   className="btn"
