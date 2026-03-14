@@ -1558,6 +1558,7 @@ export default function AdminAttendance() {
                     let bg = "#fff";
                     if (isShiftOnly && !isNoShiftDay) bg = "#fef2f2"; // Red (未出勤: シフトあり未打刻)
                     else if (isNoShiftDay) bg = "#f9fafb"; // Light gray (シフトなし)
+                    else if (category === "absent") bg = "#fce4ec"; // Maroon/pink for absent
                     else if (rowAppStatus === "approved") bg = "#d1fae5"; // Stronger green for approved
                     else if (rowAppStatus === "pending") bg = "#fff7ed"; // Orange
                     else if (rowAppStatus === "resubmission_requested") bg = "#fcf4ff"; // Purple
@@ -1654,7 +1655,8 @@ export default function AdminAttendance() {
                           {!isShiftOnly && isWorking && <span className="status-badge green" style={{ background: "#dcfce7", color: "#166534", border: "1px solid #bbf7d0", fontSize: "11px" }}>出勤中</span>}
                           {!isShiftOnly && isIncomplete && <span className="status-badge red" style={{ fontSize: "11px" }}>未退勤</span>}
                           {!isShiftOnly && rowAppStatus === "pending" && <span className="status-badge orange" style={{ fontSize: "11px" }}>承認待</span>}
-                          {!isShiftOnly && rowAppStatus === "approved" && <span className="status-badge" style={{ background: "#059669", color: "#fff", fontSize: "11px", fontWeight: "bold", padding: "3px 8px" }}>✅ 承認済{item._application?.adminEdited && <span style={{ fontSize: "9px", opacity: 0.8 }}> (管理者)</span>}</span>}
+                          {!isShiftOnly && rowAppStatus === "approved" && category !== "absent" && <span className="status-badge" style={{ background: "#059669", color: "#fff", fontSize: "11px", fontWeight: "bold", padding: "3px 8px" }}>✅ 承認済{item._application?.adminEdited && <span style={{ fontSize: "9px", opacity: 0.8 }}> (管理者)</span>}</span>}
+                          {!isShiftOnly && category === "absent" && <span className="status-badge" style={{ background: "#800000", color: "#fff", fontSize: "11px", fontWeight: "bold", padding: "3px 8px" }}>欠勤</span>}
                           {!isShiftOnly && rowAppStatus === "resubmission_requested" && <span className="status-badge purple" style={{ fontSize: "11px" }}>再提出</span>}
                           {!isShiftOnly && rowAppStatus === "sa_return_admin" && <span className="status-badge" style={{ background: "#be123c", color: "#fff", fontSize: "11px", fontWeight: "bold", padding: "3px 8px" }}>🔴 上位差戻(管)</span>}
                           {!isShiftOnly && rowAppStatus === "sa_return_staff" && <span className="status-badge" style={{ background: "#c2410c", color: "#fff", fontSize: "11px", fontWeight: "bold", padding: "3px 8px" }}>🟠 上位差戻(ス)</span>}
