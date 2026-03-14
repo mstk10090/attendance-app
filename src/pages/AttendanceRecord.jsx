@@ -200,12 +200,25 @@ export default function AttendanceRecord({ user: propUser }) {
   const shiftModuleRef = React.useRef(null);
 
   useEffect(() => {
+    // ① キャッシュから即座に読み込み（高速）
+    try {
+      const cached = localStorage.getItem("shift_data_cache");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Object.keys(parsed).length > 0) {
+          setShiftMap(parsed);
+          setShiftLoaded(true);
+        }
+      }
+    } catch (e) { /* ignore */ }
+
+    // ② バックグラウンドでスプシ/APIからリフレッシュ
     import("../utils/shiftParser").then(mod => {
       shiftModuleRef.current = mod;
       mod.fetchShiftData().then(data => {
         setShiftMap(data);
         setShiftLoaded(true);
-      }).catch(() => setShiftLoaded(true)); // エラー時もロード済み扱い
+      }).catch(() => setShiftLoaded(true));
     });
   }, []);
 
@@ -559,8 +572,23 @@ export default function AttendanceRecord({ user: propUser }) {
       return;
     }
 
-    // シフトなし → 即退勤（乖離モーダルを出さない）
-    await executeClockOut(nowTime);
+    // シフトなし → 乖離モーダルを表示（シフト未登録として理由入力を求める）
+    setDiscrepancyInfo({
+      shiftStart: null,
+      shiftEnd: null,
+      clockIn: clockInTime,
+      clockOutTime: nowTime
+    });
+    setDiscrepancyReason("シフトなし");
+    setDiscrepancySubReason("");
+    setDiscrepancySubReasonText("");
+    setDiscrepancyText("");
+    setForgotClockActualIn("");
+    setForgotClockActualOut("");
+    setDiscrepancyAppliedIn(roundTimeToHalfHour(clockInTime, "ceil"));
+    setDiscrepancyAppliedOut(roundTimeToHalfHour(nowTime, "floor"));
+    setDiscrepancyMode("clockOut");
+    setDiscrepancyModalOpen(true);
   };
 
   // 実際の退勤処理（乖離なしの場合 or モーダル入力後に呼ばれる）
