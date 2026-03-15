@@ -62,7 +62,13 @@ export default function App() {
   const checkIpAccess = async () => {
     setIpStatus("loading");
 
-    // 1. Check Device Bypass
+    // 1. localhostからのアクセスは常に許可
+    if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+      setIpStatus("allowed");
+      return;
+    }
+
+    // 2. Check Device Bypass
     if (localStorage.getItem("device_allowed") === "true") {
       setIpStatus("allowed");
       return;
