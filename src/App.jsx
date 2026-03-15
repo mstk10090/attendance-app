@@ -108,6 +108,7 @@ export default function App() {
   // 自動ログアウト（5分無操作）
   const AUTO_LOGOUT_MS = 5 * 60 * 1000; // 5分
   const logoutTimerRef = useRef(null);
+  const loginTimestampRef = useRef(null); // ログイン成功時刻を記録
 
   const resetLogoutTimer = useCallback(() => {
     // 管理者は自動ログアウトしない
@@ -132,7 +133,7 @@ export default function App() {
       localStorage.removeItem("role");
       localStorage.removeItem("lastActivity");
       setIsLoggedIn(false);
-      alert("30分間操作がなかったため、自動ログアウトしました。");
+      alert("5分間操作がなかったため、自動ログアウトしました。");
     }, AUTO_LOGOUT_MS);
   }, []);
 
@@ -147,17 +148,21 @@ export default function App() {
     // 管理者は自動ログアウトしない
     if (localStorage.getItem("role") === "admin" || localStorage.getItem("role") === "super_admin") return;
 
-    // 他タブでのログアウトチェック
-    const lastActivity = localStorage.getItem("lastActivity");
-    // lastActivityが存在し、かつタイマー超過の場合のみログアウト
-    // lastActivityがない場合はログイン直後なのでログアウトしない
-    if (lastActivity) {
-      const elapsed = Date.now() - parseInt(lastActivity);
-      if (elapsed > AUTO_LOGOUT_MS) {
-        localStorage.removeItem("isLoggedIn");
-        localStorage.removeItem("lastActivity");
-        setIsLoggedIn(false);
-        return;
+    // ログイン直後（3秒以内）は古いlastActivityでのログアウト判定をスキップ
+    const loginTs = loginTimestampRef.current;
+    const isJustLoggedIn = loginTs && (Date.now() - loginTs < 3000);
+
+    if (!isJustLoggedIn) {
+      // 他タブでのログアウトチェック（ログイン直後でない場合のみ）
+      const lastActivity = localStorage.getItem("lastActivity");
+      if (lastActivity) {
+        const elapsed = Date.now() - parseInt(lastActivity);
+        if (elapsed > AUTO_LOGOUT_MS) {
+          localStorage.removeItem("isLoggedIn");
+          localStorage.removeItem("lastActivity");
+          setIsLoggedIn(false);
+          return;
+        }
       }
     }
 
@@ -213,14 +218,15 @@ export default function App() {
   }
 
   const handleLoginSuccess = () => {
-    // ★ 自動ログアウトの誤判定防止: ログイン成功時にlastActivityを更新してからisLoggedInをセット
-    // これがないと、古いlastActivityが残っている場合に
-    // useEffect内の自動ログアウト判定で即座にログアウトされる
-    localStorage.setItem("lastActivity", Date.now().toString());
+    // ★ 自動ログアウトの誤判定防止
+    const now = Date.now();
+    loginTimestampRef.current = now; // ログイン時刻を記録
+    localStorage.setItem("lastActivity", now.toString());
     localStorage.setItem("isLoggedIn", "true");
     setIsLoggedIn(true);
-    // ログイン後は必ず出退勤入力ページへ遷移
-    const isAdminUser = localStorage.getItem("isAdmin") === "true";
+    // ログイン後は必ず出退勤入力ページへ遷移（roleベースで判定）
+    const currentRole = localStorage.getItem("role");
+    const isAdminUser = currentRole === "admin" || currentRole === "super_admin";
     const targetPath = isAdminUser ? "/admin/attendance" : "/attendance";
     if (window.location.pathname !== targetPath) {
       window.history.replaceState(null, "", targetPath);
@@ -235,6 +241,8 @@ export default function App() {
     localStorage.removeItem("hourlyWage");
     localStorage.removeItem("token");
     localStorage.removeItem("role");
+    localStorage.removeItem("lastActivity");
+    loginTimestampRef.current = null;
     setIsLoggedIn(false);
   };
 
