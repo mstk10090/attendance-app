@@ -228,7 +228,7 @@ export default function AdminAttendance() {
   const [customStatuses, setCustomStatuses] = useState(new Set([
     "pending", "approved", "working", "incomplete", "no_issue", "has_issue", "resubmission", "night", "noshift", "no_shift_day", "absent", "sa_return_admin", "sa_return_staff"
   ]));
-  const [customSearchTriggered, setCustomSearchTriggered] = useState(false);
+
 
   // 外クリックでステータスドロップダウンを閉じる
   React.useEffect(() => {
@@ -343,19 +343,15 @@ export default function AdminAttendance() {
   }
 
   /* Data Fetching */
-  // カスタム日付のRefを保持（fetchRange再計算の抑制用）
-  const customDateFromRef = useRef(customDateFrom);
-  const customDateToRef = useRef(customDateTo);
-  useEffect(() => { customDateFromRef.current = customDateFrom; }, [customDateFrom]);
-  useEffect(() => { customDateToRef.current = customDateTo; }, [customDateTo]);
+  // 照会ボタンで確定した期間を保持
+  const [confirmedRange, setConfirmedRange] = useState({ start: "", end: "" });
 
   const fetchRange = useMemo(() => {
     const d = new Date(baseDate);
     if (viewMode === "current") return { start: baseDate, end: baseDate };
 
     if (viewMode === "custom") {
-      // customSearchTriggeredが変わった時のみ最新の日付を使う
-      return { start: customDateFromRef.current, end: customDateToRef.current };
+      return { start: confirmedRange.start, end: confirmedRange.end };
     } else if (viewMode === "daily") {
       return { start: baseDate, end: baseDate };
     } else if (viewMode === "weekly") {
@@ -370,7 +366,7 @@ export default function AdminAttendance() {
         end: format(endOfMonth(d), "yyyy-MM-dd"),
       };
     }
-  }, [viewMode, baseDate, customSearchTriggered]);
+  }, [viewMode, baseDate, confirmedRange]);
 
   /* Currently Working Logic */
   const currentlyWorkingData = useMemo(() => {
@@ -1309,17 +1305,15 @@ export default function AdminAttendance() {
             <div style={{ display: "flex", justifyContent: "center" }}>
               <button
                 onClick={() => {
-                  // 期間指定が異なる日付の場合はcustomモードに切り替え
+                  // 期間を確定してcustomモードに切り替え
+                  setConfirmedRange({ start: customDateFrom, end: customDateTo });
                   if (customDateFrom !== customDateTo) {
                     setViewMode("custom");
                   } else {
-                    // 同日の場合はdailyモードで、baseDateを設定
                     setViewMode("daily");
                     setBaseDate(customDateFrom);
                   }
-                  setCustomSearchTriggered(prev => !prev);
                   setFilterStatus(customStatuses);
-                  // fetchRangeの変更でuseEffectが自動的にfetchAttendances()を呼ぶ
                 }}
                 style={{
                   padding: "10px 40px", borderRadius: "8px", border: "none",
