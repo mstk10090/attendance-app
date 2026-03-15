@@ -425,7 +425,7 @@ export default function AdminHistory() {
                             nameMap.set(`__no_name__${user.loginId}`, user);
                             return;
                         }
-                        const nameKey = `${ln}${fn}`;
+                        const nameKey = normalizeName(`${ln}${fn}`);
                         const existing = nameMap.get(nameKey);
                         if (!existing) {
                             nameMap.set(nameKey, user);
@@ -440,12 +440,42 @@ export default function AdminHistory() {
                     // テストユーザーを除外
                     const EXCLUDED_NAMES = new Set(["bb", "テスト", "テストユーザー"]);
                     list = list.filter(u => {
-                        const name = ((u.lastName || "") + (u.firstName || "")).replace(/\s+/g, "").trim();
+                        const name = normalizeName((u.lastName || "") + (u.firstName || ""));
                         return !EXCLUDED_NAMES.has(name);
                     });
 
-                    // Sort by name or ID logically
-                    list.sort((a, b) => (a.userId || "").localeCompare(b.userId || ""));
+                    // 入社日順でソート（スプレッドシートの名簿順）
+                    const HIRE_ORDER = [
+                        "眞葛澪", "黒宮悠太", "斉藤七海", "伊藤麻哉", "小河原愛実",
+                        "平山士穏", "加藤朝陽", "小河原豪", "黒木統丞", "西川菜緒", "小野麻梨花",
+                        "島田絢菜", "冨工元晴", "山口紘生", "藪中悠太", "関口将聡",
+                        "北川祐人", "長田明香里", "山本拓実", "佐々木幸隆", "高木最哉",
+                        "丸岡美月", "柳下啓志", "重野太紀",
+                        "藤井柾志", "平松菜織", "柳有綺", "井本莉緒", "伊佐有希",
+                        "梶原佑太", "山田有輝奈", "川嶋恭志郎", "内田大貴", "土屋沙織",
+                        "平松陽和", "原凛成",
+                        "橋本ひなた", "庵原咲南", "江刺家仁実",
+                        "梅屋礼", "高橋優希", "安藤祐貴", "吉田匡希", "赤穂佳弘",
+                        "楠海音", "河内顕", "後藤綾菜", "市川美羽", "中崎優人", "赤津優大",
+                        "溝口哲太", "加藤広",
+                        "洪潤太", "池賢秀", "岩佐康祐", "広瀬チアーゴ清幸",
+                        "原雅也", "黒岡響生", "三富凜梨花", "奈良歩美", "ギジェルモ",
+                        "髙田祥太朗", "水谷泰智", "竹中勇馬", "高木風ナシーム", "三浦あま音",
+                        "米山拓哉", "三浦夢大", "渡辺快", "相場大知", "清水優羽",
+                        "足立慎吾", "渡邉瑛太", "西塚エマ", "鈴木由里香",
+                        "松本裕希", "嶋中美波", "近藤滝", "田島一平", "菊池陽平",
+                        "渡邉愛菜", "桑山響", "山田純也", "小林由奈", "佐伯鈴昌", "田和瑠久", "土屋勇介"
+                    ];
+                    const orderMap = {};
+                    HIRE_ORDER.forEach((name, i) => { orderMap[normalizeName(name)] = i; });
+                    list.sort((a, b) => {
+                        const na = normalizeName((a.lastName || "") + (a.firstName || ""));
+                        const nb = normalizeName((b.lastName || "") + (b.firstName || ""));
+                        const ia = orderMap[na] ?? 9999;
+                        const ib = orderMap[nb] ?? 9999;
+                        if (ia !== ib) return ia - ib;
+                        return na.localeCompare(nb, "ja");
+                    });
                     setUsers(list);
                 } catch (e) { console.error(e); }
             }
