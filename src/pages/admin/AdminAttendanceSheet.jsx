@@ -843,15 +843,31 @@ export default function AdminAttendanceSheet() {
                                                         </span>
                                                     </td>
                                                 </tr>
-                                                {/* 休憩時間 */}
-                                                {app?.breakDuration > 0 && (
-                                                    <tr>
-                                                        <td style={{ padding: "6px 8px", color: "#6b7280", fontWeight: "600", whiteSpace: "nowrap", borderBottom: "1px solid #e5e7eb" }}>☕ 休憩</td>
-                                                        <td style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb", color: "#374151" }}>
-                                                            {app.breakDuration}分
-                                                        </td>
-                                                    </tr>
-                                                )}
+                                                {/* 休憩時間（申請時間の長さ - 合計時間から計算） */}
+                                                {(() => {
+                                                    let breakMin = app?.breakDuration || 0;
+                                                    // breakDurationが未設定の場合は差分から計算
+                                                    if (!breakMin && modalCell.displayIn && modalCell.displayOut && modalCell.hours) {
+                                                        const [h1, m1] = modalCell.displayIn.split(":").map(Number);
+                                                        const [h2, m2] = modalCell.displayOut.split(":").map(Number);
+                                                        const spanMin = (h2 * 60 + m2) - (h1 * 60 + m1);
+                                                        const workMin = Math.round(parseFloat(modalCell.hours) * 60);
+                                                        breakMin = spanMin - workMin;
+                                                    }
+                                                    if (breakMin > 0) {
+                                                        const bH = Math.floor(breakMin / 60);
+                                                        const bM = breakMin % 60;
+                                                        return (
+                                                            <tr>
+                                                                <td style={{ padding: "6px 8px", color: "#6b7280", fontWeight: "600", whiteSpace: "nowrap", borderBottom: "1px solid #e5e7eb" }}>☕ 休憩</td>
+                                                                <td style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb", color: "#374151" }}>
+                                                                    {bH > 0 ? `${bH}時間${bM > 0 ? `${bM}分` : ""}` : `${bM}分`}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    }
+                                                    return null;
+                                                })()}
                                                 {/* 申請理由 */}
                                                 {reason && (
                                                     <tr>
