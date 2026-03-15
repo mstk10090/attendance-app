@@ -1309,9 +1309,17 @@ export default function AdminAttendance() {
             <div style={{ display: "flex", justifyContent: "center" }}>
               <button
                 onClick={() => {
+                  // 期間指定が異なる日付の場合はcustomモードに切り替え
+                  if (customDateFrom !== customDateTo) {
+                    setViewMode("custom");
+                  } else {
+                    // 同日の場合はdailyモードで、baseDateを設定
+                    setViewMode("daily");
+                    setBaseDate(customDateFrom);
+                  }
                   setCustomSearchTriggered(prev => !prev);
                   setFilterStatus(customStatuses);
-                  fetchAttendances();
+                  // fetchRangeの変更でuseEffectが自動的にfetchAttendances()を呼ぶ
                 }}
                 style={{
                   padding: "10px 40px", borderRadius: "8px", border: "none",
