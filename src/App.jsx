@@ -272,7 +272,7 @@ export default function App() {
             zIndex: 1000,
             display: "flex",
             alignItems: "center",
-            backgroundColor: isAdmin ? "#ed6c02" : "#1976d2",
+            backgroundColor: role === "super_admin" ? "#cc1237" : isAdmin ? "#ed6c02" : "#1976d2",
             height: "60px",
             padding: "0 12px",
             color: "#fff",
