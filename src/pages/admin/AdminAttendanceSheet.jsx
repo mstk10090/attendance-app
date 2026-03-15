@@ -843,6 +843,15 @@ export default function AdminAttendanceSheet() {
                                                         </span>
                                                     </td>
                                                 </tr>
+                                                {/* 休憩時間 */}
+                                                {app?.breakDuration > 0 && (
+                                                    <tr>
+                                                        <td style={{ padding: "6px 8px", color: "#6b7280", fontWeight: "600", whiteSpace: "nowrap", borderBottom: "1px solid #e5e7eb" }}>☕ 休憩</td>
+                                                        <td style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb", color: "#374151" }}>
+                                                            {app.breakDuration}分
+                                                        </td>
+                                                    </tr>
+                                                )}
                                                 {/* 申請理由 */}
                                                 {reason && (
                                                     <tr>
