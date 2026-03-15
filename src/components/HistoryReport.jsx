@@ -246,16 +246,23 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
             const dateStr = i.displayDate || i.workDate;
             const shiftForDay = userShifts[dateStr] || null;
             const effectiveClockIn = app?.appliedIn || i.clockIn;
+            const lateCancelled = app?.lateCancelled || false;
+            let isLateDetected = false;
+            // 1. シフトベースの判定
             if (shiftForDay && shiftForDay.start && effectiveClockIn) {
-                const lateCancelled = app?.lateCancelled || false;
                 const inMin = toMin(effectiveClockIn);
                 const startMin = toMin(shiftForDay.start);
                 // 申請時間(appliedIn)は「>」で判定（ちょうどは遅刻でない）
                 // 打刻(clockIn)は「>=」で判定（ちょうどでも遅刻）
                 const isLate = app?.appliedIn ? inMin > startMin : inMin >= startMin;
-                if (isLate && !lateCancelled) {
-                    lateCount++;
-                }
+                if (isLate) isLateDetected = true;
+            }
+            // 2. reasonベースのフォールバック（シフトが取れなくても遅刻をカウント）
+            if (!isLateDetected && app?.reason && (app.reason.includes("遅刻") || app.reason === "遅刻")) {
+                isLateDetected = true;
+            }
+            if (isLateDetected && !lateCancelled) {
+                lateCount++;
             }
             // 早退
             const earlyCancelled = app?.earlyCancelled || false;
