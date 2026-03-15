@@ -676,36 +676,54 @@ export default function AdminAttendance() {
       if (filterStatus.size > 0) {
         const cat = getItemCategory(item);
         let matched = filterStatus.has(cat);
-        // no_issue / has_issue はshiftCheckベースで判定
+        // no_issue / has_issue はshiftCheckベース + reasonベースで判定
         if (!matched && (filterStatus.has("no_issue") || filterStatus.has("has_issue"))) {
-          // shiftCheckを計算するためにシフトデータを取得
+          // 打刻 or 申請がある場合のみ判定対象
           const effectiveIn = item._application?.appliedIn || item.clockIn;
           const effectiveOut = item._application?.appliedOut || item.clockOut;
-          let shiftCheck = null;
-          const userName = item.userName || "";
-          let shift = shiftMap?.[normalizeName(userName)]?.[item.workDate] || null;
-          if (!shift) {
-            const user = users.find(u => u.userId === item.userId);
-            if (user) {
-              const normalized = normalizeName((user.lastName || "") + (user.firstName || ""));
-              shift = shiftMap?.[normalized]?.[item.workDate] || null;
+          if (effectiveIn && effectiveOut) {
+            let hasIssue = false;
+
+            // 1. reasonベースの問題判定
+            const app = item._application || {};
+            const reason = app.reason || "";
+            if (reason === "寝坊" || reason.includes("早退") || reason.includes("遅刻") || reason.includes("残業")) {
+              hasIssue = true;
             }
+
+            // 2. 打刻と申請時間の乖離
+            if (item.clockIn && app.appliedIn && toMin(item.clockIn) > toMin(app.appliedIn)) hasIssue = true;
+            if (item.clockOut && app.appliedOut && toMin(item.clockOut) < toMin(app.appliedOut)) hasIssue = true;
+
+            // 3. 時間異常（clockIn > clockOut, 勤務時間0以下）
+            if (item.clockIn && item.clockOut && toMin(item.clockIn) > toMin(item.clockOut)) hasIssue = true;
+            if (item.clockIn && item.clockOut && calcWorkMin(item) <= 0) hasIssue = true;
+
+            // 4. シフトベースの乖離判定
+            const userName = item.userName || "";
+            let shift = shiftMap?.[normalizeName(userName)]?.[item.workDate] || null;
+            if (!shift) {
+              const user = users.find(u => u.userId === item.userId);
+              if (user) {
+                const normalized = normalizeName((user.lastName || "") + (user.firstName || ""));
+                shift = shiftMap?.[normalized]?.[item.workDate] || null;
+              }
+            }
+            if (shift && !shift.isOff) {
+              const shiftStartMin = toMin(shift.start);
+              const shiftEndMin = toMin(shift.end);
+              const isAdminEdited = !!app.adminEdited;
+              const checkIn = (isAdminEdited && app.appliedIn) ? toMin(app.appliedIn) : toMin(effectiveIn);
+              const checkOut = (isAdminEdited && app.appliedOut) ? toMin(app.appliedOut) : toMin(effectiveOut);
+              const isLate = isAdminEdited ? checkIn > shiftStartMin : checkIn >= shiftStartMin;
+              const isEarly = checkOut < shiftEndMin;
+              const isOvertime = checkOut >= shiftEndMin + 30;
+              if (isLate || isEarly || isOvertime) hasIssue = true;
+            }
+
+            if (filterStatus.has("no_issue") && !hasIssue) matched = true;
+            if (filterStatus.has("has_issue") && hasIssue) matched = true;
           }
-          if (shift && !shift.isOff && effectiveIn && effectiveOut) {
-            const shiftStartMin = toMin(shift.start);
-            const shiftEndMin = toMin(shift.end);
-            const appChk = item._application || {};
-            const isAdminEdited = !!appChk.adminEdited;
-            const checkIn = (isAdminEdited && appChk.appliedIn) ? toMin(appChk.appliedIn) : toMin(effectiveIn);
-            const checkOut = (isAdminEdited && appChk.appliedOut) ? toMin(appChk.appliedOut) : toMin(effectiveOut);
-            const isLate = isAdminEdited ? checkIn > shiftStartMin : checkIn >= shiftStartMin;
-            const isEarly = checkOut < shiftEndMin;
-            const isOvertime = checkOut >= shiftEndMin + 30;
-            if (!isLate && !isEarly && !isOvertime) shiftCheck = "ok";
-            else shiftCheck = "issue";
-          }
-          if (filterStatus.has("no_issue") && shiftCheck === "ok" && (cat === "pending" || cat === "approved")) matched = true;
-          if (filterStatus.has("has_issue") && shiftCheck === "issue") matched = true;
         }
         if (!matched) return false;
       }
