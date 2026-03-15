@@ -514,7 +514,7 @@ export default function AttendanceRecord({ user: propUser }) {
         // 新しいデータで再検索
         const uName = user.userName;
         if (uName && freshData) {
-          const normalized = (uName || "").replace(/\s+/g, "").trim();
+          const normalized = normalizeName(uName);
           const dateStr = lookupDate;
           shift = freshData[normalized]?.[dateStr] || null;
           if (!shift) {
