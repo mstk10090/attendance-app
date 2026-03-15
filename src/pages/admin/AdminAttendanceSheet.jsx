@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo, useCallback, useRef } from "react"
 import { useNavigate } from "react-router-dom";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, addDays, subDays, isSaturday, isSunday } from "date-fns";
 import { ja } from "date-fns/locale";
-import { fetchShiftData } from "../../utils/shiftParser";
+import { fetchShiftData, normalizeName } from "../../utils/shiftParser";
 import { HOLIDAYS } from "../../constants";
 
 const API_BASE = "https://lfsu60xvw7.execute-api.ap-northeast-1.amazonaws.com";
@@ -66,7 +66,7 @@ const parseComment = (raw) => {
     } catch { return { segments: [], text: raw || "", auditLog: [] }; }
 };
 
-const normalizeName = (s) => (s || "").replace(/\s+/g, "").trim();
+// normalizeName は shiftParser.js からインポート（異体字変換含む完全版）
 
 const toMin = (t) => {
     if (!t) return 0;
