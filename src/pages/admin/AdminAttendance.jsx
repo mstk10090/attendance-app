@@ -2542,12 +2542,12 @@ export default function AdminAttendance() {
                   🗑️ 勤怠取り消し
                 </h4>
                 <p style={{ fontSize: "0.85rem", color: "#6b7280", marginBottom: "12px" }}>
-                  申請内容・実働・判定・理由をリセットします。打刻時間は保持されます。
+                  申請内容・打刻・実働・判定・理由をすべてリセットします。
                 </p>
                 <button
                   className="btn"
                   onClick={async () => {
-                    if (!await showConfirm(`${editingItem.userName}さんの${editingItem.workDate}の勤怠を取り消しますか？\n\n⚠️ 申請内容・実働・判定・理由がリセットされます。\n（打刻時間は保持されます）`)) return;
+                    if (!await showConfirm(`${editingItem.userName}さんの${editingItem.workDate}の勤怠を取り消しますか？\n\n⚠️ 申請内容・打刻・実働・判定・理由がすべてリセットされます。`)) return;
                     setLoading(true);
                     try {
                       // ログを保持したまま申請内容のみリセット（打刻は維持）
@@ -2558,9 +2558,9 @@ export default function AdminAttendance() {
                       const payload = {
                         userId: editingItem.userId,
                         workDate: editingItem.workDate,
-                        clockIn: editingItem.clockIn || "",
-                        clockOut: editingItem.clockOut || "",
-                        breaks: editingItem.breaks || [],
+                        clockIn: "",
+                        clockOut: "",
+                        breaks: [],
                         comment: resetComment
                       };
                       await fetch(`${API_BASE}/attendance/update`, {
