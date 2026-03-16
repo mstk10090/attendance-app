@@ -248,6 +248,9 @@ export default function AdminAttendance() {
   const [resubmitReason, setResubmitReason] = useState("");
   // 再提出理由選択用
   const RESUBMIT_REASONS = [
+    "遅刻理由を教えてください",
+    "残業理由を教えてください",
+    "遅刻・残業をそれぞれ理由を教えてください",
     "乖離理由を教えてください",
     "正しい勤怠時間で申請してください",
   ];
@@ -2531,6 +2534,18 @@ export default function AdminAttendance() {
                 <p style={{ fontSize: "0.85rem", color: "#374151", marginBottom: "12px" }}>
                   承認できない場合は、理由を入力して再提出を依頼してください。
                 </p>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "8px" }}>
+                  {["遅刻理由を教えてください", "残業理由を教えてください", "遅刻・残業をそれぞれ理由を教えてください"].map(text => (
+                    <button
+                      key={text}
+                      className="btn btn-outline"
+                      onClick={() => setResubmitReason(text)}
+                      style={{ fontSize: "0.8rem", padding: "4px 10px", borderColor: "#d1d5db", color: "#374151", borderRadius: "16px" }}
+                    >
+                      {text}
+                    </button>
+                  ))}
+                </div>
                 <textarea
                   className="input"
                   placeholder="例: 退勤時間の入力が間違っているようです"
