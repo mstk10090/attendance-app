@@ -2375,312 +2375,306 @@ export default function AdminAttendance() {
               </div>
 
               {editingItem._application?.status === "pending" && (
-                <div style={{ marginBottom: "24px", textAlign: "center" }}>
-                  <p style={{ fontSize: "13px", color: "#6b7280", marginBottom: "8px" }}>
-                    内容に問題がなければ承認してください。<br />
-                    相違がある場合は、下のフォームから再提出を依頼してください。
+                <div style={{ marginBottom: "20px", padding: "16px", background: "linear-gradient(135deg, #ecfdf5, #d1fae5)", borderRadius: "12px", border: "2px solid #10b981", textAlign: "center" }}>
+                  <p style={{ fontSize: "13px", color: "#065f46", marginBottom: "10px", fontWeight: "500" }}>
+                    内容に問題がなければ承認してください。
                   </p>
-                  <button className="btn btn-green" onClick={() => handleApprove(null)} style={{ width: "100%", padding: "12px", fontSize: "16px" }}>
-                    <CheckCircle size={20} style={{ marginRight: 6 }} /> 承認する
+                  <button className="btn btn-green" onClick={() => handleApprove(null)} style={{ width: "100%", padding: "14px", fontSize: "16px", borderRadius: "8px", fontWeight: "bold" }}>
+                    <CheckCircle size={20} style={{ marginRight: 6 }} /> ✅ 承認する
                   </button>
                 </div>
               )}
 
               {editingItem._application?.status === "absent" && (
-                <div style={{ marginBottom: "24px", textAlign: "center" }}>
-                  <p style={{ fontSize: "13px", color: "#6b7280", marginBottom: "8px" }}>
+                <div style={{ marginBottom: "20px", padding: "16px", background: "#fef2f2", borderRadius: "12px", border: "1px solid #fca5a5", textAlign: "center" }}>
+                  <p style={{ fontSize: "13px", color: "#991b1b", marginBottom: "10px" }}>
                     現在は「欠勤」として登録されています。
                   </p>
-                  <button className="btn" onClick={() => handleCancelAbsent(editingItem)} style={{ width: "100%", padding: "12px", fontSize: "16px", background: "#6b7280", color: "#fff", border: "none", borderRadius: "8px" }}>
+                  <button className="btn" onClick={() => handleCancelAbsent(editingItem)} style={{ width: "100%", padding: "12px", fontSize: "15px", background: "#6b7280", color: "#fff", border: "none", borderRadius: "8px" }}>
                     欠勤を取り消す
                   </button>
                 </div>
               )}
 
-              {/* 管理者による申請時間の編集 */}
-              <div style={{ marginBottom: "20px", padding: "20px", background: "#fff", border: "1px solid #3b82f6", borderRadius: "8px" }}>
-                <h4 style={{ margin: "0 0 12px 0", fontSize: "1rem", color: "#1d4ed8", display: "flex", alignItems: "center", gap: "6px" }}>
-                  ✏️ 申請時間の編集 (管理者)
-                </h4>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px", marginBottom: "12px" }}>
-                  <div>
-                    <label style={{ fontSize: "12px", color: "#6b7280", display: "block", marginBottom: "4px" }}>出勤時間</label>
-                    <select
-                      id="adminEditIn"
-                      defaultValue={(() => {
-                        const raw = editingItem._application?.appliedIn || editingItem.clockIn || "";
-                        if (!raw) return "";
-                        const m = toMin(raw); const r = Math.ceil(m / 30) * 30;
-                        return `${String(Math.floor(r / 60)).padStart(2, '0')}:${String(r % 60).padStart(2, '0')}`;
-                      })()}
-                      className="input"
-                      style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "6px" }}
-                    >
-                      <option value="">--</option>
-                      {Array.from({ length: 48 }, (_, i) => {
-                        const h = String(Math.floor(i / 2)).padStart(2, "0");
-                        const m = i % 2 === 0 ? "00" : "30";
-                        return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>;
-                      })}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: "12px", color: "#6b7280", display: "block", marginBottom: "4px" }}>退勤時間</label>
-                    <select
-                      id="adminEditOut"
-                      defaultValue={(() => {
-                        const raw = editingItem._application?.appliedOut || editingItem.clockOut || "";
-                        if (!raw) return "";
-                        const m = toMin(raw); const r = Math.floor(m / 30) * 30;
-                        return `${String(Math.floor(r / 60)).padStart(2, '0')}:${String(r % 60).padStart(2, '0')}`;
-                      })()}
-                      className="input"
-                      style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "6px" }}
-                    >
-                      <option value="">--</option>
-                      {Array.from({ length: 48 }, (_, i) => {
-                        const h = String(Math.floor(i / 2)).padStart(2, "0");
-                        const m = i % 2 === 0 ? "00" : "30";
-                        return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>;
-                      })}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: "12px", color: "#6b7280", display: "block", marginBottom: "4px" }}>休憩(分)</label>
-                    <select
-                      id="adminEditBreak"
-                      defaultValue={editingItem._application?.breakDuration || 0}
-                      className="input"
-                      style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "6px" }}
-                    >
-                      {[0, 30, 60, 90, 120].map(v => <option key={v} value={v}>{v}分</option>)}
-                    </select>
-                  </div>
-                </div>
-                <button
-                  className="btn"
-                  onClick={async () => {
-                    const inEl = document.getElementById("adminEditIn");
-                    const outEl = document.getElementById("adminEditOut");
-                    const breakEl = document.getElementById("adminEditBreak");
-                    if (!inEl || !outEl || !breakEl) { alert("フォーム要素が見つかりません"); return; }
-                    const newIn = inEl.value;
-                    const newOut = outEl.value;
-                    const newBreak = parseInt(breakEl.value) || 0;
-                    if (!newIn || !newOut) { alert("出勤・退勤時間を入力してください"); return; }
+              {/* === アコーディオンセクション === */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
 
-                    // 遅刻・残業の自動判定
-                    const shift = findShiftForItem(editingItem);
-                    let autoReason = null;
-                    if (shift && shift.start && shift.end) {
-                      const shiftStartMin = toMin(shift.start);
-                      const shiftEndMin = toMin(shift.end);
-                      const editInMin = toMin(newIn);
-                      const editOutMin = toMin(newOut);
-                      const isLate = editInMin > shiftStartMin; // 管理者修正はぴったりを遅刻にしない
-                      const isOvertime = editOutMin >= shiftEndMin + 30;
-                      const isEarly = editOutMin < shiftEndMin;
-                      if (isLate && isOvertime) autoReason = "遅刻・残業";
-                      else if (isLate) autoReason = "遅刻";
-                      else if (isOvertime) autoReason = "残業";
-                      else if (isEarly) autoReason = "早退";
-                    }
-
-                    const confirmMsg = `申請時間を管理者が編集します。\n出勤: ${newIn}\n退勤: ${newOut}\n休憩: ${newBreak}分${autoReason ? `\n\n⚠️ 判定: ${autoReason}` : "\n\n✅ 判定: 問題なし"}\n\nよろしいですか？`;
-                    if (!window.confirm(confirmMsg)) return;
-                    setLoading(true);
-                    try {
-                      const p = parseComment(editingItem.comment);
-                      const existingApp = p.application || {};
-                      const newApp = {
-                        ...existingApp,
-                        appliedIn: newIn,
-                        appliedOut: newOut,
-                        breakDuration: newBreak,
-                        adminEdited: true,
-                        adminEditedAt: new Date().toISOString(),
-                        status: existingApp.status || "pending",
-                        reason: autoReason || existingApp.reason || "-",
-                        appliedAt: existingApp.appliedAt || new Date().toISOString()
-                      };
-                      const finalComment = JSON.stringify({ segments: p.segments, text: p.text, application: newApp, auditLog: [...(p.auditLog || []), { action: "admin_edited", by: "管理者", at: new Date().toISOString(), detail: `管理者が修正しました（${newIn}〜${newOut}、休憩${newBreak}分）` }] });
-                      const res = await fetch(`${API_BASE}/attendance/update`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          userId: editingItem.userId,
-                          workDate: editingItem.workDate,
-                          clockIn: editingItem.clockIn || "",
-                          clockOut: editingItem.clockOut || "",
-                          breaks: editingItem.breaks || [],
-                          comment: finalComment
-                        })
-                      });
-                      if (!res.ok) {
-                        const err = await res.text();
-                        throw new Error(`API error: ${res.status} ${err}`);
-                      }
-                      alert("保存しました");
-                      setEditingItem(null);
-                      fetchAttendances();
-                    } catch (e) { console.error(e); alert("保存に失敗しました: " + e.message); }
-                    finally { setLoading(false); }
-                  }}
-                  style={{
-                    width: "100%", padding: "10px", fontSize: "0.95rem", fontWeight: "bold",
-                    background: "#3b82f6", color: "#fff", border: "none", borderRadius: "6px",
-                    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px"
-                  }}
-                >
-                  <Save size={16} /> 申請時間を保存
-                </button>
-              </div>
-
-              <div style={{ marginTop: "20px", padding: "20px", background: "#fff", border: "1px solid #e5e7eb", borderRadius: "8px" }}>
-                <h4 style={{ margin: "0 0 8px 0", fontSize: "1rem", color: "#374151" }}>再提出依頼 (修正願い)</h4>
-                <p style={{ fontSize: "0.85rem", color: "#374151", marginBottom: "12px" }}>
-                  承認できない場合は、理由を入力して再提出を依頼してください。
-                </p>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "8px" }}>
-                  {["遅刻理由を教えてください", "残業理由を教えてください", "遅刻・残業をそれぞれ理由を教えてください"].map(text => (
+                {/* --- ✏️ 申請時間の編集 --- */}
+                <details style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: "10px", overflow: "hidden" }}>
+                  <summary style={{ padding: "14px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px", fontWeight: "bold", fontSize: "0.95rem", color: "#1d4ed8", background: "#f0f7ff", userSelect: "none" }}>
+                    ✏️ 申請時間の編集（管理者）
+                  </summary>
+                  <div style={{ padding: "16px", borderTop: "1px solid #e5e7eb" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px", marginBottom: "12px" }}>
+                      <div>
+                        <label style={{ fontSize: "12px", color: "#6b7280", display: "block", marginBottom: "4px" }}>出勤時間</label>
+                        <select
+                          id="adminEditIn"
+                          defaultValue={(() => {
+                            const raw = editingItem._application?.appliedIn || editingItem.clockIn || "";
+                            if (!raw) return "";
+                            const m = toMin(raw); const r = Math.ceil(m / 30) * 30;
+                            return `${String(Math.floor(r / 60)).padStart(2, '0')}:${String(r % 60).padStart(2, '0')}`;
+                          })()}
+                          className="input"
+                          style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "6px" }}
+                        >
+                          <option value="">--</option>
+                          {Array.from({ length: 48 }, (_, i) => {
+                            const h = String(Math.floor(i / 2)).padStart(2, "0");
+                            const m = i % 2 === 0 ? "00" : "30";
+                            return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>;
+                          })}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ fontSize: "12px", color: "#6b7280", display: "block", marginBottom: "4px" }}>退勤時間</label>
+                        <select
+                          id="adminEditOut"
+                          defaultValue={(() => {
+                            const raw = editingItem._application?.appliedOut || editingItem.clockOut || "";
+                            if (!raw) return "";
+                            const m = toMin(raw); const r = Math.floor(m / 30) * 30;
+                            return `${String(Math.floor(r / 60)).padStart(2, '0')}:${String(r % 60).padStart(2, '0')}`;
+                          })()}
+                          className="input"
+                          style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "6px" }}
+                        >
+                          <option value="">--</option>
+                          {Array.from({ length: 48 }, (_, i) => {
+                            const h = String(Math.floor(i / 2)).padStart(2, "0");
+                            const m = i % 2 === 0 ? "00" : "30";
+                            return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>;
+                          })}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ fontSize: "12px", color: "#6b7280", display: "block", marginBottom: "4px" }}>休憩(分)</label>
+                        <select
+                          id="adminEditBreak"
+                          defaultValue={editingItem._application?.breakDuration || 0}
+                          className="input"
+                          style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "6px" }}
+                        >
+                          {[0, 30, 60, 90, 120].map(v => <option key={v} value={v}>{v}分</option>)}
+                        </select>
+                      </div>
+                    </div>
                     <button
-                      key={text}
-                      className="btn btn-outline"
-                      onClick={() => setResubmitReason(text)}
-                      style={{ fontSize: "0.8rem", padding: "4px 10px", borderColor: "#d1d5db", color: "#374151", borderRadius: "16px" }}
+                      className="btn"
+                      onClick={async () => {
+                        const inEl = document.getElementById("adminEditIn");
+                        const outEl = document.getElementById("adminEditOut");
+                        const breakEl = document.getElementById("adminEditBreak");
+                        if (!inEl || !outEl || !breakEl) { alert("フォーム要素が見つかりません"); return; }
+                        const newIn = inEl.value;
+                        const newOut = outEl.value;
+                        const newBreak = parseInt(breakEl.value) || 0;
+                        if (!newIn || !newOut) { alert("出勤・退勤時間を入力してください"); return; }
+
+                        const shift = findShiftForItem(editingItem);
+                        let autoReason = null;
+                        if (shift && shift.start && shift.end) {
+                          const shiftStartMin = toMin(shift.start);
+                          const shiftEndMin = toMin(shift.end);
+                          const editInMin = toMin(newIn);
+                          const editOutMin = toMin(newOut);
+                          const isLate = editInMin > shiftStartMin;
+                          const isOvertime = editOutMin >= shiftEndMin + 30;
+                          const isEarly = editOutMin < shiftEndMin;
+                          if (isLate && isOvertime) autoReason = "遅刻・残業";
+                          else if (isLate) autoReason = "遅刻";
+                          else if (isOvertime) autoReason = "残業";
+                          else if (isEarly) autoReason = "早退";
+                        }
+
+                        const confirmMsg = `申請時間を管理者が編集します。\n出勤: ${newIn}\n退勤: ${newOut}\n休憩: ${newBreak}分${autoReason ? `\n\n⚠️ 判定: ${autoReason}` : "\n\n✅ 判定: 問題なし"}\n\nよろしいですか？`;
+                        if (!window.confirm(confirmMsg)) return;
+                        setLoading(true);
+                        try {
+                          const p = parseComment(editingItem.comment);
+                          const existingApp = p.application || {};
+                          const newApp = {
+                            ...existingApp,
+                            appliedIn: newIn,
+                            appliedOut: newOut,
+                            breakDuration: newBreak,
+                            adminEdited: true,
+                            adminEditedAt: new Date().toISOString(),
+                            status: existingApp.status || "pending",
+                            reason: autoReason || existingApp.reason || "-",
+                            appliedAt: existingApp.appliedAt || new Date().toISOString()
+                          };
+                          const finalComment = JSON.stringify({ segments: p.segments, text: p.text, application: newApp, auditLog: [...(p.auditLog || []), { action: "admin_edited", by: "管理者", at: new Date().toISOString(), detail: `管理者が修正しました（${newIn}〜${newOut}、休憩${newBreak}分）` }] });
+                          const res = await fetch(`${API_BASE}/attendance/update`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              userId: editingItem.userId,
+                              workDate: editingItem.workDate,
+                              clockIn: editingItem.clockIn || newIn,
+                              clockOut: editingItem.clockOut || newOut,
+                              breaks: editingItem.breaks || [],
+                              comment: finalComment,
+                              location: editingItem.location || "",
+                              department: editingItem.department || ""
+                            }),
+                          });
+                          if (!res.ok) {
+                            const err = await res.text();
+                            throw new Error(`API error: ${res.status} ${err}`);
+                          }
+                          alert("保存しました");
+                          setEditingItem(null);
+                          fetchAttendances();
+                        } catch (e) { console.error(e); alert("保存に失敗しました: " + e.message); }
+                        finally { setLoading(false); }
+                      }}
+                      style={{
+                        width: "100%", padding: "10px", fontSize: "0.95rem", fontWeight: "bold",
+                        background: "#3b82f6", color: "#fff", border: "none", borderRadius: "6px",
+                        cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px"
+                      }}
                     >
-                      {text}
+                      <Save size={16} /> 申請時間を保存
                     </button>
-                  ))}
-                </div>
-                <textarea
-                  className="input"
-                  placeholder="例: 退勤時間の入力が間違っているようです"
-                  value={resubmitReason}
-                  onChange={e => setResubmitReason(e.target.value)}
-                  style={{ width: "100%", height: "80px", marginBottom: "12px", background: "#fff", border: "1px solid #d1d5db", borderRadius: "6px", padding: "10px", fontSize: "0.9rem" }}
-                />
-                <button className="btn btn-outline" onClick={handleRequestResubmission} style={{ width: "100%", color: "#7c3aed", borderColor: "#7c3aed", padding: "10px", fontSize: "0.95rem", fontWeight: "bold" }}>
-                  <Send size={18} style={{ marginRight: 6 }} /> 再提出を依頼する
-                </button>
-              </div>
+                  </div>
+                </details>
 
-              {/* 欠勤登録 */}
-              <div style={{ marginTop: "20px", padding: "20px", background: "#fff", border: "1px solid #d1d5db", borderRadius: "8px" }}>
-                <h4 style={{ margin: "0 0 8px 0", fontSize: "1rem", color: "#6b7280", display: "flex", alignItems: "center", gap: "6px" }}>
-                  🚫 欠勤登録
-                </h4>
-                <p style={{ fontSize: "0.85rem", color: "#6b7280", marginBottom: "12px" }}>
-                  該当日を欠勤として登録します。打刻・申請データはリセットされます。
-                </p>
-                <button
-                  className="btn"
-                  onClick={async () => {
-                    await handleMarkAbsent(editingItem.userId, editingItem.userName, editingItem.workDate);
-                    setEditingItem(null);
-                  }}
-                  style={{ width: "100%", padding: "10px", background: "#6b7280", color: "#fff", border: "none", borderRadius: "6px", fontSize: "0.95rem", fontWeight: "bold", cursor: "pointer" }}
-                >
-                  🚫 欠勤として登録する
-                </button>
-              </div>
+                {/* --- 📤 再提出依頼 --- */}
+                <details style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: "10px", overflow: "hidden" }}>
+                  <summary style={{ padding: "14px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px", fontWeight: "bold", fontSize: "0.95rem", color: "#7c3aed", background: "#faf5ff", userSelect: "none" }}>
+                    📤 再提出依頼（修正願い）
+                  </summary>
+                  <div style={{ padding: "16px", borderTop: "1px solid #e5e7eb" }}>
+                    <p style={{ fontSize: "0.85rem", color: "#6b7280", marginBottom: "10px" }}>
+                      承認できない場合は、理由を入力して再提出を依頼してください。
+                    </p>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "8px" }}>
+                      {["遅刻理由を教えてください", "残業理由を教えてください", "遅刻・残業をそれぞれ理由を教えてください"].map(text => (
+                        <button
+                          key={text}
+                          className="btn btn-outline"
+                          onClick={() => setResubmitReason(text)}
+                          style={{ fontSize: "0.78rem", padding: "4px 10px", borderColor: "#d1d5db", color: "#374151", borderRadius: "16px" }}
+                        >
+                          {text}
+                        </button>
+                      ))}
+                    </div>
+                    <textarea
+                      className="input"
+                      placeholder="例: 退勤時間の入力が間違っているようです"
+                      value={resubmitReason}
+                      onChange={e => setResubmitReason(e.target.value)}
+                      style={{ width: "100%", height: "70px", marginBottom: "10px", background: "#fff", border: "1px solid #d1d5db", borderRadius: "6px", padding: "10px", fontSize: "0.9rem" }}
+                    />
+                    <button className="btn btn-outline" onClick={handleRequestResubmission} style={{ width: "100%", color: "#7c3aed", borderColor: "#7c3aed", padding: "10px", fontSize: "0.95rem", fontWeight: "bold" }}>
+                      <Send size={16} style={{ marginRight: 6 }} /> 再提出を依頼する
+                    </button>
+                  </div>
+                </details>
 
-              {/* 休み登録 */}
-              <div style={{ marginTop: "20px", padding: "20px", background: "#fff", border: "1px solid #bfdbfe", borderRadius: "8px" }}>
-                <h4 style={{ margin: "0 0 8px 0", fontSize: "1rem", color: "#2563eb", display: "flex", alignItems: "center", gap: "6px" }}>
-                  🏖️ 休み登録
-                </h4>
-                <p style={{ fontSize: "0.85rem", color: "#6b7280", marginBottom: "12px" }}>
-                  該当日を休み（休日）として登録します。
-                </p>
-                <button
-                  className="btn"
-                  onClick={async () => {
-                    if (!await showConfirm(`${editingItem.userName}さんの${editingItem.workDate}を「休み」として登録しますか？`)) return;
-                    setLoading(true);
-                    try {
-                      const payload = {
-                        userId: editingItem.userId,
-                        workDate: editingItem.workDate,
-                        clockIn: "",
-                        clockOut: "",
-                        breaks: [],
-                        comment: JSON.stringify({
-                          segments: [],
-                          text: "管理者による休み登録",
-                          application: { status: "day_off", reason: "休み" },
-                          auditLog: [{ action: "day_off_registered", by: "管理者", at: new Date().toISOString(), detail: "休みとして登録しました" }]
-                        })
-                      };
-                      const res = await fetch(`${API_BASE}/attendance/update`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(payload),
-                      });
-                      if (!res.ok) { alert(`休み登録に失敗しました: ${res.status}`); return; }
-                      alert("休みとして登録しました");
-                      setEditingItem(null);
-                      fetchAttendances();
-                    } catch (e) { console.error(e); alert("エラーが発生しました"); }
-                    finally { setLoading(false); }
-                  }}
-                  style={{ width: "100%", padding: "10px", background: "#2563eb", color: "#fff", border: "none", borderRadius: "6px", fontSize: "0.95rem", fontWeight: "bold", cursor: "pointer" }}
-                >
-                  🏖️ 休みとして登録する
-                </button>
-              </div>
-
-              {/* 勤怠取り消し */}
-              <div style={{ marginTop: "20px", padding: "20px", background: "#fff", border: "1px solid #fca5a5", borderRadius: "8px" }}>
-                <h4 style={{ margin: "0 0 8px 0", fontSize: "1rem", color: "#dc2626", display: "flex", alignItems: "center", gap: "6px" }}>
-                  🗑️ 勤怠取り消し
-                </h4>
-                <p style={{ fontSize: "0.85rem", color: "#6b7280", marginBottom: "12px" }}>
-                  申請内容・打刻・実働・判定・理由をすべてリセットします。
-                </p>
-                <button
-                  className="btn"
-                  onClick={async () => {
-                    if (!await showConfirm(`${editingItem.userName}さんの${editingItem.workDate}の勤怠を取り消しますか？\n\n⚠️ 申請内容・打刻・実働・判定・理由がすべてリセットされます。`)) return;
-                    setLoading(true);
-                    try {
-                      // ログを保持したまま申請内容のみリセット（打刻は維持）
-                      const p = parseComment(editingItem.comment);
-                      const existingLog = p.auditLog || [];
-                      existingLog.push({ action: "cancelled", by: "管理者", at: new Date().toISOString(), detail: "勤怠を取り消しました（申請内容・実働・判定・理由をリセット）" });
-                      const resetComment = JSON.stringify({ segments: p.segments || [], application: null, text: "", auditLog: existingLog });
-                      const payload = {
-                        userId: editingItem.userId,
-                        workDate: editingItem.workDate,
-                        clockIn: "",
-                        clockOut: "",
-                        breaks: [],
-                        comment: resetComment
-                      };
-                      await fetch(`${API_BASE}/attendance/update`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(payload),
-                      });
-                      alert("勤怠を取り消しました");
-                      setEditingItem(null);
-                      fetchAttendances();
-                    } catch (e) {
-                      console.error(e);
-                      alert("エラーが発生しました");
-                    } finally {
-                      setLoading(false);
-                    }
-                  }}
-                  style={{
-                    width: "100%", padding: "10px", fontSize: "0.95rem", fontWeight: "bold",
-                    background: "#dc2626", color: "#fff", border: "none", borderRadius: "6px",
-                    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px"
-                  }}
-                >
-                  <Trash2 size={16} /> 勤怠を取り消す
-                </button>
-              </div>
+                {/* --- ⚡ ステータス変更 (欠勤・休み・取消) --- */}
+                <details style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: "10px", overflow: "hidden" }}>
+                  <summary style={{ padding: "14px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px", fontWeight: "bold", fontSize: "0.95rem", color: "#6b7280", background: "#f9fafb", userSelect: "none" }}>
+                    ⚡ ステータス変更（欠勤・休み・取消）
+                  </summary>
+                  <div style={{ padding: "16px", borderTop: "1px solid #e5e7eb" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
+                      {/* 欠勤登録 */}
+                      <button
+                        className="btn"
+                        onClick={async () => {
+                          await handleMarkAbsent(editingItem.userId, editingItem.userName, editingItem.workDate);
+                          setEditingItem(null);
+                        }}
+                        style={{ padding: "12px", background: "#6b7280", color: "#fff", border: "none", borderRadius: "8px", fontSize: "0.9rem", fontWeight: "bold", cursor: "pointer" }}
+                      >
+                        🚫 欠勤登録
+                      </button>
+                      {/* 休み登録 */}
+                      <button
+                        className="btn"
+                        onClick={async () => {
+                          if (!await showConfirm(`${editingItem.userName}さんの${editingItem.workDate}を「休み」として登録しますか？`)) return;
+                          setLoading(true);
+                          try {
+                            const payload = {
+                              userId: editingItem.userId,
+                              workDate: editingItem.workDate,
+                              clockIn: "",
+                              clockOut: "",
+                              breaks: [],
+                              comment: JSON.stringify({
+                                segments: [],
+                                text: "管理者による休み登録",
+                                application: { status: "day_off", reason: "休み" },
+                                auditLog: [{ action: "day_off_registered", by: "管理者", at: new Date().toISOString(), detail: "休みとして登録しました" }]
+                              })
+                            };
+                            const res = await fetch(`${API_BASE}/attendance/update`, {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify(payload),
+                            });
+                            if (!res.ok) { alert(`休み登録に失敗しました: ${res.status}`); return; }
+                            alert("休みとして登録しました");
+                            setEditingItem(null);
+                            fetchAttendances();
+                          } catch (e) { console.error(e); alert("エラーが発生しました"); }
+                          finally { setLoading(false); }
+                        }}
+                        style={{ padding: "12px", background: "#2563eb", color: "#fff", border: "none", borderRadius: "8px", fontSize: "0.9rem", fontWeight: "bold", cursor: "pointer" }}
+                      >
+                        🏖️ 休み登録
+                      </button>
+                    </div>
+                    {/* 勤怠取り消し */}
+                    <button
+                      className="btn"
+                      onClick={async () => {
+                        if (!await showConfirm(`${editingItem.userName}さんの${editingItem.workDate}の勤怠を取り消しますか？\n\n⚠️ 申請内容・打刻・実働・判定・理由がすべてリセットされます。`)) return;
+                        setLoading(true);
+                        try {
+                          const p = parseComment(editingItem.comment);
+                          const existingLog = p.auditLog || [];
+                          existingLog.push({ action: "cancelled", by: "管理者", at: new Date().toISOString(), detail: "勤怠を取り消しました（申請内容・実働・判定・理由をリセット）" });
+                          const resetComment = JSON.stringify({ segments: p.segments || [], application: null, text: "", auditLog: existingLog });
+                          const payload = {
+                            userId: editingItem.userId,
+                            workDate: editingItem.workDate,
+                            clockIn: "",
+                            clockOut: "",
+                            breaks: [],
+                            comment: resetComment
+                          };
+                          await fetch(`${API_BASE}/attendance/update`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify(payload),
+                          });
+                          alert("勤怠を取り消しました");
+                          setEditingItem(null);
+                          fetchAttendances();
+                        } catch (e) {
+                          console.error(e);
+                          alert("エラーが発生しました");
+                        } finally {
+                          setLoading(false);
+                        }
+                      }}
+                      style={{
+                        width: "100%", padding: "10px", fontSize: "0.95rem", fontWeight: "bold",
+                        background: "#dc2626", color: "#fff", border: "none", borderRadius: "6px",
+                        cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px"
+                      }}
+                    >
+                      <Trash2 size={16} /> 勤怠を取り消す
+                    </button>
+                  </div>
+                </details>
+              </div>{/* アコーディオンセクション終了 */}
 
               <button
                 onClick={() => setEditingItem(null)}
