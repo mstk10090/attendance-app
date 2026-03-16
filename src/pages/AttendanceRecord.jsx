@@ -188,6 +188,8 @@ export default function AttendanceRecord({ user: propUser }) {
   const [forgotClockActualOut, setForgotClockActualOut] = useState(""); // 打刻忘れ: 実際の退勤時間
   const [discrepancyAppliedIn, setDiscrepancyAppliedIn] = useState(""); // 乖離モーダル: 申請する出勤時間
   const [discrepancyAppliedOut, setDiscrepancyAppliedOut] = useState(""); // 乖離モーダル: 申請する退勤時間
+  // 複数乖離理由 STATE
+  const [detectedReasons, setDetectedReasons] = useState([]); // [{ type: "遅刻"|"残業", label: "...", detail: "", subReason: "", subReasonText: "" }]
 
   const handlePrevMonth = () => {
     setCurrentDate(prev => subMonths(prev, 1));
@@ -536,12 +538,11 @@ export default function AttendanceRecord({ user: propUser }) {
       const clockInMin = toMin(clockInTime);
       const clockOutMin = toMin(nowTime);
 
-      // シフト通りの判定:
-      // - 出勤: シフト開始前に打刻
-      // - 退勤: シフト終了後30分未満は問題なし【30分以上は乖離（残業）扱い
-      const isClockInOk = clockInMin < shiftStartMin;
+      // 個別判定
+      const isLate = clockInMin >= shiftStartMin; // 遅刻
+      const isOvertime = clockOutMin >= shiftEndMin + 30; // 残業（30分以上）
       const isClockOutOk = clockOutMin >= shiftEndMin && clockOutMin < shiftEndMin + 30;
-      const isOnTime = isClockInOk && isClockOutOk;
+      const isOnTime = !isLate && isClockOutOk;
 
       if (isOnTime) {
         // 問題なし → 即退勤
@@ -549,25 +550,33 @@ export default function AttendanceRecord({ user: propUser }) {
         return;
       }
 
-      // 乖離あり → モーダルを表示
+      // 乖離あり → 自動検出した理由をdetectedReasonsに設定
+      const reasons = [];
+      if (isLate) {
+        reasons.push({ type: "遅刻", label: `遅刻（シフト${shift.start} → 出勤${clockInTime}）`, detail: "", subReason: "", subReasonText: "" });
+      }
+      if (isOvertime) {
+        reasons.push({ type: "残業", label: `残業（シフト${shift.end} → 退勤${nowTime}）`, detail: "", subReason: "", subReasonText: "" });
+      }
+      // 遅刻でも残業でもないが乖離あり（早退等）
+      if (reasons.length === 0) {
+        reasons.push({ type: "", label: "シフトとの乖離あり", detail: "", subReason: "", subReasonText: "" });
+      }
+      setDetectedReasons(reasons);
+
       setDiscrepancyInfo({
         shiftStart: shift.start,
         shiftEnd: shift.end,
         clockIn: clockInTime,
         clockOutTime: nowTime
       });
-      // 残業判定：退勤がシフト終了+30分以上の場合、自動的に「残業」を選択
-      if (clockOutMin >= shiftEndMin + 30) {
-        setDiscrepancyReason("残業");
-      } else {
-        setDiscrepancyReason("");
-      }
+      // 最初の理由を選択状態にする（後方互換性）
+      setDiscrepancyReason(reasons.length === 1 ? reasons[0].type : reasons.map(r => r.type).join("+"));
       setDiscrepancySubReason("");
       setDiscrepancySubReasonText("");
       setDiscrepancyText("");
       setForgotClockActualIn("");
       setForgotClockActualOut("");
-      // デフォルト値: 打刻時間の30分丸め（出勤=切り上げ、退勤=切り捨て）
       setDiscrepancyAppliedIn(roundTimeToHalfHour(clockInTime, "ceil"));
       setDiscrepancyAppliedOut(roundTimeToHalfHour(nowTime, "floor"));
       setDiscrepancyMode("clockOut");
@@ -576,6 +585,7 @@ export default function AttendanceRecord({ user: propUser }) {
     }
 
     // シフトなし → 乖離モーダルを表示（シフト未登録として理由入力を求める）
+    setDetectedReasons([{ type: "シフトなし", label: "シフト未登録", detail: "", subReason: "", subReasonText: "" }]);
     setDiscrepancyInfo({
       shiftStart: null,
       shiftEnd: null,
@@ -595,7 +605,7 @@ export default function AttendanceRecord({ user: propUser }) {
   };
 
   // 実際の退勤処理（乖離なしの場合 or モーダル入力後に呼ばれる）
-  const executeClockOut = async (clockOutTime, reasonStr = null, subReasonVal = null, subReasonTextVal = null, textVal = null, appliedInOverride = null, appliedOutOverride = null) => {
+  const executeClockOut = async (clockOutTime, reasonStr = null, subReasonVal = null, subReasonTextVal = null, textVal = null, appliedInOverride = null, appliedOutOverride = null, reasonsDetail = null) => {
     setLoading(true);
     try {
       const payload = { userId: user.userId, workDate: activeItem.workDate };
@@ -680,6 +690,8 @@ export default function AttendanceRecord({ user: propUser }) {
               reason: reasonStr,
               subReason: subReasonVal || null,
               subReasonText: subReasonTextVal || null,
+              ...(reasonsDetail ? { reasonsDetail } : {}),
+              ...(textVal ? { detailText: textVal } : {}),
               appliedIn: appliedInVal,
               appliedOut: appliedOutVal,
               submittedAt: new Date().toISOString(),
@@ -779,6 +791,56 @@ export default function AttendanceRecord({ user: propUser }) {
 
   // 乖離モーダルから送信
   const handleDiscrepancySubmit = async () => {
+    // 退勤モード＋複数理由検出の場合
+    if (discrepancyMode === "clockOut" && detectedReasons.length > 0 && detectedReasons[0].type !== "シフトなし" && detectedReasons[0].type !== "") {
+      // 各理由の詳細入力をバリデーション
+      for (const r of detectedReasons) {
+        if (r.type === "遅刻") {
+          if (!r.subReason) {
+            alert("遅刻の詳細理由を選択してください");
+            return;
+          }
+          if (r.subReason === "その他" && !r.subReasonText.trim()) {
+            alert("遅刻のその他理由を入力してください");
+            return;
+          }
+        }
+        if (r.type === "残業") {
+          if (!r.detail.trim()) {
+            alert("残業理由を入力してください");
+            return;
+          }
+        }
+      }
+
+      // 理由文字列を構築
+      const reasonStr = detectedReasons.map(r => r.type).join("+");
+      const reasonsDetail = detectedReasons.map(r => ({
+        type: r.type,
+        subReason: r.subReason || null,
+        subReasonText: r.subReasonText || null,
+        detail: r.detail || null
+      }));
+      // テキストまとめ
+      const textParts = detectedReasons.map(r => {
+        if (r.type === "遅刻") {
+          return `遅刻: ${r.subReason}${r.subReasonText ? `(${r.subReasonText})` : ""}`;
+        }
+        if (r.type === "残業") {
+          return `残業: ${r.detail}`;
+        }
+        return r.type;
+      });
+      const textVal = textParts.join(" / ");
+
+      setDiscrepancyModalOpen(false);
+      // executeClockOutに渡す（後方互換: reasonStr=結合文字列, textVal=詳細テキスト）
+      // reasonsDetailは追加引数として渡す
+      await executeClockOut(discrepancyInfo.clockOutTime, reasonStr, null, null, textVal, discrepancyAppliedIn || null, discrepancyAppliedOut || null, reasonsDetail);
+      return;
+    }
+
+    // 出勤モード or シフトなし or 従来の単一理由フロー
     if (!discrepancyReason) {
       alert("乖離理由を選択してください");
       return;
@@ -822,11 +884,9 @@ export default function AttendanceRecord({ user: propUser }) {
 
     // 理由文字列を構成（大枠のみ）
     let reasonStr = discrepancyReason;
-    // 詳細はsubReason/textとして別途保存
     let subReasonVal = discrepancySubReason || null;
     let subReasonTextVal = discrepancySubReasonText || null;
     let textVal = discrepancyText || null;
-    // 打刻忘れの場合、実際の時間情報をtextValに追加
     if (discrepancyReason === "打刻忘れ") {
       const parts = [];
       if (forgotClockActualIn) parts.push(`実際の出社: ${forgotClockActualIn}`);
@@ -1831,51 +1891,115 @@ export default function AttendanceRecord({ user: propUser }) {
               </div>
 
               {/* 理由選択 */}
-              <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "bold", color: "#374151", marginBottom: "6px" }}>乖離理由 *</label>
-              <select
-                value={discrepancyReason}
-                onChange={e => { setDiscrepancyReason(e.target.value); setDiscrepancySubReason(""); setDiscrepancySubReasonText(""); setDiscrepancyText(""); }}
-                style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", marginBottom: "12px", fontSize: "0.95rem" }}
-              >
-                <option value="">-- 選択してください --</option>
-                {REASON_OPTIONS.filter(r => r !== "-").map(r => <option key={r} value={r}>{r}</option>)}
-              </select>
-
-              {/* サブ理由（遅刻/早退/欠勤の場合） */}
-              {discrepancyReason && REASON_SUB_OPTIONS[discrepancyReason] && REASON_SUB_OPTIONS[discrepancyReason].length > 0 && (
+              {discrepancyMode === "clockOut" && detectedReasons.length > 0 && detectedReasons[0].type !== "シフトなし" && detectedReasons[0].type !== "" ? (
+                /* 複数理由検出時: チェックボックス形式 */
+                <div style={{ marginBottom: "12px" }}>
+                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "bold", color: "#374151", marginBottom: "8px" }}>⚠ 検出された乖離 *</label>
+                  {detectedReasons.map((r, idx) => (
+                    <div key={idx} style={{ background: r.type === "遅刻" ? "#fef2f2" : "#fffbeb", border: r.type === "遅刻" ? "1px solid #fca5a5" : "1px solid #fcd34d", borderRadius: "8px", padding: "14px", marginBottom: "10px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+                        <input type="checkbox" checked disabled style={{ width: "18px", height: "18px", accentColor: r.type === "遅刻" ? "#ef4444" : "#f59e0b" }} />
+                        <span style={{ fontWeight: "bold", fontSize: "0.9rem", color: r.type === "遅刻" ? "#dc2626" : "#d97706" }}>
+                          {r.label}
+                        </span>
+                      </div>
+                      {r.type === "遅刻" && (
+                        <div style={{ marginLeft: "26px" }}>
+                          <label style={{ display: "block", fontSize: "0.8rem", color: "#6b7280", marginBottom: "4px" }}>遅刻理由 *</label>
+                          <select
+                            value={r.subReason}
+                            onChange={e => {
+                              const newReasons = [...detectedReasons];
+                              newReasons[idx] = { ...newReasons[idx], subReason: e.target.value, subReasonText: "" };
+                              setDetectedReasons(newReasons);
+                            }}
+                            style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.9rem", marginBottom: "6px" }}
+                          >
+                            <option value="">-- 選択してください --</option>
+                            {(REASON_SUB_OPTIONS["遅刻"] || []).map(s => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                          {r.subReason === "その他" && (
+                            <textarea
+                              placeholder="理由を入力してください"
+                              value={r.subReasonText}
+                              onChange={e => {
+                                const newReasons = [...detectedReasons];
+                                newReasons[idx] = { ...newReasons[idx], subReasonText: e.target.value };
+                                setDetectedReasons(newReasons);
+                              }}
+                              style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.85rem", minHeight: "50px", resize: "vertical" }}
+                            />
+                          )}
+                        </div>
+                      )}
+                      {r.type === "残業" && (
+                        <div style={{ marginLeft: "26px" }}>
+                          <label style={{ display: "block", fontSize: "0.8rem", color: "#6b7280", marginBottom: "4px" }}>残業理由 *</label>
+                          <textarea
+                            placeholder="残業理由を入力してください"
+                            value={r.detail}
+                            onChange={e => {
+                              const newReasons = [...detectedReasons];
+                              newReasons[idx] = { ...newReasons[idx], detail: e.target.value };
+                              setDetectedReasons(newReasons);
+                            }}
+                            style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.85rem", minHeight: "50px", resize: "vertical" }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                /* 従来の単一理由セレクトUI（出勤時・シフトなし・その他） */
                 <>
-                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "bold", color: "#374151", marginBottom: "6px" }}>詳細理由 *</label>
+                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "bold", color: "#374151", marginBottom: "6px" }}>乖離理由 *</label>
                   <select
-                    value={discrepancySubReason}
-                    onChange={e => { setDiscrepancySubReason(e.target.value); setDiscrepancySubReasonText(""); }}
+                    value={discrepancyReason}
+                    onChange={e => { setDiscrepancyReason(e.target.value); setDiscrepancySubReason(""); setDiscrepancySubReasonText(""); setDiscrepancyText(""); }}
                     style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", marginBottom: "12px", fontSize: "0.95rem" }}
                   >
                     <option value="">-- 選択してください --</option>
-                    {REASON_SUB_OPTIONS[discrepancyReason].map(s => <option key={s} value={s}>{s}</option>)}
+                    {REASON_OPTIONS.filter(r => r !== "-").map(r => <option key={r} value={r}>{r}</option>)}
                   </select>
-                  {discrepancySubReason === "その他" && (
-                    <textarea
-                      placeholder="理由を入力してください"
-                      value={discrepancySubReasonText}
-                      onChange={e => setDiscrepancySubReasonText(e.target.value)}
-                      style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", marginBottom: "12px", fontSize: "0.9rem", minHeight: "60px", resize: "vertical" }}
-                    />
-                  )}
-                </>
-              )}
 
-              {/* 出張場所 / 残業理由 / 打刻間違い詳細 / その他理由 */}
-              {(discrepancyReason === "出張" || discrepancyReason === "残業" || discrepancyReason === "打刻間違い" || discrepancyReason === "その他") && (
-                <>
-                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "bold", color: "#374151", marginBottom: "6px" }}>
-                    {discrepancyReason === "出張" ? "出張場所 *" : discrepancyReason === "打刻間違い" ? "詳細 *" : discrepancyReason === "その他" ? "理由 *" : "残業理由 *"}
-                  </label>
-                  <textarea
-                    placeholder={discrepancyReason === "出張" ? "出張場所を入力" : discrepancyReason === "打刻間違い" ? "どのように間違えたか入力" : discrepancyReason === "その他" ? "理由を入力してください" : "残業理由を入力"}
-                    value={discrepancyText}
-                    onChange={e => setDiscrepancyText(e.target.value)}
-                    style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", marginBottom: "12px", fontSize: "0.9rem", minHeight: "60px", resize: "vertical" }}
-                  />
+                  {/* サブ理由（遅刻/早退/欠勤の場合） */}
+                  {discrepancyReason && REASON_SUB_OPTIONS[discrepancyReason] && REASON_SUB_OPTIONS[discrepancyReason].length > 0 && (
+                    <>
+                      <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "bold", color: "#374151", marginBottom: "6px" }}>詳細理由 *</label>
+                      <select
+                        value={discrepancySubReason}
+                        onChange={e => { setDiscrepancySubReason(e.target.value); setDiscrepancySubReasonText(""); }}
+                        style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", marginBottom: "12px", fontSize: "0.95rem" }}
+                      >
+                        <option value="">-- 選択してください --</option>
+                        {REASON_SUB_OPTIONS[discrepancyReason].map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                      {discrepancySubReason === "その他" && (
+                        <textarea
+                          placeholder="理由を入力してください"
+                          value={discrepancySubReasonText}
+                          onChange={e => setDiscrepancySubReasonText(e.target.value)}
+                          style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", marginBottom: "12px", fontSize: "0.9rem", minHeight: "60px", resize: "vertical" }}
+                        />
+                      )}
+                    </>
+                  )}
+
+                  {/* 出張場所 / 残業理由 / 打刻間違い詳細 / その他理由 */}
+                  {(discrepancyReason === "出張" || discrepancyReason === "残業" || discrepancyReason === "打刻間違い" || discrepancyReason === "その他") && (
+                    <>
+                      <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "bold", color: "#374151", marginBottom: "6px" }}>
+                        {discrepancyReason === "出張" ? "出張場所 *" : discrepancyReason === "打刻間違い" ? "詳細 *" : discrepancyReason === "その他" ? "理由 *" : "残業理由 *"}
+                      </label>
+                      <textarea
+                        placeholder={discrepancyReason === "出張" ? "出張場所を入力" : discrepancyReason === "打刻間違い" ? "どのように間違えたか入力" : discrepancyReason === "その他" ? "理由を入力してください" : "残業理由を入力"}
+                        value={discrepancyText}
+                        onChange={e => setDiscrepancyText(e.target.value)}
+                        style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", marginBottom: "12px", fontSize: "0.9rem", minHeight: "60px", resize: "vertical" }}
+                      />
+                    </>
+                  )}
                 </>
               )}
 
