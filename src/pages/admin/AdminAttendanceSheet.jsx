@@ -416,6 +416,35 @@ export default function AdminAttendanceSheet() {
                     hours = roundHalf(roundedMin / 60);
                 }
             }
+        } else if (!clockIn && app && (app.appliedIn && app.appliedOut)) {
+            // 打刻なしだが管理者修正で申請時間がある場合
+            displayIn = app.appliedIn.substring(0, 5);
+            displayOut = app.appliedOut.substring(0, 5);
+
+            const inMin = toMin(app.appliedIn);
+            const outMin = toMin(app.appliedOut);
+            const breakDur = app.breakDuration || 0;
+            const totalMin = Math.max(0, outMin - inMin - breakDur);
+            const roundedMin = Math.floor(totalMin / 30) * 30;
+
+            const isDispatch = (shift && shift.isDispatch) || (!shift && isDispatchUser(user));
+
+            if (isDispatch && shift) {
+                let dMin = 0;
+                if (shift.dispatchRange) {
+                    const dispStart = toMin(shift.dispatchRange.start);
+                    const dispEnd = toMin(shift.dispatchRange.end);
+                    dMin = dispEnd - dispStart;
+                } else {
+                    dMin = Math.min(roundedMin, 8 * 60);
+                }
+                const pMin = Math.max(0, roundedMin - dMin);
+                dispatchHours = roundHalf(dMin / 60);
+                partTimeHours = roundHalf(pMin / 60);
+                hours = partTimeHours;
+            } else {
+                hours = roundHalf(roundedMin / 60);
+            }
         }
 
         return { status, clockIn, clockOut, displayIn, displayOut, hours, dispatchHours, partTimeHours, confirmedBy, att, shift, app };
