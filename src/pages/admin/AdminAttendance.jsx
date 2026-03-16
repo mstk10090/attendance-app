@@ -428,8 +428,10 @@ export default function AdminAttendance() {
         if (!existing) {
           nameMap.set(key, item);
         } else {
-          // より情報が充実しているレコードを優先（clockInがある方）
-          if (!existing.clockIn && item.clockIn) {
+          // updatedAtが新しいレコードを優先（再申請は再提出依頼より新しい）
+          if ((item.updatedAt || "") > (existing.updatedAt || "")) {
+            nameMap.set(key, item);
+          } else if (!existing.clockIn && item.clockIn) {
             nameMap.set(key, item);
           }
         }
