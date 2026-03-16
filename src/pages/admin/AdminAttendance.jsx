@@ -226,7 +226,7 @@ export default function AdminAttendance() {
   const [customDateFrom, setCustomDateFrom] = useState(format(new Date(), "yyyy-MM-dd"));
   const [customDateTo, setCustomDateTo] = useState(format(new Date(), "yyyy-MM-dd"));
   const [customStatuses, setCustomStatuses] = useState(new Set([
-    "pending", "approved", "working", "incomplete", "no_issue", "has_issue", "resubmission", "night", "noshift", "no_shift_day", "absent", "sa_return_admin", "sa_return_staff"
+    "pending", "approved", "working", "incomplete", "no_issue", "has_issue", "resubmission", "night", "noshift", "no_shift_day", "absent", "day_off", "sa_return_admin", "sa_return_staff"
   ]));
 
 
@@ -630,6 +630,7 @@ export default function AdminAttendance() {
     if (appStatus === "sa_return_admin") return "sa_return_admin";
     if (appStatus === "sa_return_staff") return "sa_return_staff";
     if (appStatus === "absent") return "absent";
+    if (appStatus === "day_off") return "day_off";
     // approved でも欠勤理由のレコードは欠勤扱い
     if (appStatus === "approved" && item._application?.reason === "欠勤") return "absent";
     if (item.clockIn && item.clockOut) {
@@ -644,6 +645,9 @@ export default function AdminAttendance() {
     if (item.clockIn && app.appliedIn && toMin(item.clockIn) > toMin(app.appliedIn)) return "has_issue";
     if (item.clockOut && app.appliedOut && toMin(item.clockOut) < toMin(app.appliedOut)) return "has_issue";
     if (!item.clockIn) {
+      // 休み・欠勤登録済みのレコード
+      if (appStatus === "day_off") return "day_off";
+      if (appStatus === "absent") return "absent";
       // シフトがあるのに打刻なし → 未出勤、シフトもなし → シフトなし
       if (item._noShift) return "no_shift_day";
       if (item._shiftOnly) return "noshift";
@@ -1246,7 +1250,7 @@ export default function AdminAttendance() {
                 <span style={{ fontWeight: "600", fontSize: "0.9rem", color: "#374151", minWidth: "70px" }}>ステータス:</span>
                 <button
                   onClick={() => {
-                    const allKeys = ["pending", "approved", "working", "incomplete", "no_issue", "has_issue", "resubmission", "night", "noshift", "no_shift_day", "absent", "sa_return_admin", "sa_return_staff"];
+                    const allKeys = ["pending", "approved", "working", "incomplete", "no_issue", "has_issue", "resubmission", "night", "noshift", "no_shift_day", "absent", "day_off", "sa_return_admin", "sa_return_staff"];
                     setCustomStatuses(prev => prev.size === allKeys.length ? new Set() : new Set(allKeys));
                   }}
                   style={{
@@ -1268,6 +1272,7 @@ export default function AdminAttendance() {
                   { key: "incomplete", label: "未退勤", color: "#ef4444" },
                   { key: "night", label: "深夜勤務", color: "#6366f1" },
                   { key: "noshift", label: "未出勤", color: "#ef4444" },
+                  { key: "day_off", label: "休み", color: "#2563eb" },
                   { key: "no_shift_day", label: "シフトなし", color: "#9ca3af" },
                   { key: "absent", label: "欠勤", color: "#78716c" },
                   { key: "sa_return_admin", label: "上位差戻(管)", color: "#be123c" },
@@ -1385,7 +1390,7 @@ export default function AdminAttendance() {
               >
                 {(() => {
                   if (filterStatus.size === 0) return "全ステータス ▼";
-                  const labels = { pending: "承認待ち", approved: "承認済み", no_issue: "問題なし", has_issue: "問題あり", working: "勤務中", incomplete: "未退勤", resubmission: "再提出", night: "深夜勤務", noshift: "未出勤", no_shift_day: "シフトなし", sa_return_admin: "上位差戻(管)", sa_return_staff: "上位差戻(ス)" };
+                  const labels = { pending: "承認待ち", approved: "承認済み", no_issue: "問題なし", has_issue: "問題あり", working: "勤務中", incomplete: "未退勤", resubmission: "再提出", night: "深夜勤務", noshift: "未出勤", no_shift_day: "シフトなし", absent: "欠勤", day_off: "休み", sa_return_admin: "上位差戻(管)", sa_return_staff: "上位差戻(ス)" };
                   const selected = [...filterStatus].map(k => labels[k] || k);
                   return selected.join(", ") + " ▼";
                 })()}
@@ -1396,7 +1401,7 @@ export default function AdminAttendance() {
                   background: "#fff", border: "1px solid #d1d5db", borderRadius: "8px",
                   boxShadow: "0 4px 12px rgba(0,0,0,0.1)", minWidth: "180px", padding: "8px 0"
                 }}>
-                  {[{ key: "pending", label: "承認待ち" }, { key: "approved", label: "承認済み" }, { key: "no_issue", label: "問題なし" }, { key: "has_issue", label: "問題あり" }, { key: "working", label: "勤務中" }, { key: "incomplete", label: "未退勤" }, { key: "resubmission", label: "再提出" }, { key: "night", label: "深夜勤務" }, { key: "noshift", label: "未出勤" }, { key: "no_shift_day", label: "シフトなし" }, { key: "sa_return_admin", label: "上位差戻(管)" }, { key: "sa_return_staff", label: "上位差戻(ス)" }].map(opt => (
+                  {[{ key: "pending", label: "承認待ち" }, { key: "approved", label: "承認済み" }, { key: "no_issue", label: "問題なし" }, { key: "has_issue", label: "問題あり" }, { key: "working", label: "勤務中" }, { key: "incomplete", label: "未退勤" }, { key: "resubmission", label: "再提出" }, { key: "night", label: "深夜勤務" }, { key: "noshift", label: "未出勤" }, { key: "no_shift_day", label: "シフトなし" }, { key: "absent", label: "欠勤" }, { key: "day_off", label: "休み" }, { key: "sa_return_admin", label: "上位差戻(管)" }, { key: "sa_return_staff", label: "上位差戻(ス)" }].map(opt => (
                     <label key={opt.key} className="status-dropdown-item">
                       <input type="checkbox" checked={filterStatus.has(opt.key)} onChange={() => {
                         setFilterStatus(prev => {
@@ -1561,7 +1566,7 @@ export default function AdminAttendance() {
                   if (i._application?.status !== "pending") return false;
                   // シフトありかつ問題なしのみ
                   const cat = getItemCategory(i);
-                  if (cat === "noshift" || cat === "no_shift_day" || cat === "absent") return false;
+                  if (cat === "noshift" || cat === "no_shift_day" || cat === "absent" || cat === "day_off") return false;
                   // clockIn/clockOutが揃っていること
                   if (!i.clockIn || !i.clockOut) return false;
                   return true;
@@ -1663,13 +1668,14 @@ export default function AdminAttendance() {
                     }
 
                     const category = getItemCategory(item);
-                    const isShiftOnly = category !== "absent" && ((item._shiftOnly && !item.clockIn) || (category === "noshift") || (category === "no_shift_day"));
+                    const isShiftOnly = category !== "absent" && category !== "day_off" && ((item._shiftOnly && !item.clockIn) || (category === "noshift") || (category === "no_shift_day"));
                     const isNoShiftDay = category === "no_shift_day";
 
                     let bg = "#fff";
                     if (isShiftOnly && !isNoShiftDay) bg = "#fef2f2"; // Red (未出勤: シフトあり未打刻)
                     else if (isNoShiftDay) bg = "#f9fafb"; // Light gray (シフトなし)
                     else if (category === "absent") bg = "#fce4ec"; // Maroon/pink for absent
+                    else if (category === "day_off") bg = "#eff6ff"; // Light blue for day off
                     else if (rowAppStatus === "approved") bg = "#d1fae5"; // Stronger green for approved
                     else if (rowAppStatus === "pending") bg = "#fff7ed"; // Orange
                     else if (rowAppStatus === "resubmission_requested") bg = "#fcf4ff"; // Purple
@@ -1768,6 +1774,7 @@ export default function AdminAttendance() {
                           {!isShiftOnly && rowAppStatus === "pending" && <span className="status-badge orange" style={{ fontSize: "11px" }}>承認待</span>}
                           {!isShiftOnly && rowAppStatus === "approved" && category !== "absent" && <span className="status-badge" style={{ background: "#059669", color: "#fff", fontSize: "11px", fontWeight: "bold", padding: "3px 8px" }}>✅ 承認済{item._application?.adminEdited && <span style={{ fontSize: "9px", opacity: 0.8 }}> (管理者)</span>}</span>}
                           {!isShiftOnly && category === "absent" && <span className="status-badge" style={{ background: "#800000", color: "#fff", fontSize: "11px", fontWeight: "bold", padding: "3px 8px" }}>欠勤</span>}
+                          {!isShiftOnly && category === "day_off" && <span className="status-badge" style={{ background: "#2563eb", color: "#fff", fontSize: "11px", fontWeight: "bold", padding: "3px 8px" }}>休み</span>}
                           {!isShiftOnly && rowAppStatus === "resubmission_requested" && <span className="status-badge purple" style={{ fontSize: "11px" }}>再提出</span>}
                           {!isShiftOnly && rowAppStatus === "sa_return_admin" && <span className="status-badge" style={{ background: "#be123c", color: "#fff", fontSize: "11px", fontWeight: "bold", padding: "3px 8px" }}>🔴 上位差戻(管)</span>}
                           {!isShiftOnly && rowAppStatus === "sa_return_staff" && <span className="status-badge" style={{ background: "#c2410c", color: "#fff", fontSize: "11px", fontWeight: "bold", padding: "3px 8px" }}>🟠 上位差戻(ス)</span>}
@@ -2575,6 +2582,51 @@ export default function AdminAttendance() {
                   style={{ width: "100%", padding: "10px", background: "#6b7280", color: "#fff", border: "none", borderRadius: "6px", fontSize: "0.95rem", fontWeight: "bold", cursor: "pointer" }}
                 >
                   🚫 欠勤として登録する
+                </button>
+              </div>
+
+              {/* 休み登録 */}
+              <div style={{ marginTop: "20px", padding: "20px", background: "#fff", border: "1px solid #bfdbfe", borderRadius: "8px" }}>
+                <h4 style={{ margin: "0 0 8px 0", fontSize: "1rem", color: "#2563eb", display: "flex", alignItems: "center", gap: "6px" }}>
+                  🏖️ 休み登録
+                </h4>
+                <p style={{ fontSize: "0.85rem", color: "#6b7280", marginBottom: "12px" }}>
+                  該当日を休み（休日）として登録します。
+                </p>
+                <button
+                  className="btn"
+                  onClick={async () => {
+                    if (!await showConfirm(`${editingItem.userName}さんの${editingItem.workDate}を「休み」として登録しますか？`)) return;
+                    setLoading(true);
+                    try {
+                      const payload = {
+                        userId: editingItem.userId,
+                        workDate: editingItem.workDate,
+                        clockIn: "",
+                        clockOut: "",
+                        breaks: [],
+                        comment: JSON.stringify({
+                          segments: [],
+                          text: "管理者による休み登録",
+                          application: { status: "day_off", reason: "休み" },
+                          auditLog: [{ action: "day_off_registered", by: "管理者", at: new Date().toISOString(), detail: "休みとして登録しました" }]
+                        })
+                      };
+                      const res = await fetch(`${API_BASE}/attendance/update`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload),
+                      });
+                      if (!res.ok) { alert(`休み登録に失敗しました: ${res.status}`); return; }
+                      alert("休みとして登録しました");
+                      setEditingItem(null);
+                      fetchAttendances();
+                    } catch (e) { console.error(e); alert("エラーが発生しました"); }
+                    finally { setLoading(false); }
+                  }}
+                  style={{ width: "100%", padding: "10px", background: "#2563eb", color: "#fff", border: "none", borderRadius: "6px", fontSize: "0.95rem", fontWeight: "bold", cursor: "pointer" }}
+                >
+                  🏖️ 休みとして登録する
                 </button>
               </div>
 
