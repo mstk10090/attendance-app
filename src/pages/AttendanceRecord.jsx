@@ -706,7 +706,33 @@ export default function AttendanceRecord({ user: propUser }) {
         } else {
           // シフトなし or その他 → 打刻時間を30分丸めで自動承認待ちにする（未申請を残さない）
           const existingComment = parseComment(newItems[idx].comment);
-          if (!existingComment.application || !existingComment.application.status) {
+          if (existingComment.application && existingComment.application.status && !existingComment.application.appliedOut) {
+            // 出勤時に打刻忘れ等で申請があるがappliedOutが未設定 → 退勤時間で補完
+            const clockOutRounded = roundTimeToHalfHour(clockOutTime, "floor");
+            const updatedApp = { ...existingComment.application, appliedOut: clockOutRounded };
+            const updatedComment = {
+              segments: existingComment.segments || [],
+              text: existingComment.text || "",
+              application: updatedApp,
+              auditLog: [...(existingComment.auditLog || []), { action: "clock_out_updated", by: user.userName || user.loginId || "スタッフ", at: new Date().toISOString(), detail: `退勤時に申請退勤時間を補完（${clockOutRounded}）` }]
+            };
+
+            await fetch(ENDPOINTS.update, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                userId: user.userId,
+                workDate: activeItem.workDate,
+                clockIn: newItems[idx].clockIn,
+                clockOut: clockOutTime,
+                breaks: newItems[idx].breaks || [],
+                comment: JSON.stringify(updatedComment),
+                location: newItems[idx].location || "",
+                department: newItems[idx].department || ""
+              }),
+            });
+            newItems[idx].comment = JSON.stringify(updatedComment);
+          } else if (!existingComment.application || !existingComment.application.status) {
             const clockInRounded = roundTimeToHalfHour(clockInTime, "ceil");
             const clockOutRounded = roundTimeToHalfHour(clockOutTime, "floor");
             const updatedComment = {
@@ -1913,7 +1939,7 @@ export default function AttendanceRecord({ user: propUser }) {
                     boxShadow: "0 4px 6px rgba(239,68,68,0.3)"
                   }}
                 >
-                  退勤して申請
+                  {discrepancyMode === "clockIn" ? "出勤して申請" : "退勤して申請"}
                 </button>
               </div>
             </div>
