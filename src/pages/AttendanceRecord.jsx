@@ -883,14 +883,48 @@ export default function AttendanceRecord({ user: propUser }) {
 
   const fetchData = async () => {
     try {
-      const res = await fetch(`${API_BASE}/attendance?userId=${user.userId}`);
-      const data = await res.json();
-      if (data.success) {
+      // 同一loginIdの全userIdからデータ取得（重複userId対応）
+      const loginId = localStorage.getItem("loginId") || "";
+      let allUserIds = [user.userId];
+      if (loginId) {
+        try {
+          const usersRes = await fetch(`${API_BASE}/users`);
+          const usersData = await usersRes.json();
+          const userList = usersData.items || usersData.Items || (Array.isArray(usersData) ? usersData : []);
+          userList.forEach(u => {
+            if ((u.loginId || "").toLowerCase() === loginId.toLowerCase() && u.userId !== user.userId) {
+              allUserIds.push(u.userId);
+            }
+          });
+        } catch (e) { /* フォールバック: 現在のIDのみ */ }
+      }
+
+      let allItems = [];
+      for (const uid of [...new Set(allUserIds)]) {
+        try {
+          const res = await fetch(`${API_BASE}/attendance?userId=${uid}`);
+          const data = await res.json();
+          if (data.success && Array.isArray(data.items)) {
+            allItems.push(...data.items);
+          }
+        } catch (e) { /* skip */ }
+      }
+
+      if (allItems.length > 0) {
+        // workDateで重複排除（updatedAt優先）
+        const dateMap = new Map();
+        allItems.forEach(item => {
+          const existing = dateMap.get(item.workDate);
+          if (!existing) {
+            dateMap.set(item.workDate, item);
+          } else if ((item.updatedAt || "") > (existing.updatedAt || "")) {
+            dateMap.set(item.workDate, item);
+          }
+        });
+
         // Normalize Items (Fix for mangled IDs: 202602-02-02 -> 2026-02-02)
-        const normalized = (data.items || []).map(item => {
+        const normalized = Array.from(dateMap.values()).map(item => {
           let displayDate = item.workDate;
-          // Pattern: YYYYMM-MM-DD (Length 12, start with 6 digits then dash)
-          // e.g. 202602-02-02
           if (/^\d{6}-\d{2}-\d{2}$/.test(item.workDate)) {
             const yyyymm = item.workDate.substring(0, 6);
             const dd = item.workDate.substring(10, 12);

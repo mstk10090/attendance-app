@@ -193,15 +193,47 @@ export default function MyPage({ onLogout }) {
         // On failure, keep existing state (which has localStorage values)
       }
 
-      // 2. 勤怠データの取得
+      // 2. 勤怠データの取得（重複userId対応: 全IDから統合取得）
       try {
-        const attRes = await fetch(`${API_BASE}/attendance?userId=${userId}`);
-        if (attRes.ok) {
-          const data = await attRes.json();
-          if (data.success && Array.isArray(data.items)) {
-            fetchedItems = data.items;
-          }
+        const loginId = localStorage.getItem("loginId") || "";
+        let allUserIds = [userId];
+        if (loginId) {
+          try {
+            const usersRes = await fetch(`${API_BASE}/users`);
+            const usersData = await usersRes.json();
+            const userList = usersData.items || usersData.Items || (Array.isArray(usersData) ? usersData : []);
+            userList.forEach(u => {
+              if ((u.loginId || "").toLowerCase() === loginId.toLowerCase() && u.userId !== userId) {
+                allUserIds.push(u.userId);
+              }
+            });
+          } catch (e) { /* フォールバック */ }
         }
+
+        let allAttItems = [];
+        for (const uid of [...new Set(allUserIds)]) {
+          try {
+            const attRes = await fetch(`${API_BASE}/attendance?userId=${uid}`);
+            if (attRes.ok) {
+              const data = await attRes.json();
+              if (data.success && Array.isArray(data.items)) {
+                allAttItems.push(...data.items);
+              }
+            }
+          } catch (e) { /* skip */ }
+        }
+
+        // workDateで重複排除（updatedAt優先）
+        const dateMap = new Map();
+        allAttItems.forEach(item => {
+          const existing = dateMap.get(item.workDate);
+          if (!existing) {
+            dateMap.set(item.workDate, item);
+          } else if ((item.updatedAt || "") > (existing.updatedAt || "")) {
+            dateMap.set(item.workDate, item);
+          }
+        });
+        fetchedItems = Array.from(dateMap.values());
       } catch (e) { console.error("Attendance fetch error", e); }
 
       // --- 集計 & ボーナス計算 ---

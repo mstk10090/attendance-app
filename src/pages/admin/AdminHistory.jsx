@@ -318,7 +318,11 @@ export default function AdminHistory() {
                             const dateMap = new Map();
                             allItems.forEach(item => {
                                 const existing = dateMap.get(item.workDate);
-                                if (!existing || (item.clockIn && !existing.clockIn)) {
+                                if (!existing) {
+                                    dateMap.set(item.workDate, item);
+                                } else if ((item.updatedAt || "") > (existing.updatedAt || "")) {
+                                    dateMap.set(item.workDate, item);
+                                } else if (!existing.clockIn && item.clockIn) {
                                     dateMap.set(item.workDate, item);
                                 }
                             });
