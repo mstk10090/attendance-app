@@ -642,7 +642,12 @@ export default function AdminAttendance() {
       // シフトがあるのに打刻なし → 未出勤、シフトもなし → シフトなし
       if (item._noShift) return "no_shift_day";
       if (item._shiftOnly) return "noshift";
-      // APIから来たレコードだがclockInなし → シフト有無を確認
+      // APIから来たレコードだがclockInなし → applicationの有無とシフト有無で判定
+      const app = item._application || {};
+      if (!app.status && !app.appliedIn) {
+        // 取り消し済み（application null）→ シフトなし扱い
+        return "no_shift_day";
+      }
       return "noshift";
     }
     return "other";
