@@ -90,14 +90,27 @@ export default function StaffReport() {
                 }
 
                 const monthStr = format(currentDate, "yyyy-MM");
-                // workDateで重複排除（clockInがあるレコードを優先）
+                // workDateで重複排除（updatedAtが新しいレコードを優先、withdrawn除外）
                 const dateMap = new Map();
                 allItems
                     .filter(item => (item.workDate || "").startsWith(monthStr))
                     .forEach(item => {
                         const existing = dateMap.get(item.workDate);
-                        if (!existing || (item.clockIn && !existing.clockIn)) {
+                        if (!existing) {
                             dateMap.set(item.workDate, item);
+                        } else {
+                            // withdrawnでないレコードを優先
+                            const existApp = parseComment(existing.comment)?.application;
+                            const newApp = parseComment(item.comment)?.application;
+                            const existWithdrawn = existApp?.withdrawn || false;
+                            const newWithdrawn = newApp?.withdrawn || false;
+                            if (existWithdrawn && !newWithdrawn) {
+                                dateMap.set(item.workDate, item);
+                            } else if (!existWithdrawn && newWithdrawn) {
+                                // keep existing
+                            } else if ((item.updatedAt || "") > (existing.updatedAt || "")) {
+                                dateMap.set(item.workDate, item);
+                            }
                         }
                     });
                 const filtered = Array.from(dateMap.values()).map(item => ({
@@ -154,7 +167,6 @@ export default function StaffReport() {
                             baseDate={format(currentDate, "yyyy-MM-dd")}
                             viewMode="month"
                             shiftMap={shiftMap}
-                            onRowClick={(dateStr) => navigate(`/attendance?editDate=${dateStr}`)}
                         />
                     )}
                 </div>
