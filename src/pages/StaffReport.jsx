@@ -55,24 +55,56 @@ export default function StaffReport() {
         fetchShiftData().then(setShiftMap).catch(console.error);
     }, []);
 
-    // 勤怠データ取得（AttendanceRecordと同じAPI方式）
+    // 勤怠データ取得（代替userId含めて統合取得）
     useEffect(() => {
         if (!user) return;
         const fetchData = async () => {
             setLoading(true);
             try {
-                const res = await fetch(`${API_BASE}/attendance?userId=${user.userId}`);
-                const data = await res.json();
-                if (data.success) {
-                    const monthStr = format(currentDate, "yyyy-MM");
-                    const filtered = (data.items || [])
-                        .filter(item => (item.workDate || "").startsWith(monthStr))
-                        .map(item => ({
-                            ...item,
-                            _application: parseComment(item.comment)?.application || null,
-                        }));
-                    setItems(filtered);
+                // 同一loginIdの代替userIdを取得
+                const loginId = localStorage.getItem("loginId") || "";
+                let allUserIds = [user.userId];
+                if (loginId) {
+                    try {
+                        const usersRes = await fetch(`${API_BASE}/users`);
+                        const usersData = await usersRes.json();
+                        const userList = usersData.items || usersData.Items || (Array.isArray(usersData) ? usersData : []);
+                        userList.forEach(u => {
+                            if ((u.loginId || "").toLowerCase() === loginId.toLowerCase() && u.userId !== user.userId) {
+                                allUserIds.push(u.userId);
+                            }
+                        });
+                    } catch (e) { /* フォールバック: 現在のIDのみ */ }
                 }
+
+                // 全IDのデータを取得
+                let allItems = [];
+                for (const uid of [...new Set(allUserIds)]) {
+                    try {
+                        const res = await fetch(`${API_BASE}/attendance?userId=${uid}`);
+                        const data = await res.json();
+                        if (data.success && Array.isArray(data.items)) {
+                            allItems.push(...data.items);
+                        }
+                    } catch (e) { /* skip */ }
+                }
+
+                const monthStr = format(currentDate, "yyyy-MM");
+                // workDateで重複排除（clockInがあるレコードを優先）
+                const dateMap = new Map();
+                allItems
+                    .filter(item => (item.workDate || "").startsWith(monthStr))
+                    .forEach(item => {
+                        const existing = dateMap.get(item.workDate);
+                        if (!existing || (item.clockIn && !existing.clockIn)) {
+                            dateMap.set(item.workDate, item);
+                        }
+                    });
+                const filtered = Array.from(dateMap.values()).map(item => ({
+                    ...item,
+                    _application: parseComment(item.comment)?.application || null,
+                }));
+                setItems(filtered);
             } catch (e) {
                 console.error("StaffReport fetch error:", e);
             }
