@@ -91,7 +91,7 @@ export default function StaffReport() {
     if (!user) return <div style={{ padding: "40px", textAlign: "center" }}>ログインしてください</div>;
 
     return (
-        <div style={{ maxWidth: "900px", margin: "0 auto", padding: "20px" }}>
+        <div style={{ width: "100%", padding: "20px", boxSizing: "border-box" }}>
             <div className="card" style={{ padding: "0", overflow: "hidden" }}>
                 <div style={{ padding: "24px", borderBottom: "1px solid #e5e7eb", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <h3 style={{ fontSize: "1.1rem", fontWeight: "bold", margin: 0 }}>勤務履歴・レポート</h3>
