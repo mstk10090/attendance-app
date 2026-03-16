@@ -315,7 +315,8 @@ export default function AdminAttendance() {
     if (urlDate) {
       setCustomDateFrom(urlDate);
       setCustomDateTo(urlDate);
-      setCustomSearchTriggered(true);
+      setConfirmedRange({ start: urlDate, end: urlDate });
+      setViewMode("custom");
     }
   }, [users, urlUserId, urlDate]);
 
