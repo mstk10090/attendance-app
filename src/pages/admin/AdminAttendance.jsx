@@ -2575,13 +2575,13 @@ export default function AdminAttendance() {
                   </div>
                 </details>
 
-                {/* --- ⚡ ステータス変更 (欠勤・休み・取消) --- */}
+                {/* --- ⚡ ステータス変更 (欠勤・休み・出張・取消) --- */}
                 <details style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: "10px", overflow: "hidden" }}>
                   <summary style={{ padding: "14px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px", fontWeight: "bold", fontSize: "0.95rem", color: "#6b7280", background: "#f9fafb", userSelect: "none" }}>
-                    ⚡ ステータス変更（欠勤・休み・取消）
+                    ⚡ ステータス変更（欠勤・休み・出張・取消）
                   </summary>
                   <div style={{ padding: "16px", borderTop: "1px solid #e5e7eb" }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px", marginBottom: "12px" }}>
                       {/* 欠勤登録 */}
                       <button
                         className="btn"
@@ -2589,9 +2589,9 @@ export default function AdminAttendance() {
                           await handleMarkAbsent(editingItem.userId, editingItem.userName, editingItem.workDate);
                           setEditingItem(null);
                         }}
-                        style={{ padding: "12px", background: "#6b7280", color: "#fff", border: "none", borderRadius: "8px", fontSize: "0.9rem", fontWeight: "bold", cursor: "pointer" }}
+                        style={{ padding: "12px 6px", background: "#6b7280", color: "#fff", border: "none", borderRadius: "8px", fontSize: "0.85rem", fontWeight: "bold", cursor: "pointer" }}
                       >
-                        🚫 欠勤登録
+                        🚫 欠勤
                       </button>
                       {/* 休み登録 */}
                       <button
@@ -2625,9 +2625,58 @@ export default function AdminAttendance() {
                           } catch (e) { console.error(e); alert("エラーが発生しました"); }
                           finally { setLoading(false); }
                         }}
-                        style={{ padding: "12px", background: "#2563eb", color: "#fff", border: "none", borderRadius: "8px", fontSize: "0.9rem", fontWeight: "bold", cursor: "pointer" }}
+                        style={{ padding: "12px 6px", background: "#2563eb", color: "#fff", border: "none", borderRadius: "8px", fontSize: "0.85rem", fontWeight: "bold", cursor: "pointer" }}
                       >
-                        🏖️ 休み登録
+                        🏖️ 休み
+                      </button>
+                      {/* 出張登録 */}
+                      <button
+                        className="btn"
+                        onClick={() => {
+                          const dest = prompt("出張先を入力してください：");
+                          if (!dest || !dest.trim()) return;
+                          (async () => {
+                            if (!await showConfirm(`${editingItem.userName}さんの${editingItem.workDate}を「出張（${dest.trim()}）」として登録しますか？`)) return;
+                            setLoading(true);
+                            try {
+                              const p = parseComment(editingItem.comment);
+                              const existingApp = p.application || {};
+                              const payload = {
+                                userId: editingItem.userId,
+                                workDate: editingItem.workDate,
+                                clockIn: editingItem.clockIn || "",
+                                clockOut: editingItem.clockOut || "",
+                                breaks: editingItem.breaks || [],
+                                comment: JSON.stringify({
+                                  segments: p.segments || [],
+                                  text: `管理者による出張登録（${dest.trim()}）`,
+                                  application: {
+                                    ...existingApp,
+                                    status: existingApp.status || "approved",
+                                    reason: "出張",
+                                    subReason: dest.trim(),
+                                    adminEdited: true,
+                                    adminEditedAt: new Date().toISOString()
+                                  },
+                                  auditLog: [...(p.auditLog || []), { action: "business_trip_registered", by: "管理者", at: new Date().toISOString(), detail: `出張として登録しました（${dest.trim()}）` }]
+                                })
+                              };
+                              const res = await fetch(`${API_BASE}/attendance/update`, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify(payload),
+                              });
+                              if (!res.ok) { alert(`出張登録に失敗しました: ${res.status}`); return; }
+                              alert("出張として登録しました");
+                              setEditingItem(null);
+                              fetchAttendances();
+                            } catch (e) { console.error(e); alert("エラーが発生しました"); }
+                            finally { setLoading(false); }
+                          })();
+                        }}
+                        style={{ padding: "12px 6px", background: "#0891b2", color: "#fff", border: "none", borderRadius: "8px", fontSize: "0.85rem", fontWeight: "bold", cursor: "pointer" }}
+                      >
+                        ✈️ 出張
                       </button>
                     </div>
                     {/* 勤怠取り消し */}
