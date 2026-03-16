@@ -758,7 +758,7 @@ export default function AdminAttendanceSheet() {
                                                         fontWeight: cell.hours ? "bold" : "normal",
                                                         minWidth: "36px"
                                                     }} onClick={handleClick}>
-                                                        {cell.hours && parseFloat(cell.hours) > 0 ? cell.hours : ""}
+                                                        {cell.hours !== "" && cell.hours !== undefined ? cell.hours : ""}
                                                     </td>
                                                 </React.Fragment>
                                             );
