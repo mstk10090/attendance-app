@@ -2558,6 +2558,26 @@ export default function AdminAttendance() {
                 </button>
               </div>
 
+              {/* 欠勤登録 */}
+              <div style={{ marginTop: "20px", padding: "20px", background: "#fff", border: "1px solid #d1d5db", borderRadius: "8px" }}>
+                <h4 style={{ margin: "0 0 8px 0", fontSize: "1rem", color: "#6b7280", display: "flex", alignItems: "center", gap: "6px" }}>
+                  🚫 欠勤登録
+                </h4>
+                <p style={{ fontSize: "0.85rem", color: "#6b7280", marginBottom: "12px" }}>
+                  該当日を欠勤として登録します。打刻・申請データはリセットされます。
+                </p>
+                <button
+                  className="btn"
+                  onClick={async () => {
+                    await handleMarkAbsent(editingItem.userId, editingItem.userName, editingItem.workDate);
+                    setEditingItem(null);
+                  }}
+                  style={{ width: "100%", padding: "10px", background: "#6b7280", color: "#fff", border: "none", borderRadius: "6px", fontSize: "0.95rem", fontWeight: "bold", cursor: "pointer" }}
+                >
+                  🚫 欠勤として登録する
+                </button>
+              </div>
+
               {/* 勤怠取り消し */}
               <div style={{ marginTop: "20px", padding: "20px", background: "#fff", border: "1px solid #fca5a5", borderRadius: "8px" }}>
                 <h4 style={{ margin: "0 0 8px 0", fontSize: "1rem", color: "#dc2626", display: "flex", alignItems: "center", gap: "6px" }}>
