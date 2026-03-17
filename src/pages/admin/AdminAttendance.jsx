@@ -912,6 +912,8 @@ export default function AdminAttendance() {
       const newApp = {
         ...existingApp,
         status: 'approved',
+        withdrawn: false, // 再承認時にwithdrawnフラグをクリア
+        withdrawnAt: null,
         appliedIn,
         appliedOut,
         appliedAt: existingApp.appliedAt || new Date().toISOString(),
