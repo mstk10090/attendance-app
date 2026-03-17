@@ -412,8 +412,13 @@ export default function AdminAttendanceSheet() {
                     partTimeHours = roundHalf(pMin / 60);
                     // 勤怠確認シートにはバイト時間のみ表示
                     hours = partTimeHours;
-                    // 開始時間 = 終了時間 - バイト時間
-                    if (pMin > 0 && displayOut) {
+                    // バイト時間が0の場合（派遣のみ）は全て空白
+                    if (pMin <= 0) {
+                        displayIn = "";
+                        displayOut = "";
+                        hours = "";
+                    } else if (pMin > 0 && displayOut) {
+                        // 開始時間 = 終了時間 - バイト時間
                         const outMinVal = toMin(displayOut);
                         const partStartMin = outMinVal - pMin;
                         const pH = String(Math.floor(partStartMin / 60)).padStart(2, '0');
@@ -452,8 +457,13 @@ export default function AdminAttendanceSheet() {
                 dispatchHours = roundHalf(dMin / 60);
                 partTimeHours = roundHalf(pMin / 60);
                 hours = partTimeHours;
-                // 開始時間 = 終了時間 - バイト時間
-                if (pMin > 0 && displayOut) {
+                // バイト時間が0の場合（派遣のみ）は全て空白
+                if (pMin <= 0) {
+                    displayIn = "";
+                    displayOut = "";
+                    hours = "";
+                } else if (pMin > 0 && displayOut) {
+                    // 開始時間 = 終了時間 - バイト時間
                     const outMinVal = toMin(displayOut);
                     const partStartMin = outMinVal - pMin;
                     const pH2 = String(Math.floor(partStartMin / 60)).padStart(2, '0');
