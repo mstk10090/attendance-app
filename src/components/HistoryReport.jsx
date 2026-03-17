@@ -646,7 +646,23 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                         <td style={{ padding: "12px 16px", textAlign: "center", fontSize: "0.9rem", color: shift ? "#2563eb" : "#9ca3af" }}>
                                             {shift ? (
                                                 <>
-                                                    {shift.isOff ? "休み" : `${shift.start}-${shift.end}`}
+                                                    {shift.isOff ? "休み" : (() => {
+                                                        // 派遣ユーザーの場合、派遣/バイトを分けて表示
+                                                        if (shift.dispatchRange && shift.start && shift.end) {
+                                                            const dStart = shift.dispatchRange.start.substring(0, 5);
+                                                            const dEnd = shift.dispatchRange.end.substring(0, 5);
+                                                            // バイト = 派遣終了 ~ シフト終了
+                                                            const sEnd = shift.end.substring(0, 5);
+                                                            const hasPart = dEnd !== sEnd;
+                                                            return (
+                                                                <div style={{ lineHeight: "1.4" }}>
+                                                                    <div style={{ fontSize: "0.8rem", color: "#4338ca" }}>{dStart}-{dEnd} <span style={{ fontSize: "0.7rem" }}>派遣</span></div>
+                                                                    {hasPart && <div style={{ fontSize: "0.8rem", color: "#16a34a" }}>{dEnd}-{sEnd} <span style={{ fontSize: "0.7rem" }}>バイト</span></div>}
+                                                                </div>
+                                                            );
+                                                        }
+                                                        return `${shift.start}-${shift.end}`;
+                                                    })()}
                                                     {/* 派遣シフトコード表示 */}
                                                     {!shift.isOff && shift.original && (() => {
                                                         const firstCode = shift.original.split(/[\s\/]/)[0]?.trim();
