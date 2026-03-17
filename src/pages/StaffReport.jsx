@@ -160,13 +160,17 @@ export default function StaffReport() {
             setSelectedReasons(app.reasonsDetail.map(r => ({
                 type: r.type || "",
                 subReason: r.subReason || "",
-                subReasonText: r.subReasonText || ""
+                subReasonText: r.subReasonText || "",
+                actualClockIn: r.actualClockIn || "",
+                actualClockOut: r.actualClockOut || ""
             })));
         } else if (app.reason && app.reason !== "-") {
             setSelectedReasons([{
                 type: app.reason,
                 subReason: app.subReason || "",
-                subReasonText: app.subReasonText || ""
+                subReasonText: app.subReasonText || "",
+                actualClockIn: app.actualClockIn || "",
+                actualClockOut: app.actualClockOut || ""
             }]);
         } else {
             setSelectedReasons([]);
@@ -192,6 +196,7 @@ export default function StaffReport() {
             if (subOpts.length > 0 && !r.subReason) { alert(`${r.type}の詳細理由を選択してください`); return; }
             if (r.subReason === "その他" && !r.subReasonText.trim()) { alert(`${r.type}のその他理由を入力してください`); return; }
             if (r.type === "その他" && !r.subReasonText.trim()) { alert("その他の理由を入力してください"); return; }
+            if (r.type === "打刻忘れ" && (!r.actualClockIn && !r.actualClockOut)) { alert("打刻忘れ: おおよその出社時間または退勤時間を入力してください"); return; }
         }
         if (!isAbsent && (!formIn || !formOut)) { alert("出勤・退勤時間を入力してください"); return; }
 
@@ -212,7 +217,7 @@ export default function StaffReport() {
                     subReason: selectedReasons.length === 1 ? (selectedReasons[0].subReason || undefined) : undefined,
                     subReasonText: selectedReasons.length === 1 ? (selectedReasons[0].subReasonText || undefined) : undefined,
                     detailText: formText || undefined,
-                    reasonsDetail: selectedReasons.map(r => ({ type: r.type, subReason: r.subReason || null, subReasonText: r.subReasonText || null })),
+                    reasonsDetail: selectedReasons.map(r => ({ type: r.type, subReason: r.subReason || null, subReasonText: r.subReasonText || null, actualClockIn: r.actualClockIn || null, actualClockOut: r.actualClockOut || null })),
                     appliedIn: isAbsent ? "" : formIn,
                     appliedOut: isAbsent ? "" : formOut,
                     breakDuration: formBreakDuration,
@@ -255,7 +260,7 @@ export default function StaffReport() {
             if (exists) return prev.filter(r => r.type !== type);
             if (type === "欠勤") return [{ type: "欠勤", subReason: "", subReasonText: "" }];
             const filtered = prev.filter(r => r.type !== "欠勤");
-            return [...filtered, { type, subReason: "", subReasonText: "" }];
+            return [...filtered, { type, subReason: "", subReasonText: "", actualClockIn: "", actualClockOut: "" }];
         });
     };
     const updateReasonDetail = (type, field, value) => {
@@ -420,6 +425,25 @@ export default function StaffReport() {
                                             {r.type === "その他" && (
                                                 <textarea value={r.subReasonText} onChange={e => updateReasonDetail(r.type, "subReasonText", e.target.value)}
                                                     placeholder="理由を入力してください（必須）" style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.85rem", minHeight: "50px", resize: "vertical" }} />
+                                            )}
+                                            {r.type === "打刻忘れ" && (
+                                                <div style={{ marginTop: "6px" }}>
+                                                    <div style={{ fontSize: "0.8rem", color: "#6b7280", marginBottom: "6px" }}>おおよその出社・退勤時間を入力してください</div>
+                                                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                                        <label style={{ fontSize: "0.8rem", color: "#374151", minWidth: "36px" }}>出社:</label>
+                                                        <select value={r.actualClockIn || ""} onChange={e => updateReasonDetail(r.type, "actualClockIn", e.target.value)}
+                                                            style={{ flex: 1, padding: "6px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.85rem" }}>
+                                                            <option value="">選択</option>
+                                                            {Array.from({ length: 48 }, (_, i) => { const h = String(Math.floor(i / 2)).padStart(2, "0"); const m = i % 2 === 0 ? "00" : "30"; return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>; })}
+                                                        </select>
+                                                        <label style={{ fontSize: "0.8rem", color: "#374151", minWidth: "36px" }}>退勤:</label>
+                                                        <select value={r.actualClockOut || ""} onChange={e => updateReasonDetail(r.type, "actualClockOut", e.target.value)}
+                                                            style={{ flex: 1, padding: "6px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.85rem" }}>
+                                                            <option value="">選択</option>
+                                                            {Array.from({ length: 48 }, (_, i) => { const h = String(Math.floor(i / 2)).padStart(2, "0"); const m = i % 2 === 0 ? "00" : "30"; return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>; })}
+                                                        </select>
+                                                    </div>
+                                                </div>
                                             )}
                                         </div>
                                     );

@@ -2387,6 +2387,11 @@ export default function AdminAttendance() {
                             {r.type === "その他" && r.subReasonText && (
                               <span style={{ marginLeft: "8px", fontSize: "13px", color: "#6b7280" }}>: {r.subReasonText}</span>
                             )}
+                            {r.type === "打刻忘れ" && (r.actualClockIn || r.actualClockOut) && (
+                              <div style={{ marginTop: "4px", fontSize: "12px", color: "#6b7280" }}>
+                                ⏰ 本人申告: {r.actualClockIn ? `出社 ${r.actualClockIn}` : ""}{r.actualClockIn && r.actualClockOut ? " / " : ""}{r.actualClockOut ? `退勤 ${r.actualClockOut}` : ""}
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
