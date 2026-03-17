@@ -398,12 +398,12 @@ export default function AdminAttendanceSheet() {
                 const isDispatch = (shift && shift.isDispatch) || (!shift && isDispatchUser(user));
 
                 if (isDispatch && shift) {
-                    // 派遣ユーザー: dispatchRangeで派遣時間を計算
+                    // 派遣ユーザー: 派遣時間優先で計算
                     let dMin = 0;
                     if (shift.dispatchRange) {
                         const dispStart = toMin(shift.dispatchRange.start);
                         const dispEnd = toMin(shift.dispatchRange.end);
-                        dMin = dispEnd - dispStart;
+                        dMin = Math.min(dispEnd - dispStart, roundedMin);
                     } else {
                         dMin = Math.min(roundedMin, 8 * 60);
                     }
@@ -412,6 +412,16 @@ export default function AdminAttendanceSheet() {
                     partTimeHours = roundHalf(pMin / 60);
                     // 勤怠確認シートにはバイト時間のみ表示
                     hours = partTimeHours;
+                    // 開始時間 = 終了時間 - バイト時間
+                    if (pMin > 0 && displayOut) {
+                        const outMinVal = toMin(displayOut);
+                        const partStartMin = outMinVal - pMin;
+                        const pH = String(Math.floor(partStartMin / 60)).padStart(2, '0');
+                        const pM = String(partStartMin % 60).padStart(2, '0');
+                        displayIn = `${pH}:${pM}`;
+                    } else {
+                        displayIn = "";
+                    }
                 } else {
                     hours = roundHalf(roundedMin / 60);
                 }
@@ -434,7 +444,7 @@ export default function AdminAttendanceSheet() {
                 if (shift.dispatchRange) {
                     const dispStart = toMin(shift.dispatchRange.start);
                     const dispEnd = toMin(shift.dispatchRange.end);
-                    dMin = dispEnd - dispStart;
+                    dMin = Math.min(dispEnd - dispStart, roundedMin);
                 } else {
                     dMin = Math.min(roundedMin, 8 * 60);
                 }
@@ -442,6 +452,16 @@ export default function AdminAttendanceSheet() {
                 dispatchHours = roundHalf(dMin / 60);
                 partTimeHours = roundHalf(pMin / 60);
                 hours = partTimeHours;
+                // 開始時間 = 終了時間 - バイト時間
+                if (pMin > 0 && displayOut) {
+                    const outMinVal = toMin(displayOut);
+                    const partStartMin = outMinVal - pMin;
+                    const pH2 = String(Math.floor(partStartMin / 60)).padStart(2, '0');
+                    const pM2 = String(partStartMin % 60).padStart(2, '0');
+                    displayIn = `${pH2}:${pM2}`;
+                } else {
+                    displayIn = "";
+                }
             } else {
                 hours = roundHalf(roundedMin / 60);
             }

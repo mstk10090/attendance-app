@@ -47,7 +47,7 @@ export const HOLIDAYS = [
 
 export const LOCATIONS = ["未記載", "呉羽", "山葉", "東洋", "細川", "出張"];
 export const DEPARTMENTS = ["未記載", "即日", "買取", "広告", "CEO", "アビエス"];
-export const REASON_OPTIONS = ["-", "欠勤", "遅刻", "早退", "残業", "打刻忘れ", "出張", "その他", "打刻間違い", "シフトなし"];
+export const REASON_OPTIONS = ["-", "欠勤", "遅刻", "早退", "残業", "打刻忘れ", "シフトなし", "出張", "その他"];
 
 // カテゴリごとのサブ理由定義
 export const REASON_SUB_OPTIONS = {
