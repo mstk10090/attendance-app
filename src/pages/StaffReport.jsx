@@ -42,12 +42,13 @@ export default function StaffReport() {
     const [formIn, setFormIn] = useState("");
     const [formOut, setFormOut] = useState("");
     const [formBreakDuration, setFormBreakDuration] = useState(0);
-    const [reason, setReason] = useState("-");
-    const [subReason, setSubReason] = useState("");
-    const [subReasonText, setSubReasonText] = useState("");
+    // 複数理由: [{ type: "遅刻", subReason: "寝坊", subReasonText: "" }, { type: "早退", ... }]
+    const [selectedReasons, setSelectedReasons] = useState([]);
     const [formText, setFormText] = useState("");
     const [submitting, setSubmitting] = useState(false);
     const [formSegments, setFormSegments] = useState([]);
+    // 理由選択に使う選択肢（欠勤をクリックした場合は単独で別扱い）
+    const MULTI_REASON_OPTIONS = ["遅刻", "早退", "残業", "打刻忘れ", "シフトなし", "出張", "その他"];
 
     // ユーザー情報取得
     useEffect(() => {
@@ -154,14 +155,21 @@ export default function StaffReport() {
         setFormOut(clockOutRounded || app.appliedOut || shift?.end || "18:00");
         setFormBreakDuration(app.breakDuration || 0);
         setFormText(p.text || "");
-        if (app.reason && REASON_OPTIONS.includes(app.reason)) {
-            setReason(app.reason);
-            setSubReason(app.subReason || "");
-            setSubReasonText(app.subReasonText || "");
+        // 既存の理由を復元
+        if (app.reasonsDetail && Array.isArray(app.reasonsDetail)) {
+            setSelectedReasons(app.reasonsDetail.map(r => ({
+                type: r.type || "",
+                subReason: r.subReason || "",
+                subReasonText: r.subReasonText || ""
+            })));
+        } else if (app.reason && app.reason !== "-") {
+            setSelectedReasons([{
+                type: app.reason,
+                subReason: app.subReason || "",
+                subReasonText: app.subReasonText || ""
+            }]);
         } else {
-            setReason(REASON_OPTIONS[0]);
-            setSubReason("");
-            setSubReasonText("");
+            setSelectedReasons([]);
         }
         setFormSegments(p.segments?.length > 0 ? p.segments : [{
             location: user.defaultLocation || LOCATIONS[0],
@@ -171,32 +179,42 @@ export default function StaffReport() {
         setEditModal({ dateStr, item: item || { workDate: dateStr } });
     };
 
+    // 欠勤チェック用
+    const isAbsent = selectedReasons.length === 1 && selectedReasons[0].type === "欠勤";
+
     // 申請送信
     const handleSubmit = async () => {
         if (!editModal) return;
-        if (!reason || reason === "-") { alert("修正・申請理由を選択してください"); return; }
-        const subOpts = REASON_SUB_OPTIONS[reason] || [];
-        if (subOpts.length > 0 && !subReason) { alert(`${reason}の詳細理由を選択してください`); return; }
-        if (subReason === "その他" && !subReasonText.trim()) { alert("詳細理由を入力してください"); return; }
-        if (!formIn || !formOut) { alert("出勤・退勤時間を入力してください"); return; }
+        if (selectedReasons.length === 0) { alert("修正・申請理由を1つ以上選択してください"); return; }
+        // 各理由のバリデーション
+        for (const r of selectedReasons) {
+            const subOpts = REASON_SUB_OPTIONS[r.type] || [];
+            if (subOpts.length > 0 && !r.subReason) { alert(`${r.type}の詳細理由を選択してください`); return; }
+            if (r.subReason === "その他" && !r.subReasonText.trim()) { alert(`${r.type}のその他理由を入力してください`); return; }
+            if (r.type === "その他" && !r.subReasonText.trim()) { alert("その他の理由を入力してください"); return; }
+        }
+        if (!isAbsent && (!formIn || !formOut)) { alert("出勤・退勤時間を入力してください"); return; }
 
         setSubmitting(true);
         try {
             const originalItem = editModal.item;
             const p = parseComment(originalItem?.comment);
             const existingLog = p.auditLog || [];
-            existingLog.push({ action: "staff_edit", by: user.userName, at: new Date().toISOString(), detail: `修正申請（${reason}）` });
+            const reasonLabels = selectedReasons.map(r => r.type).join("・");
+            existingLog.push({ action: "staff_edit", by: user.userName, at: new Date().toISOString(), detail: `修正申請（${reasonLabels}）` });
 
             const newComment = JSON.stringify({
                 segments: formSegments,
                 text: formText,
                 application: {
-                    status: "pending",
-                    reason: reason,
-                    subReason: subReason || undefined,
-                    subReasonText: subReasonText || undefined,
-                    appliedIn: formIn,
-                    appliedOut: formOut,
+                    status: isAbsent ? "absent" : "pending",
+                    reason: reasonLabels,
+                    subReason: selectedReasons.length === 1 ? (selectedReasons[0].subReason || undefined) : undefined,
+                    subReasonText: selectedReasons.length === 1 ? (selectedReasons[0].subReasonText || undefined) : undefined,
+                    detailText: formText || undefined,
+                    reasonsDetail: selectedReasons.map(r => ({ type: r.type, subReason: r.subReason || null, subReasonText: r.subReasonText || null })),
+                    appliedIn: isAbsent ? "" : formIn,
+                    appliedOut: isAbsent ? "" : formOut,
                     breakDuration: formBreakDuration,
                 },
                 auditLog: existingLog
@@ -230,10 +248,21 @@ export default function StaffReport() {
 
     if (!user) return <div style={{ padding: "40px", textAlign: "center" }}>ログインしてください</div>;
 
-    const subOptions = REASON_SUB_OPTIONS[reason] || [];
-    const shift = editModal ? getShift(editModal.dateStr) : null;
+    // 理由トグル
+    const toggleReason = (type) => {
+        setSelectedReasons(prev => {
+            const exists = prev.find(r => r.type === type);
+            if (exists) return prev.filter(r => r.type !== type);
+            if (type === "欠勤") return [{ type: "欠勤", subReason: "", subReasonText: "" }];
+            const filtered = prev.filter(r => r.type !== "欠勤");
+            return [...filtered, { type, subReason: "", subReasonText: "" }];
+        });
+    };
+    const updateReasonDetail = (type, field, value) => {
+        setSelectedReasons(prev => prev.map(r => r.type === type ? { ...r, [field]: value } : r));
+    };
 
-    // 時間オプション生成
+    const shift = editModal ? getShift(editModal.dateStr) : null;
     const timeOptions = Array.from({ length: 48 }, (_, i) => {
         const h = String(Math.floor(i / 2)).padStart(2, "0");
         const m = i % 2 === 0 ? "00" : "30";
@@ -299,61 +328,103 @@ export default function StaffReport() {
                                 </div>
                             )}
 
+                            {/* 再提出依頼メッセージ */}
+                            {(() => {
+                                const p = parseComment(editModal.item?.comment);
+                                const app = p.application || {};
+                                if (app.status === "resubmission_requested" && app.adminComment) {
+                                    return (
+                                        <div style={{ background: "#fef3c7", border: "1px solid #fde68a", borderRadius: "8px", padding: "10px", marginBottom: "16px", fontSize: "0.85rem", color: "#92400e" }}>
+                                            📝 [再提出依頼]: {app.adminComment}
+                                        </div>
+                                    );
+                                }
+                                return null;
+                            })()}
+
                             {/* 申請時間 */}
-                            <div style={{ marginBottom: "16px" }}>
-                                <label style={{ fontWeight: "bold", fontSize: "0.85rem", marginBottom: "6px", display: "block" }}>申請時間</label>
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "8px", alignItems: "center" }}>
-                                    <select value={formIn} onChange={e => setFormIn(e.target.value)}
-                                        style={{ padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "0.95rem" }}>
-                                        {timeOptions.map(t => <option key={t} value={t}>{t}</option>)}
-                                    </select>
-                                    <span style={{ color: "#9ca3af" }}>〜</span>
-                                    <select value={formOut} onChange={e => setFormOut(e.target.value)}
-                                        style={{ padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "0.95rem" }}>
-                                        {timeOptions.map(t => <option key={t} value={t}>{t}</option>)}
-                                    </select>
-                                </div>
-                            </div>
-
-                            {/* 休憩時間 */}
-                            <div style={{ marginBottom: "16px" }}>
-                                <label style={{ fontWeight: "bold", fontSize: "0.85rem", marginBottom: "6px", display: "block" }}>休憩時間</label>
-                                <select value={formBreakDuration} onChange={e => setFormBreakDuration(Number(e.target.value))}
-                                    style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "0.95rem" }}>
-                                    <option value={0}>なし</option>
-                                    <option value={15}>15分</option>
-                                    <option value={30}>30分</option>
-                                    <option value={45}>45分</option>
-                                    <option value={60}>1時間</option>
-                                    <option value={90}>1時間30分</option>
-                                </select>
-                            </div>
-
-                            {/* 修正理由 */}
-                            <div style={{ marginBottom: "16px" }}>
-                                <label style={{ fontWeight: "bold", fontSize: "0.85rem", marginBottom: "6px", display: "block" }}>修正・申請理由</label>
-                                <select value={reason} onChange={e => { setReason(e.target.value); setSubReason(""); setSubReasonText(""); }}
-                                    style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "0.95rem" }}>
-                                    {REASON_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-                                </select>
-                            </div>
-
-                            {/* サブ理由 */}
-                            {subOptions.length > 0 && (
+                            {!isAbsent && (
                                 <div style={{ marginBottom: "16px" }}>
-                                    <label style={{ fontWeight: "bold", fontSize: "0.85rem", marginBottom: "6px", display: "block" }}>{reason}の詳細</label>
-                                    <select value={subReason} onChange={e => setSubReason(e.target.value)}
-                                        style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "0.95rem" }}>
-                                        <option value="">選択してください</option>
-                                        {subOptions.map(o => <option key={o} value={o}>{o}</option>)}
-                                    </select>
-                                    {subReason === "その他" && (
-                                        <textarea value={subReasonText} onChange={e => setSubReasonText(e.target.value)}
-                                            placeholder="詳細を入力してください"
-                                            style={{ width: "100%", marginTop: "8px", padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "0.85rem", minHeight: "60px", resize: "vertical" }} />
-                                    )}
+                                    <label style={{ fontWeight: "bold", fontSize: "0.85rem", marginBottom: "6px", display: "block" }}>申請時間</label>
+                                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "8px", alignItems: "center" }}>
+                                        <select value={formIn} onChange={e => setFormIn(e.target.value)}
+                                            style={{ padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "0.95rem" }}>
+                                            {timeOptions.map(t => <option key={t} value={t}>{t}</option>)}
+                                        </select>
+                                        <span style={{ color: "#9ca3af" }}>〜</span>
+                                        <select value={formOut} onChange={e => setFormOut(e.target.value)}
+                                            style={{ padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "0.95rem" }}>
+                                            {timeOptions.map(t => <option key={t} value={t}>{t}</option>)}
+                                        </select>
+                                    </div>
                                 </div>
                             )}
+
+                            {/* 休憩時間 */}
+                            {!isAbsent && (
+                                <div style={{ marginBottom: "16px" }}>
+                                    <label style={{ fontWeight: "bold", fontSize: "0.85rem", marginBottom: "6px", display: "block" }}>休憩時間</label>
+                                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                        <button type="button" onClick={() => setFormBreakDuration(prev => Math.max(0, prev - 30))}
+                                            style={{ width: "32px", height: "32px", borderRadius: "6px", border: "1px solid #d1d5db", background: "#f9fafb", fontSize: "16px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
+                                        <span style={{ minWidth: "70px", textAlign: "center", fontSize: "14px", fontWeight: "bold" }}>
+                                            {Math.floor(formBreakDuration / 60)}時間{formBreakDuration % 60}分
+                                        </span>
+                                        <button type="button" onClick={() => setFormBreakDuration(prev => Math.min(1440, prev + 30))}
+                                            style={{ width: "32px", height: "32px", borderRadius: "6px", border: "1px solid #d1d5db", background: "#f9fafb", fontSize: "16px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* 修正理由（チェックボックス複数選択） */}
+                            <div style={{ marginBottom: "16px" }}>
+                                <label style={{ fontWeight: "bold", fontSize: "0.85rem", marginBottom: "8px", display: "block" }}>修正・申請理由（複数選択可）</label>
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "8px" }}>
+                                    <button type="button" onClick={() => toggleReason("欠勤")}
+                                        style={{
+                                            padding: "6px 14px", borderRadius: "20px", fontSize: "0.85rem", fontWeight: "bold", cursor: "pointer",
+                                            border: selectedReasons.some(r => r.type === "欠勤") ? "2px solid #dc2626" : "1px solid #d1d5db",
+                                            background: selectedReasons.some(r => r.type === "欠勤") ? "#fef2f2" : "#fff",
+                                            color: selectedReasons.some(r => r.type === "欠勤") ? "#dc2626" : "#374151"
+                                        }}>欠勤</button>
+                                    {MULTI_REASON_OPTIONS.map(opt => (
+                                        <button key={opt} type="button" onClick={() => toggleReason(opt)}
+                                            style={{
+                                                padding: "6px 14px", borderRadius: "20px", fontSize: "0.85rem", fontWeight: "bold", cursor: "pointer",
+                                                border: selectedReasons.some(r => r.type === opt) ? "2px solid #2563eb" : "1px solid #d1d5db",
+                                                background: selectedReasons.some(r => r.type === opt) ? "#eff6ff" : "#fff",
+                                                color: selectedReasons.some(r => r.type === opt) ? "#2563eb" : "#374151"
+                                            }}>{opt}</button>
+                                    ))}
+                                </div>
+
+                                {/* 各選択理由の詳細入力 */}
+                                {selectedReasons.map(r => {
+                                    const subOpts = REASON_SUB_OPTIONS[r.type] || [];
+                                    return (
+                                        <div key={r.type} style={{ background: "#f9fafb", borderRadius: "8px", padding: "10px", marginBottom: "8px", border: "1px solid #e5e7eb" }}>
+                                            <div style={{ fontWeight: "bold", fontSize: "0.85rem", color: "#374151", marginBottom: subOpts.length > 0 || r.type === "その他" ? "8px" : "0" }}>{r.type}</div>
+                                            {subOpts.length > 0 && (
+                                                <>
+                                                    <select value={r.subReason} onChange={e => updateReasonDetail(r.type, "subReason", e.target.value)}
+                                                        style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.85rem", marginBottom: "4px" }}>
+                                                        <option value="">選択してください</option>
+                                                        {subOpts.map(o => <option key={o} value={o}>{o}</option>)}
+                                                    </select>
+                                                    {r.subReason === "その他" && (
+                                                        <textarea value={r.subReasonText} onChange={e => updateReasonDetail(r.type, "subReasonText", e.target.value)}
+                                                            placeholder="詳細を入力" style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.85rem", minHeight: "50px", resize: "vertical" }} />
+                                                    )}
+                                                </>
+                                            )}
+                                            {r.type === "その他" && (
+                                                <textarea value={r.subReasonText} onChange={e => updateReasonDetail(r.type, "subReasonText", e.target.value)}
+                                                    placeholder="理由を入力してください（必須）" style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.85rem", minHeight: "50px", resize: "vertical" }} />
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
 
                             {/* 備考 */}
                             <div style={{ marginBottom: "20px" }}>
@@ -372,12 +443,12 @@ export default function StaffReport() {
                                 <button onClick={handleSubmit} disabled={submitting}
                                     style={{
                                         flex: 2, padding: "12px", borderRadius: "8px", border: "none",
-                                        background: submitting ? "#93c5fd" : reason === "欠勤" ? "#ef4444" : "#2563eb",
+                                        background: submitting ? "#93c5fd" : isAbsent ? "#ef4444" : "#2563eb",
                                         color: "#fff", fontWeight: "bold", cursor: submitting ? "default" : "pointer",
                                         fontSize: "0.95rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
                                         boxShadow: "0 4px 6px rgba(37, 99, 235, 0.2)"
                                     }}>
-                                    {submitting ? "送信中..." : <><CheckCircle size={18} /> {reason === "欠勤" ? "欠勤申請" : "申請を保存"}</>}
+                                    {submitting ? "送信中..." : <><CheckCircle size={18} /> {isAbsent ? "欠勤申請" : "申請を保存"}</>}
                                 </button>
                             </div>
                         </div>
@@ -387,3 +458,4 @@ export default function StaffReport() {
         </div>
     );
 }
+
