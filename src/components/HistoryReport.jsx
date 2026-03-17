@@ -744,6 +744,29 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                         </td>
                                         <td style={{ padding: "12px 16px", textAlign: "center", fontWeight: "bold", color: workTimeColor }}>
                                             {workTimeDisplay}
+                                            {/* 派遣ユーザーの内訳表示 */}
+                                            {(() => {
+                                                if (!shift || !shift.dispatchRange) return null;
+                                                const calcTime = appliedTimeForCalc || (item.clockIn && item.clockOut ? { appliedIn: item.clockIn, appliedOut: item.clockOut, breakDuration: 0 } : null);
+                                                if (!calcTime) return null;
+                                                const inM = toMin(calcTime.appliedIn);
+                                                const outM = toMin(calcTime.appliedOut);
+                                                const brk = calcTime.breakDuration || 0;
+                                                const totalMin = Math.max(0, outM - inM - brk);
+                                                const roundedTotal = Math.floor(totalMin / 30) * 30;
+                                                if (roundedTotal <= 0) return null;
+                                                const dS = toMin(shift.dispatchRange.start);
+                                                const dE = toMin(shift.dispatchRange.end);
+                                                const maxDisp = dE - dS;
+                                                const dispMin = Math.min(maxDisp, roundedTotal);
+                                                const partMin = Math.max(0, roundedTotal - dispMin);
+                                                return (
+                                                    <div style={{ fontSize: "0.65rem", fontWeight: "normal", lineHeight: "1.3", marginTop: "2px" }}>
+                                                        <span style={{ color: "#4338ca" }}>派遣{Math.floor(dispMin / 60)}:{String(dispMin % 60).padStart(2, '0')}</span>
+                                                        {partMin > 0 && <span style={{ color: "#16a34a", marginLeft: "4px" }}>バイト{Math.floor(partMin / 60)}:{String(partMin % 60).padStart(2, '0')}</span>}
+                                                    </div>
+                                                );
+                                            })()}
                                         </td>
                                         <td style={{ padding: "12px 16px", textAlign: "center" }}>
                                             {statusDisplay}
