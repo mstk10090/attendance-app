@@ -167,6 +167,9 @@ export default function StaffReport() {
                             baseDate={format(currentDate, "yyyy-MM-dd")}
                             viewMode="month"
                             shiftMap={shiftMap}
+                            onRowClick={(dateStr) => {
+                                navigate(`/attendance?editDate=${dateStr}`);
+                            }}
                         />
                     )}
                 </div>
