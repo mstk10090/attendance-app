@@ -292,8 +292,12 @@ export default function StaffReport() {
         }
         return opts;
     };
-    const inTimeOptions = gen5minOptions(formIn, true);
-    const outTimeOptions = gen5minOptions(formOut, true);
+    // 申請時間は30分刻み・24時間対応
+    const timeOptions = Array.from({ length: 48 }, (_, i) => {
+        const h = String(Math.floor(i / 2)).padStart(2, "0");
+        const m = i % 2 === 0 ? "00" : "30";
+        return `${h}:${m}`;
+    });
 
     return (
         <div style={{ width: "100%", padding: "20px", boxSizing: "border-box" }}>
@@ -375,12 +379,12 @@ export default function StaffReport() {
                                     <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "8px", alignItems: "center" }}>
                                         <select value={formIn} onChange={e => setFormIn(e.target.value)}
                                             style={{ padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "0.95rem" }}>
-                                            {inTimeOptions.map(t => <option key={t} value={t}>{t}</option>)}
+                                            {timeOptions.map(t => <option key={t} value={t}>{t}</option>)}
                                         </select>
                                         <span style={{ color: "#9ca3af" }}>〜</span>
                                         <select value={formOut} onChange={e => setFormOut(e.target.value)}
                                             style={{ padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "0.95rem" }}>
-                                            {outTimeOptions.map(t => <option key={t} value={t}>{t}</option>)}
+                                            {timeOptions.map(t => <option key={t} value={t}>{t}</option>)}
                                         </select>
                                     </div>
                                 </div>
