@@ -268,11 +268,32 @@ export default function StaffReport() {
     };
 
     const shift = editModal ? getShift(editModal.dateStr) : null;
-    const timeOptions = Array.from({ length: 48 }, (_, i) => {
-        const h = String(Math.floor(i / 2)).padStart(2, "0");
-        const m = i % 2 === 0 ? "00" : "30";
-        return `${h}:${m}`;
-    });
+
+    // 5分刻みの時間オプション生成（基準時間 ±30分）
+    const gen5minOptions = (baseTime, fallbackFull) => {
+        if (!baseTime && fallbackFull) {
+            // フォールバック: 0:00-23:55全範囲
+            return Array.from({ length: 288 }, (_, i) => {
+                const h = String(Math.floor(i / 12)).padStart(2, "0");
+                const m = String((i % 12) * 5).padStart(2, "0");
+                return `${h}:${m}`;
+            });
+        }
+        if (!baseTime) return [];
+        const [bh, bm] = baseTime.split(":").map(Number);
+        const baseMin = bh * 60 + bm;
+        const startMin = Math.max(0, baseMin - 30);
+        const endMin = Math.min(24 * 60 - 1, baseMin + 30);
+        const opts = [];
+        for (let t = startMin; t <= endMin; t += 5) {
+            const h = String(Math.floor(t / 60)).padStart(2, "0");
+            const m = String(t % 60).padStart(2, "0");
+            opts.push(`${h}:${m}`);
+        }
+        return opts;
+    };
+    const inTimeOptions = gen5minOptions(shift?.start, true);
+    const outTimeOptions = gen5minOptions(shift?.end, true);
 
     return (
         <div style={{ width: "100%", padding: "20px", boxSizing: "border-box" }}>
@@ -354,12 +375,12 @@ export default function StaffReport() {
                                     <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "8px", alignItems: "center" }}>
                                         <select value={formIn} onChange={e => setFormIn(e.target.value)}
                                             style={{ padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "0.95rem" }}>
-                                            {timeOptions.map(t => <option key={t} value={t}>{t}</option>)}
+                                            {inTimeOptions.map(t => <option key={t} value={t}>{t}</option>)}
                                         </select>
                                         <span style={{ color: "#9ca3af" }}>〜</span>
                                         <select value={formOut} onChange={e => setFormOut(e.target.value)}
                                             style={{ padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "0.95rem" }}>
-                                            {timeOptions.map(t => <option key={t} value={t}>{t}</option>)}
+                                            {outTimeOptions.map(t => <option key={t} value={t}>{t}</option>)}
                                         </select>
                                     </div>
                                 </div>
@@ -434,13 +455,13 @@ export default function StaffReport() {
                                                         <select value={r.actualClockIn || ""} onChange={e => updateReasonDetail(r.type, "actualClockIn", e.target.value)}
                                                             style={{ flex: 1, padding: "6px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.85rem" }}>
                                                             <option value="">選択</option>
-                                                            {Array.from({ length: 48 }, (_, i) => { const h = String(Math.floor(i / 2)).padStart(2, "0"); const m = i % 2 === 0 ? "00" : "30"; return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>; })}
+                                                            {gen5minOptions(shift?.start || formIn, true).map(t => <option key={t} value={t}>{t}</option>)}
                                                         </select>
                                                         <label style={{ fontSize: "0.8rem", color: "#374151", minWidth: "36px" }}>退勤:</label>
                                                         <select value={r.actualClockOut || ""} onChange={e => updateReasonDetail(r.type, "actualClockOut", e.target.value)}
                                                             style={{ flex: 1, padding: "6px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.85rem" }}>
                                                             <option value="">選択</option>
-                                                            {Array.from({ length: 48 }, (_, i) => { const h = String(Math.floor(i / 2)).padStart(2, "0"); const m = i % 2 === 0 ? "00" : "30"; return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>; })}
+                                                            {gen5minOptions(shift?.end || formOut, true).map(t => <option key={t} value={t}>{t}</option>)}
                                                         </select>
                                                     </div>
                                                 </div>
