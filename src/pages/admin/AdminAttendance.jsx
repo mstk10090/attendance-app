@@ -1892,7 +1892,7 @@ export default function AdminAttendance() {
                                 <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                                   {/* 遅刻部分 */}
                                   {lateCancelled ? (
-                                    <span style={{ color: "#6b7280", fontSize: "11px", textDecoration: "line-through" }}>
+                                    <span style={{ color: "#6b7280", fontSize: "11px" }}>
                                       遅刻（取消済）{item._application?.lateCancelReason ? ` (${item._application.lateCancelReason})` : ""}
                                     </span>
                                   ) : (
@@ -1906,7 +1906,7 @@ export default function AdminAttendance() {
                                   )}
                                   {/* 早退部分 */}
                                   {earlyCancelled ? (
-                                    <span style={{ color: "#6b7280", fontSize: "11px", textDecoration: "line-through" }}>
+                                    <span style={{ color: "#6b7280", fontSize: "11px" }}>
                                       早退（取消済）{item._application?.earlyCancelReason ? ` (${item._application.earlyCancelReason})` : ""}
                                     </span>
                                   ) : (
@@ -2035,7 +2035,7 @@ export default function AdminAttendance() {
                                   const ec = item._application?.earlyCancelled;
                                   const isCancelled = (mainReason === "遅刻" && lc) || (mainReason === "早退" && ec) || (mainReason === "遅刻+早退" && lc && ec);
                                   return isCancelled
-                                    ? <span style={{ textDecoration: "line-through", color: "#9ca3af", fontWeight: "normal" }}>{mainReason}（取消済）</span>
+                                    ? <span style={{ color: "#9ca3af", fontWeight: "normal" }}>{mainReason}（取消済）</span>
                                     : <span style={{ fontWeight: "bold", color: "#ef4444" }}>{mainReason}</span>;
                                 })()}
                                 {detail && (
