@@ -950,6 +950,19 @@ export default function AdminAttendanceSheet() {
                                                         <td style={{ padding: "6px 8px", color: "#6b7280", fontWeight: "600", whiteSpace: "nowrap", borderBottom: "1px solid #e5e7eb" }}>📝 申請理由</td>
                                                         <td style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb", color: "#374151" }}>
                                                             {reason}
+                                                            {(() => {
+                                                                const sub = app?.subReason;
+                                                                const subText = app?.subReasonText;
+                                                                const detail = app?.detailText;
+                                                                const parts = [];
+                                                                if (sub && sub !== "-") parts.push(sub);
+                                                                if (subText && sub === "その他") parts.push(subText);
+                                                                if (detail) parts.push(detail);
+                                                                if (parts.length > 0) {
+                                                                    return <span style={{ color: "#6b7280", fontSize: "0.85em" }}>（理由: {parts.join(" / ")}）</span>;
+                                                                }
+                                                                return null;
+                                                            })()}
                                                         </td>
                                                     </tr>
                                                 )}
