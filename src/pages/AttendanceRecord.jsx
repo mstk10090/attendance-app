@@ -359,34 +359,8 @@ export default function AttendanceRecord({ user: propUser }) {
     }
 
     const nowTime = format(new Date(), "HH:mm");
-    const shift = getShift(user.userName, todayStr);
 
-    // シフトがある場合に遅刻チェック（出勤時刻 >= シフト開始時刻）
-    if (shift && shift.start && !shift.isOff) {
-      const shiftStartMin = toMin(shift.start);
-      const clockInMin = toMin(nowTime);
-
-      if (clockInMin >= shiftStartMin) {
-        // 遅刻 → 乖離モーダルを表示
-        setDiscrepancyMode("clockIn");
-        setDiscrepancyInfo({
-          shiftStart: shift.start,
-          shiftEnd: shift.end,
-          clockIn: nowTime,
-          clockOutTime: null
-        });
-        setDiscrepancyReason("");
-        setDiscrepancySubReason("");
-        setDiscrepancySubReasonText("");
-        setDiscrepancyText("");
-        setForgotClockActualIn("");
-        setForgotClockActualOut("");
-        setDiscrepancyModalOpen(true);
-        return; // モーダルでの入力を待つ
-      }
-    }
-
-    // 乖離なし → 通常出勤
+    // 乖離チェックは退勤時にまとめて行うため、出勤時は常に通常出勤
     await executeClockIn(nowTime);
   };
 
@@ -872,11 +846,7 @@ export default function AttendanceRecord({ user: propUser }) {
       return;
     }
     if (discrepancyReason === "打刻忘れ") {
-      if (discrepancyMode === "clockIn" && !forgotClockActualIn) {
-        alert("おおよその出社時間を入力してください");
-        return;
-      }
-      if (discrepancyMode === "clockOut" && !forgotClockActualOut) {
+      if (!forgotClockActualOut) {
         alert("おおよその退勤時間を入力してください");
         return;
       }
@@ -895,11 +865,7 @@ export default function AttendanceRecord({ user: propUser }) {
     }
 
     setDiscrepancyModalOpen(false);
-    if (discrepancyMode === "clockIn") {
-      await executeClockIn(discrepancyInfo.clockIn, reasonStr, subReasonVal, subReasonTextVal, textVal);
-    } else {
-      await executeClockOut(discrepancyInfo.clockOutTime, reasonStr, subReasonVal, subReasonTextVal, textVal, discrepancyAppliedIn || null, discrepancyAppliedOut || null);
-    }
+    await executeClockOut(discrepancyInfo.clockOutTime, reasonStr, subReasonVal, subReasonTextVal, textVal, discrepancyAppliedIn || null, discrepancyAppliedOut || null);
   };
 
   const handleBreakStart = async () => {
@@ -2111,7 +2077,7 @@ export default function AttendanceRecord({ user: propUser }) {
                     boxShadow: "0 4px 6px rgba(239,68,68,0.3)"
                   }}
                 >
-                  {discrepancyMode === "clockIn" ? "出勤して申請" : "退勤して申請"}
+                  退勤して申請
                 </button>
               </div>
             </div>
