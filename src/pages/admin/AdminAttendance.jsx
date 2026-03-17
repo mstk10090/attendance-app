@@ -399,8 +399,8 @@ export default function AdminAttendance() {
     return groups;
   }, [items, viewMode, users]); // Added users dependency
 
-  const fetchAttendances = async () => {
-    setLoading(true);
+  const fetchAttendances = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const start = new Date(fetchRange.start);
       const end = new Date(fetchRange.end);
@@ -956,11 +956,12 @@ export default function AdminAttendance() {
           ? { ...i, comment: finalComment, _application: newApp }
           : i
       ));
-      // バックグラウンドでデータ再取得（スクロール位置を維持）
-      fetchAttendances().then(() => {
+      // スクロール位置を即座に復元
+      window.scrollTo(0, scrollY);
+      // バックグラウンドでデータ再取得（silent=trueでローディング非表示）
+      fetchAttendances(true).then(() => {
         requestAnimationFrame(() => window.scrollTo(0, scrollY));
       });
-      requestAnimationFrame(() => window.scrollTo(0, scrollY));
     } catch (e) {
       alert("処理に失敗しました");
     } finally {
@@ -1009,10 +1010,9 @@ export default function AdminAttendance() {
           ? { ...i, comment: finalComment, _application: newApp }
           : i
       ));
-      fetchAttendances().then(() => {
+      fetchAttendances(true).then(() => {
         requestAnimationFrame(() => window.scrollTo(0, scrollY));
       });
-      requestAnimationFrame(() => window.scrollTo(0, scrollY));
     } catch (e) {
       alert("処理に失敗しました");
     } finally {
