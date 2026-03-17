@@ -336,11 +336,42 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
             wm = Math.floor(wm / 30) * 30; // 30分単位に丸め
             return acc + wm;
         }, 0);
-        const missingOut = monthItems.filter(i => i.clockIn && !i.clockOut).length;
+        // 申請漏れ・再提出カウント
+        let missingAppCount = 0;
+        // 1. シフトがあるのに申請がない過去日
+        const itemDateSet = new Set(monthItems.map(i => i.displayDate || i.workDate));
+        allDays.forEach(day => {
+            const ds = format(day, "yyyy-MM-dd");
+            if (ds >= today) return; // 未来は除外
+            const s = userShifts[ds];
+            if (!s || s.isOff) return; // シフトなし or 休み
+            // この日の勤怠データがあるか
+            const hasItem = itemDateSet.has(ds);
+            if (!hasItem) {
+                missingAppCount++;
+                return;
+            }
+            // 勤怠データはあるが申請がない(statusなし)ケース
+            const dayItem = monthItems.find(i => (i.displayDate || i.workDate) === ds);
+            if (dayItem) {
+                const p = parseComment(dayItem.comment);
+                const app = p?.application;
+                if (!app || (!app.status && !app.appliedIn)) {
+                    missingAppCount++;
+                }
+            }
+        });
+        // 2. 再提出ステータスの件数
+        monthItems.forEach(i => {
+            const p = parseComment(i.comment);
+            const app = p?.application;
+            if (app?.status === "resubmit") missingAppCount++;
+        });
+
         const days = attendedDates.size;
 
         return {
-            totalMin, missingOut, days, shiftDays,
+            totalMin, missingAppCount, days, shiftDays,
             lateCount, absentCount, earlyCount,
             dispatchMin, partTimeMin
         };
@@ -386,9 +417,9 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                     <div style={{ fontSize: "0.75rem", color: "#92400e", marginBottom: "4px" }}>早退</div>
                     <div style={{ fontSize: "1.6rem", fontWeight: "bold", color: stats.earlyCount > 0 ? "#b45309" : "#9ca3af" }}>{stats.earlyCount}<span style={{ fontSize: "0.8rem", fontWeight: "normal" }}>件</span></div>
                 </div>
-                <div style={{ background: stats.missingOut > 0 ? "#fef2f2" : "#f9fafb", border: `1px solid ${stats.missingOut > 0 ? "#fecaca" : "#e5e7eb"}`, borderRadius: "12px", padding: "14px", textAlign: "center" }}>
-                    <div style={{ fontSize: "0.75rem", color: "#991b1b", marginBottom: "4px" }}>打刻漏れ</div>
-                    <div style={{ fontSize: "1.6rem", fontWeight: "bold", color: stats.missingOut > 0 ? "#dc2626" : "#9ca3af" }}>{stats.missingOut}<span style={{ fontSize: "0.8rem", fontWeight: "normal" }}>件</span></div>
+                <div style={{ background: stats.missingAppCount > 0 ? "#fef2f2" : "#f9fafb", border: `1px solid ${stats.missingAppCount > 0 ? "#fecaca" : "#e5e7eb"}`, borderRadius: "12px", padding: "14px", textAlign: "center" }}>
+                    <div style={{ fontSize: "0.7rem", color: "#991b1b", marginBottom: "4px" }}>申請漏れ・再提出</div>
+                    <div style={{ fontSize: "1.6rem", fontWeight: "bold", color: stats.missingAppCount > 0 ? "#dc2626" : "#9ca3af" }}>{stats.missingAppCount}<span style={{ fontSize: "0.8rem", fontWeight: "normal" }}>件</span></div>
                 </div>
             </div>
             {/* Table List */}

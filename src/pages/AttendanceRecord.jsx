@@ -1680,6 +1680,42 @@ export default function AttendanceRecord({ user: propUser }) {
     return { count: dates.length, dates, reasons };
   }, [items, currentMonth]);
 
+  // 申請漏れ・再提出のカウント（今月）
+  const missingAppData = useMemo(() => {
+    if (!user || !shiftMap) return { count: 0 };
+    const todayStr2 = format(new Date(), "yyyy-MM-dd");
+    const s = startOfMonth(currentDate);
+    const e = endOfMonth(currentDate);
+    const allDays2 = eachDayOfInterval({ start: s, end: e });
+    const itemDateSet = new Set(items.map(i => i.displayDate || i.workDate));
+    let count = 0;
+    // 1. シフトがあるのに申請がない過去日
+    allDays2.forEach(day => {
+      const ds = format(day, "yyyy-MM-dd");
+      if (ds >= todayStr2) return;
+      const shift = getShift(user.userName, ds);
+      if (!shift || shift.isOff) return;
+      if (!itemDateSet.has(ds)) {
+        count++;
+        return;
+      }
+      const dayItem = items.find(i => (i.displayDate || i.workDate) === ds);
+      if (dayItem) {
+        const p = parseComment(dayItem.comment);
+        const app = p?.application;
+        if (!app || (!app.status && !app.appliedIn)) count++;
+      }
+    });
+    // 2. 再提出ステータス
+    items.forEach(i => {
+      const dDate = i.displayDate || i.workDate;
+      if (!dDate.startsWith(currentMonth)) return;
+      const p = parseComment(i.comment);
+      if (p?.application?.status === "resubmit") count++;
+    });
+    return { count };
+  }, [items, user, shiftMap, currentMonth, currentDate]);
+
   return (
     <div className="record-container" style={{ width: "100%", margin: "0 auto" }}> {/* RESTORED FULL WIDTH */}
 
@@ -1741,6 +1777,17 @@ export default function AttendanceRecord({ user: propUser }) {
             {format(currentTime, "yyyy年M月d日 (E)", { locale: ja })}
           </div>
         </div>
+
+        {/* 申請漏れ・再提出アラート */}
+        {missingAppData.count > 0 && (
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
+            background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "8px",
+            padding: "10px 16px", marginBottom: "16px", color: "#dc2626", fontSize: "0.9rem", fontWeight: "bold"
+          }}>
+            ⚠️ 申請漏れ・再提出が {missingAppData.count}件 あります。下の勤怠一覧から申請してください。
+          </div>
+        )}
 
         {/* Buttons Center */}
         <div style={{ display: "flex", justifyContent: "center", gap: "24px", marginBottom: "16px", flexWrap: "wrap" }}>
