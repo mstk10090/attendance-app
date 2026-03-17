@@ -3056,13 +3056,13 @@ export default function AdminAttendance() {
                         logDetail = `上位管理者がスタッフへ差し戻しました: ${saActionComment.trim()}`;
                       } else {
                         // cancel: ステータスのみpendingに戻す（申請内容・打刻は保持）
+                        // withdrawnはスタッフの「取り下げ」操作専用。承認取消ではstatusのみ戻す
                         newApp = {
                           ...app,
                           status: "pending",
                           confirmedBy: null,
                           confirmedAt: null,
-                          superAdminComment: saActionComment.trim() || null,
-                          withdrawn: true, withdrawnAt: new Date().toISOString()
+                          superAdminComment: saActionComment.trim() || null
                         };
                         logAction = "approval_cancelled";
                         logDetail = `上位管理者が承認を取り消しました${saActionComment.trim() ? `: ${saActionComment.trim()}` : ""}`;
