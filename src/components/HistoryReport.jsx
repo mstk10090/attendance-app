@@ -113,6 +113,12 @@ const extractReasonDetail = (item) => {
                 parts.push(app.subReason);
             }
         }
+        // detailText（出張場所、残業理由、その他の理由など）
+        if (app.detailText && app.detailText.trim()) {
+            if (!parts.includes(app.detailText.trim())) {
+                parts.push(app.detailText.trim());
+            }
+        }
         // 既存データ: reasonに括弧が含まれている場合はそこから詳細を抽出
         if (parts.length === 0 && app.reason) {
             const match = app.reason.match(/[\uff08(](.+?)[\uff09)]/);

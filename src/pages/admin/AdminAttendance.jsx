@@ -2023,6 +2023,11 @@ export default function AdminAttendance() {
                                 parts.push(subR);
                               }
                             }
+                            // detailText（出張場所、残業理由、その他の理由など）
+                            const dt = item._application?.detailText;
+                            if (dt && dt.trim() && !parts.includes(dt.trim())) {
+                              parts.push(dt.trim());
+                            }
                             // 既存データ: reasonに括弧が含まれている場合
                             if (parts.length === 0) {
                               const match = appReason.match(/[（(](.+?)[）)]/);
