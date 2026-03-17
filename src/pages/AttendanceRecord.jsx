@@ -1247,9 +1247,9 @@ export default function AttendanceRecord({ user: propUser }) {
       const shift = getShift(user.userName, lookupDate);
 
       // --- VALIDATION START ---
-      // 0. 未退勤チェック（欠勤以外は退勤してから申請）
-      if (reason !== "欠勤" && originalItem && originalItem.clockIn && !originalItem.clockOut) {
-        alert("退勤してから申請してください。\n未退勤の状態では申請できません。");
+      // 0. 未退勤チェック（欠勤・打刻忘れ・出張以外は退勤してから申請）
+      if (reason !== "欠勤" && reason !== "打刻忘れ" && reason !== "出張" && originalItem && originalItem.clockIn && !originalItem.clockOut) {
+        alert("退勤してから申請してください。\n未退勤の状態では申請できません。\n\n※ 打刻忘れの場合は理由を「打刻忘れ」に変更してください。");
         setLoading(false);
         return;
       }
