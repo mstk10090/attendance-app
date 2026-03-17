@@ -1712,7 +1712,7 @@ export default function AttendanceRecord({ user: propUser }) {
       const dDate = i.displayDate || i.workDate;
       if (!dDate.startsWith(currentMonth)) return;
       const p = parseComment(i.comment);
-      if (p?.application?.status === "resubmit") count++;
+      if (p?.application?.status === "resubmission_requested") count++;
     });
     return { count };
   }, [items, user, shiftMap, currentMonth, currentDate]);

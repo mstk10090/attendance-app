@@ -365,7 +365,7 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
         monthItems.forEach(i => {
             const p = parseComment(i.comment);
             const app = p?.application;
-            if (app?.status === "resubmit") missingAppCount++;
+            if (app?.status === "resubmission_requested") missingAppCount++;
         });
 
         const days = attendedDates.size;
