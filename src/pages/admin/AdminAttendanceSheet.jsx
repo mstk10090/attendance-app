@@ -936,14 +936,44 @@ export default function AdminAttendanceSheet() {
                                                 {/* 管理者コメント */}
                                                 {adminComment && (
                                                     <tr>
-                                                        <td style={{ padding: "6px 8px", color: "#6b7280", fontWeight: "600", whiteSpace: "nowrap" }}>💬 管理者メモ</td>
-                                                        <td style={{ padding: "6px 8px", color: "#374151" }}>
+                                                        <td style={{ padding: "6px 8px", color: "#6b7280", fontWeight: "600", whiteSpace: "nowrap", borderBottom: "1px solid #e5e7eb" }}>💬 管理者メモ</td>
+                                                        <td style={{ padding: "6px 8px", color: "#374151", borderBottom: "1px solid #e5e7eb" }}>
                                                             {adminComment}
                                                         </td>
                                                     </tr>
                                                 )}
                                             </tbody>
                                         </table>
+                                        {/* 操作ログ */}
+                                        {(() => {
+                                            const p = att ? parseComment(att.comment) : null;
+                                            const logs = p?.auditLog || [];
+                                            if (logs.length === 0) return null;
+                                            return (
+                                                <div style={{ marginTop: "12px", borderTop: "1px solid #e5e7eb", paddingTop: "10px" }}>
+                                                    <div style={{ fontSize: "0.78rem", color: "#6b7280", fontWeight: "600", marginBottom: "6px" }}>
+                                                        📋 操作ログ
+                                                    </div>
+                                                    <div style={{ maxHeight: "140px", overflowY: "auto" }}>
+                                                        {logs.slice().reverse().map((log, idx) => {
+                                                            const d = log.at ? new Date(log.at) : null;
+                                                            const timeStr = d ? `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : "";
+                                                            return (
+                                                                <div key={idx} style={{
+                                                                    display: "flex", alignItems: "flex-start", gap: "8px",
+                                                                    padding: "4px 0", borderBottom: idx < logs.length - 1 ? "1px solid #f3f4f6" : "none",
+                                                                    fontSize: "0.75rem"
+                                                                }}>
+                                                                    <span style={{ color: "#9ca3af", whiteSpace: "nowrap", minWidth: "70px" }}>{timeStr}</span>
+                                                                    <span style={{ color: "#6b7280", whiteSpace: "nowrap", fontWeight: "600" }}>{log.by || "-"}</span>
+                                                                    <span style={{ color: "#374151", wordBreak: "break-word" }}>{log.detail || log.action || "-"}</span>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                 );
                             })()}
