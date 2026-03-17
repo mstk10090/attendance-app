@@ -2507,7 +2507,7 @@ export default function AttendanceRecord({ user: propUser }) {
 
               {(() => {
                 const currentItem = items.find(i => i.workDate === expandedDate);
-                const isUnclocked = currentItem && currentItem.clockIn && !currentItem.clockOut && reason !== "欠勤";
+                const isUnclocked = currentItem && currentItem.clockIn && !currentItem.clockOut && reason !== "欠勤" && reason !== "打刻忘れ" && reason !== "出張";
                 return (
                   <>
                     {isUnclocked && (
