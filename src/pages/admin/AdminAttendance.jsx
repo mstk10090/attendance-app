@@ -2446,15 +2446,39 @@ export default function AdminAttendance() {
                         </select>
                       </div>
                       <div>
-                        <label style={{ fontSize: "12px", color: "#6b7280", display: "block", marginBottom: "4px" }}>休憩(分)</label>
-                        <select
-                          id="adminEditBreak"
-                          defaultValue={editingItem._application?.breakDuration || 0}
-                          className="input"
-                          style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "6px" }}
-                        >
-                          {[0, 30, 60, 90, 120].map(v => <option key={v} value={v}>{v}分</option>)}
-                        </select>
+                        <label style={{ fontSize: "12px", color: "#6b7280", display: "block", marginBottom: "4px" }}>休憩</label>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const cur = editingItem._adminBreakMin ?? editingItem._application?.breakDuration ?? 0;
+                              const next = Math.max(0, cur - 30);
+                              setEditingItem(prev => ({ ...prev, _adminBreakMin: next }));
+                              const el = document.getElementById("adminEditBreak");
+                              if (el) el.value = next;
+                            }}
+                            style={{ width: "32px", height: "32px", borderRadius: "6px", border: "1px solid #d1d5db", background: "#f9fafb", fontSize: "16px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                          >−</button>
+                          <span style={{ minWidth: "70px", textAlign: "center", fontSize: "14px", fontWeight: "bold" }}>
+                            {(() => {
+                              const v = editingItem._adminBreakMin ?? editingItem._application?.breakDuration ?? 0;
+                              const h = Math.floor(v / 60);
+                              const m = v % 60;
+                              return `${h}時間${m}分`;
+                            })()}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const cur = editingItem._adminBreakMin ?? editingItem._application?.breakDuration ?? 0;
+                              const next = Math.min(1440, cur + 30);
+                              setEditingItem(prev => ({ ...prev, _adminBreakMin: next }));
+                              const el = document.getElementById("adminEditBreak");
+                              if (el) el.value = next;
+                            }}
+                            style={{ width: "32px", height: "32px", borderRadius: "6px", border: "1px solid #d1d5db", background: "#f9fafb", fontSize: "16px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                          >+</button>
+                        </div>
                       </div>
                     </div>
                     <button
@@ -2463,10 +2487,10 @@ export default function AdminAttendance() {
                         const inEl = document.getElementById("adminEditIn");
                         const outEl = document.getElementById("adminEditOut");
                         const breakEl = document.getElementById("adminEditBreak");
-                        if (!inEl || !outEl || !breakEl) { alert("フォーム要素が見つかりません"); return; }
+                        if (!inEl || !outEl) { alert("フォーム要素が見つかりません"); return; }
                         const newIn = inEl.value;
                         const newOut = outEl.value;
-                        const newBreak = parseInt(breakEl.value) || 0;
+                        const newBreak = editingItem._adminBreakMin ?? editingItem._application?.breakDuration ?? 0;
                         if (!newIn || !newOut) { alert("出勤・退勤時間を入力してください"); return; }
 
                         const shift = findShiftForItem(editingItem);
