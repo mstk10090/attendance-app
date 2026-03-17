@@ -120,34 +120,24 @@ const calcSplitDisplay = (item, shift) => {
   const isDispatch = shift?.isDispatch || shift?.location === "派遣" || ["朝", "早", "遅", "中"].includes(shift?.type || "");
 
   if (isDispatch && shift && shift.start && shift.end) {
-    const shiftStart = toMin(shift.start);
-    const shiftEnd = toMin(shift.end);
-    const actualIn = toMin(effectiveIn);
-    const actualOut = toMin(effectiveOut);
+    // 派遣時間優先ロジック: 派遣時間をフルで確保し、不足分はバイトから削る
+    const dispatchRangeStart = shift.dispatchRange ? toMin(shift.dispatchRange.start) : toMin(shift.start);
+    const dispatchRangeEnd = shift.dispatchRange ? toMin(shift.dispatchRange.end) : toMin(shift.end);
+    const maxDispatchMin = dispatchRangeEnd - dispatchRangeStart; // 派遣レンジの最大時間
 
-    const start = Math.max(shiftStart, actualIn);
-    const end = Math.min(shiftEnd, actualOut);
+    // 休憩時間を控除
+    const breaks = item.breaks || [];
+    let totalBreakMin = 0;
+    breaks.forEach(b => {
+      if (b.start && b.end) {
+        totalBreakMin += Math.max(0, toMin(b.end) - toMin(b.start));
+      }
+    });
+    const netWork = Math.max(0, totalWork - totalBreakMin);
 
-    if (start < end) {
-      // Intersection Exists
-      const breaks = item.breaks || [];
-      let breakInOverlap = 0;
-
-      breaks.forEach(b => {
-        if (b.start && b.end) {
-          const bStart = toMin(b.start);
-          const bEnd = toMin(b.end);
-          const bOverlapStart = Math.max(start, bStart);
-          const bOverlapEnd = Math.min(end, bEnd);
-          if (bOverlapStart < bOverlapEnd) {
-            breakInOverlap += (bOverlapEnd - bOverlapStart);
-          }
-        }
-      });
-
-      dispatchMin = Math.min(Math.max(0, (end - start) - breakInOverlap), 8 * 60); // 派遣は最大8時間
-    }
-    partTimeMin = Math.max(0, totalWork - dispatchMin);
+    // 派遣優先: 実勤務時間の範囲で派遣時間をフル確保
+    dispatchMin = Math.min(maxDispatchMin, netWork); // 派遣レンジか実勤務時間の小さい方
+    partTimeMin = Math.max(0, netWork - dispatchMin); // 残りがバイト
 
   } else {
     // Not dispatch, return standard
@@ -1805,19 +1795,14 @@ export default function AdminAttendance() {
                             // 派遣ユーザーの場合は派遣/バイト分離表示
                             const isDispatch = shift?.isDispatch || shift?.location === "派遣" || ["朝", "早", "遅", "中"].includes(shift?.type || "");
                             if (isDispatch && shift && effectiveIn && effectiveOut) {
-                              // dispatchRangeがあればそれを使用（ただし実勤務時間を超えない）
+                              // 派遣時間優先ロジック: 派遣時間をフルで確保し、不足分はバイトから削る
                               let dMin = 0;
                               if (shift.dispatchRange) {
                                 const dispStart = toMin(shift.dispatchRange.start);
                                 const dispEnd = toMin(shift.dispatchRange.end);
-                                // 実勤務時間と派遣レンジの重複部分を計算
-                                const actualIn = toMin(effectiveIn);
-                                const actualOut = toMin(effectiveOut);
-                                const overlapStart = Math.max(dispStart, actualIn);
-                                const overlapEnd = Math.min(dispEnd, actualOut);
-                                dMin = Math.max(0, overlapEnd - overlapStart);
+                                const maxDispatch = dispEnd - dispStart; // 派遣レンジの最大時間
+                                dMin = Math.min(maxDispatch, min); // 派遣レンジか実勤務時間の小さい方
                                 dMin = Math.floor(dMin / 30) * 30; // 30分単位に丸め
-                                dMin = Math.min(dMin, min); // 実勤務時間を超えない
                               } else {
                                 // フォールバック: 最大8時間
                                 dMin = Math.min(min, 8 * 60);
