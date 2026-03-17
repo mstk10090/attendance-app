@@ -292,8 +292,8 @@ export default function StaffReport() {
         }
         return opts;
     };
-    const inTimeOptions = gen5minOptions(shift?.start, true);
-    const outTimeOptions = gen5minOptions(shift?.end, true);
+    const inTimeOptions = gen5minOptions(formIn, true);
+    const outTimeOptions = gen5minOptions(formOut, true);
 
     return (
         <div style={{ width: "100%", padding: "20px", boxSizing: "border-box" }}>
@@ -455,13 +455,13 @@ export default function StaffReport() {
                                                         <select value={r.actualClockIn || ""} onChange={e => updateReasonDetail(r.type, "actualClockIn", e.target.value)}
                                                             style={{ flex: 1, padding: "6px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.85rem" }}>
                                                             <option value="">選択</option>
-                                                            {gen5minOptions(shift?.start || formIn, true).map(t => <option key={t} value={t}>{t}</option>)}
+                                                            {gen5minOptions(formIn, true).map(t => <option key={t} value={t}>{t}</option>)}
                                                         </select>
                                                         <label style={{ fontSize: "0.8rem", color: "#374151", minWidth: "36px" }}>退勤:</label>
                                                         <select value={r.actualClockOut || ""} onChange={e => updateReasonDetail(r.type, "actualClockOut", e.target.value)}
                                                             style={{ flex: 1, padding: "6px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.85rem" }}>
                                                             <option value="">選択</option>
-                                                            {gen5minOptions(shift?.end || formOut, true).map(t => <option key={t} value={t}>{t}</option>)}
+                                                            {gen5minOptions(formOut, true).map(t => <option key={t} value={t}>{t}</option>)}
                                                         </select>
                                                     </div>
                                                 </div>
