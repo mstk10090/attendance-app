@@ -1318,6 +1318,7 @@ export default function AttendanceRecord({ user: propUser }) {
         reason: finalReason,
         subReason: subReason || null,
         subReasonText: subReasonText || null,
+        detailText: formText || null,
         breakDuration: formBreakDuration || 0,
         adminComment: null,
         actualClockIn: reason === "打刻忘れ" ? formForgotActualIn : null,
