@@ -831,7 +831,7 @@ export default function AdminAttendance() {
 
       const finalComment = JSON.stringify({
         segments: p.segments,
-        text: (p.text || "") + `\n[再提出依頼]: ${resubmitReason}`,
+        text: p.text || "",
         application: newApp,
         auditLog: [...(p.auditLog || []), { action: "resubmission_requested", by: "管理者", at: new Date().toISOString(), detail: `再提出を依頼しました: ${resubmitReason}` }]
       });
@@ -1941,11 +1941,20 @@ export default function AdminAttendance() {
                               }
                               return (
                                 <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                                  <span style={{ color: "#f59e0b", fontWeight: "bold", fontSize: "12px" }}>⚠️ 遅刻+残業</span>
-                                  <button
-                                    onClick={() => openCancelModal(item, "late")}
-                                    style={{ fontSize: "10px", padding: "2px 6px", background: "#f3f4f6", border: "1px solid #d1d5db", borderRadius: "4px", cursor: "pointer" }}
-                                  >遅刻取消</button>
+                                  {/* 遅刻部分 */}
+                                  {lateCancelled ? (
+                                    <span style={{ color: "#6b7280", fontSize: "11px" }}>遅刻（取消済）{item._application?.lateCancelReason ? ` (${item._application.lateCancelReason})` : ""}</span>
+                                  ) : (
+                                    <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                                      <span style={{ color: "#f59e0b", fontWeight: "bold", fontSize: "12px" }}>⚠️ 遅刻</span>
+                                      <button
+                                        onClick={() => openCancelModal(item, "late")}
+                                        style={{ fontSize: "10px", padding: "2px 6px", background: "#f3f4f6", border: "1px solid #d1d5db", borderRadius: "4px", cursor: "pointer" }}
+                                      >取消</button>
+                                    </div>
+                                  )}
+                                  {/* 残業部分 */}
+                                  <span style={{ color: "#2563eb", fontWeight: "bold", fontSize: "12px" }}>🕐 残業</span>
                                 </div>
                               );
                             }
@@ -1991,37 +2000,57 @@ export default function AdminAttendance() {
                             if (!appReason || appReason === "-") {
                               return <span style={{ color: "#d1d5db" }}>-</span>;
                             }
-                            // 大枠のみ（括弧部分を除去）
-                            let mainReason = appReason;
-                            const parenIdx = appReason.indexOf('（');
-                            if (parenIdx > 0) mainReason = appReason.substring(0, parenIdx);
-                            const parenIdx2 = appReason.indexOf('(');
-                            if (parenIdx2 > 0 && parenIdx <= 0) mainReason = appReason.substring(0, parenIdx2).trim();
 
-                            // 詳細を取得
+                            // reasonsDetail配列がある場合はそこから構築
+                            const rd = item._application?.reasonsDetail;
+                            let mainReason = appReason;
                             const parts = [];
-                            const subR = item._application?.subReason;
-                            if (subR && subR !== '-') {
-                              if (subR === 'その他' && item._application?.subReasonText) {
-                                parts.push(item._application.subReasonText);
-                              } else {
-                                parts.push(subR);
+
+                            if (rd && rd.length > 0) {
+                              mainReason = rd.map(r => r.type).join("・");
+                              rd.forEach(r => {
+                                if (r.subReason && r.subReason !== "-") {
+                                  if (r.subReason === "その他" && r.subReasonText) {
+                                    parts.push(`${r.type}: ${r.subReasonText}`);
+                                  } else {
+                                    parts.push(`${r.type}: ${r.subReason}`);
+                                  }
+                                } else if (r.type === "その他" && r.subReasonText) {
+                                  parts.push(r.subReasonText);
+                                }
+                              });
+                            } else {
+                              // 旧データ: 括弧除去
+                              const parenIdx = appReason.indexOf('（');
+                              if (parenIdx > 0) mainReason = appReason.substring(0, parenIdx);
+                              const parenIdx2 = appReason.indexOf('(');
+                              if (parenIdx2 > 0 && parenIdx <= 0) mainReason = appReason.substring(0, parenIdx2).trim();
+
+                              const subR = item._application?.subReason;
+                              if (subR && subR !== '-') {
+                                if (subR === 'その他' && item._application?.subReasonText) {
+                                  parts.push(item._application.subReasonText);
+                                } else {
+                                  parts.push(subR);
+                                }
+                              }
+                              const dt = item._application?.detailText;
+                              if (dt && dt.trim() && !parts.includes(dt.trim())) {
+                                parts.push(dt.trim());
+                              }
+                              if (parts.length === 0) {
+                                const match = appReason.match(/[（(](.+?)[）)]/);
+                                if (match) parts.push(match[1]);
                               }
                             }
-                            // detailText（出張場所、残業理由、その他の理由など）
-                            const dt = item._application?.detailText;
-                            if (dt && dt.trim() && !parts.includes(dt.trim())) {
-                              parts.push(dt.trim());
-                            }
-                            // 既存データ: reasonに括弧が含まれている場合
-                            if (parts.length === 0) {
-                              const match = appReason.match(/[（(](.+?)[）)]/);
-                              if (match) parts.push(match[1]);
-                            }
-                            // textフィールド
+
+                            // textフィールド（[再提出依頼]テキストを除外して表示）
                             const comment = item._parsedHtmlComment;
-                            if (comment && comment.trim() && !parts.includes(comment.trim())) {
-                              parts.push(comment.trim());
+                            if (comment && comment.trim()) {
+                              const cleaned = comment.split('\n').filter(line => !line.startsWith('[再提出依頼]')).join('\n').trim();
+                              if (cleaned && !parts.includes(cleaned)) {
+                                parts.push(cleaned);
+                              }
                             }
                             const detail = parts.join(' / ');
 
