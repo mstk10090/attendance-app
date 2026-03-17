@@ -2345,11 +2345,36 @@ export default function AdminAttendance() {
 
                   <div style={{ background: "#f3f4f6", padding: "10px", borderRadius: "6px" }}>
                     <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "4px" }}>申請理由</div>
-                    <div style={{ fontWeight: "bold", color: "#ef4444" }}>{editingItem._application?.reason || "なし"}</div>
-                    {editingItem._application?.subReason && (
-                      <div style={{ fontSize: "13px", color: "#6b7280", marginTop: "4px" }}>
-                        詳細: {editingItem._application.subReason}
-                        {editingItem._application.subReasonText ? ` (${editingItem._application.subReasonText})` : ""}
+                    {editingItem._application?.reasonsDetail && editingItem._application.reasonsDetail.length > 0 ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                        {editingItem._application.reasonsDetail.map((r, idx) => (
+                          <div key={idx} style={{ background: "#fff", padding: "8px", borderRadius: "6px", border: "1px solid #e5e7eb" }}>
+                            <span style={{ fontWeight: "bold", color: "#ef4444" }}>{r.type}</span>
+                            {r.subReason && (
+                              <span style={{ marginLeft: "8px", fontSize: "13px", color: "#6b7280" }}>
+                                （{r.subReason}{r.subReason === "その他" && r.subReasonText ? `: ${r.subReasonText}` : ""}）
+                              </span>
+                            )}
+                            {r.type === "その他" && r.subReasonText && (
+                              <span style={{ marginLeft: "8px", fontSize: "13px", color: "#6b7280" }}>: {r.subReasonText}</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ fontWeight: "bold", color: "#ef4444" }}>{editingItem._application?.reason || "なし"}</div>
+                        {editingItem._application?.subReason && (
+                          <div style={{ fontSize: "13px", color: "#6b7280", marginTop: "4px" }}>
+                            詳細: {editingItem._application.subReason}
+                            {editingItem._application.subReasonText ? ` (${editingItem._application.subReasonText})` : ""}
+                          </div>
+                        )}
+                      </>
+                    )}
+                    {editingItem._application?.detailText && (
+                      <div style={{ fontSize: "13px", color: "#374151", marginTop: "6px", background: "#fff", padding: "6px 8px", borderRadius: "4px", border: "1px solid #e5e7eb" }}>
+                        📝 備考: {editingItem._application.detailText}
                       </div>
                     )}
                   </div>
