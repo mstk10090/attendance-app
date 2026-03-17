@@ -1805,12 +1805,19 @@ export default function AdminAttendance() {
                             // 派遣ユーザーの場合は派遣/バイト分離表示
                             const isDispatch = shift?.isDispatch || shift?.location === "派遣" || ["朝", "早", "遅", "中"].includes(shift?.type || "");
                             if (isDispatch && shift && effectiveIn && effectiveOut) {
-                              // dispatchRangeがあればそれを使用（派遣は固定契約のためフルレンジ）
+                              // dispatchRangeがあればそれを使用（ただし実勤務時間を超えない）
                               let dMin = 0;
                               if (shift.dispatchRange) {
                                 const dispStart = toMin(shift.dispatchRange.start);
                                 const dispEnd = toMin(shift.dispatchRange.end);
-                                dMin = dispEnd - dispStart;
+                                // 実勤務時間と派遣レンジの重複部分を計算
+                                const actualIn = toMin(effectiveIn);
+                                const actualOut = toMin(effectiveOut);
+                                const overlapStart = Math.max(dispStart, actualIn);
+                                const overlapEnd = Math.min(dispEnd, actualOut);
+                                dMin = Math.max(0, overlapEnd - overlapStart);
+                                dMin = Math.floor(dMin / 30) * 30; // 30分単位に丸め
+                                dMin = Math.min(dMin, min); // 実勤務時間を超えない
                               } else {
                                 // フォールバック: 最大8時間
                                 dMin = Math.min(min, 8 * 60);
