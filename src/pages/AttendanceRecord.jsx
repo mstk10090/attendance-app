@@ -2036,8 +2036,8 @@ export default function AttendanceRecord({ user: propUser }) {
                           const base = discrepancyAppliedIn || discrepancyInfo?.clockIn || "09:00";
                           const [bh, bm] = base.split(":").map(Number);
                           const baseMin = bh * 60 + bm;
-                          const start = Math.max(0, baseMin - 60);
-                          const end = Math.min(24 * 60 - 1, baseMin + 60);
+                          const start = Math.max(0, baseMin - 30);
+                          const end = Math.min(24 * 60 - 1, baseMin + 30);
                           const opts = [];
                           for (let t = start; t <= end; t += 5) {
                             const h = String(Math.floor(t / 60)).padStart(2, "0");
@@ -2060,8 +2060,8 @@ export default function AttendanceRecord({ user: propUser }) {
                           const base = discrepancyAppliedOut || discrepancyInfo?.clockOutTime || "18:00";
                           const [bh, bm] = base.split(":").map(Number);
                           const baseMin = bh * 60 + bm;
-                          const start = Math.max(0, baseMin - 60);
-                          const end = Math.min(24 * 60 - 1, baseMin + 60);
+                          const start = Math.max(0, baseMin - 30);
+                          const end = Math.min(24 * 60 - 1, baseMin + 30);
                           const opts = [];
                           for (let t = start; t <= end; t += 5) {
                             const h = String(Math.floor(t / 60)).padStart(2, "0");
@@ -2486,8 +2486,8 @@ export default function AttendanceRecord({ user: propUser }) {
                           const base = formIn || "09:00";
                           const [bh, bm] = base.split(":").map(Number);
                           const baseMin = bh * 60 + bm;
-                          const start = Math.max(0, baseMin - 60);
-                          const end = Math.min(24 * 60 - 1, baseMin + 60);
+                          const start = Math.max(0, baseMin - 30);
+                          const end = Math.min(24 * 60 - 1, baseMin + 30);
                           const opts = [];
                           for (let t = start; t <= end; t += 5) {
                             const h = String(Math.floor(t / 60)).padStart(2, "0");
@@ -2510,8 +2510,8 @@ export default function AttendanceRecord({ user: propUser }) {
                           const base = formOut || "18:00";
                           const [bh, bm] = base.split(":").map(Number);
                           const baseMin = bh * 60 + bm;
-                          const start = Math.max(0, baseMin - 60);
-                          const end = Math.min(24 * 60 - 1, baseMin + 60);
+                          const start = Math.max(0, baseMin - 30);
+                          const end = Math.min(24 * 60 - 1, baseMin + 30);
                           const opts = [];
                           for (let t = start; t <= end; t += 5) {
                             const h = String(Math.floor(t / 60)).padStart(2, "0");
