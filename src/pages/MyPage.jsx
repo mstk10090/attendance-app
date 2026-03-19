@@ -96,7 +96,7 @@ export default function MyPage({ onLogout }) {
 
   const calcBreakMin = (e) => {
     if (!e.breaks || e.breaks.length === 0) return 0;
-    return e.breaks.reduce((acc, b) => {
+    const raw = e.breaks.reduce((acc, b) => {
       if (b.start && b.end) {
         let s = toMin(b.start);
         let E = toMin(b.end);
@@ -105,6 +105,8 @@ export default function MyPage({ onLogout }) {
       }
       return acc;
     }, 0);
+    if (raw <= 0) return 0;
+    return Math.ceil(raw / 30) * 30; // 30分切り上げ丸め
   };
 
   const calcWorkMin = (e) => {
