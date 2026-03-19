@@ -282,8 +282,8 @@ export default function StaffReport() {
         if (!baseTime) return [];
         const [bh, bm] = baseTime.split(":").map(Number);
         const baseMin = bh * 60 + bm;
-        const startMin = Math.max(0, baseMin - 30);
-        const endMin = Math.min(24 * 60 - 1, baseMin + 30);
+        const startMin = Math.max(0, baseMin - 60);
+        const endMin = Math.min(24 * 60 - 1, baseMin + 60);
         const opts = [];
         for (let t = startMin; t <= endMin; t += 5) {
             const h = String(Math.floor(t / 60)).padStart(2, "0");

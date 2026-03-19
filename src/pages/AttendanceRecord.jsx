@@ -2032,11 +2032,20 @@ export default function AttendanceRecord({ user: propUser }) {
                         style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "0.95rem" }}
                       >
                         <option value="">--:--</option>
-                        {Array.from({ length: 24 * 12 }, (_, i) => {
-                          const h = String(Math.floor(i / 12)).padStart(2, "0");
-                          const m = String((i % 12) * 5).padStart(2, "0");
-                          return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>;
-                        })}
+                        {(() => {
+                          const base = discrepancyAppliedIn || discrepancyInfo?.clockIn || "09:00";
+                          const [bh, bm] = base.split(":").map(Number);
+                          const baseMin = bh * 60 + bm;
+                          const start = Math.max(0, baseMin - 60);
+                          const end = Math.min(24 * 60 - 1, baseMin + 60);
+                          const opts = [];
+                          for (let t = start; t <= end; t += 5) {
+                            const h = String(Math.floor(t / 60)).padStart(2, "0");
+                            const m = String(t % 60).padStart(2, "0");
+                            opts.push(`${h}:${m}`);
+                          }
+                          return opts.map(t => <option key={t} value={t}>{t}</option>);
+                        })()}
                       </select>
                     </div>
                     <div>
@@ -2047,11 +2056,20 @@ export default function AttendanceRecord({ user: propUser }) {
                         style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "0.95rem" }}
                       >
                         <option value="">--:--</option>
-                        {Array.from({ length: 24 * 12 }, (_, i) => {
-                          const h = String(Math.floor(i / 12)).padStart(2, "0");
-                          const m = String((i % 12) * 5).padStart(2, "0");
-                          return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>;
-                        })}
+                        {(() => {
+                          const base = discrepancyAppliedOut || discrepancyInfo?.clockOutTime || "18:00";
+                          const [bh, bm] = base.split(":").map(Number);
+                          const baseMin = bh * 60 + bm;
+                          const start = Math.max(0, baseMin - 60);
+                          const end = Math.min(24 * 60 - 1, baseMin + 60);
+                          const opts = [];
+                          for (let t = start; t <= end; t += 5) {
+                            const h = String(Math.floor(t / 60)).padStart(2, "0");
+                            const m = String(t % 60).padStart(2, "0");
+                            opts.push(`${h}:${m}`);
+                          }
+                          return opts.map(t => <option key={t} value={t}>{t}</option>);
+                        })()}
                       </select>
                     </div>
                   </div>
@@ -2464,11 +2482,20 @@ export default function AttendanceRecord({ user: propUser }) {
                         style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "0.95rem" }}
                       >
                         <option value="">--:--</option>
-                        {Array.from({ length: 24 * 12 }, (_, i) => {
-                          const h = String(Math.floor(i / 12)).padStart(2, "0");
-                          const m = String((i % 12) * 5).padStart(2, "0");
-                          return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>;
-                        })}
+                        {(() => {
+                          const base = formIn || "09:00";
+                          const [bh, bm] = base.split(":").map(Number);
+                          const baseMin = bh * 60 + bm;
+                          const start = Math.max(0, baseMin - 60);
+                          const end = Math.min(24 * 60 - 1, baseMin + 60);
+                          const opts = [];
+                          for (let t = start; t <= end; t += 5) {
+                            const h = String(Math.floor(t / 60)).padStart(2, "0");
+                            const m = String(t % 60).padStart(2, "0");
+                            opts.push(`${h}:${m}`);
+                          }
+                          return opts.map(t => <option key={t} value={t}>{t}</option>);
+                        })()}
                       </select>
                     </div>
                     <div>
@@ -2479,11 +2506,20 @@ export default function AttendanceRecord({ user: propUser }) {
                         style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "0.95rem" }}
                       >
                         <option value="">--:--</option>
-                        {Array.from({ length: 24 * 12 }, (_, i) => {
-                          const h = String(Math.floor(i / 12)).padStart(2, "0");
-                          const m = String((i % 12) * 5).padStart(2, "0");
-                          return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>;
-                        })}
+                        {(() => {
+                          const base = formOut || "18:00";
+                          const [bh, bm] = base.split(":").map(Number);
+                          const baseMin = bh * 60 + bm;
+                          const start = Math.max(0, baseMin - 60);
+                          const end = Math.min(24 * 60 - 1, baseMin + 60);
+                          const opts = [];
+                          for (let t = start; t <= end; t += 5) {
+                            const h = String(Math.floor(t / 60)).padStart(2, "0");
+                            const m = String(t % 60).padStart(2, "0");
+                            opts.push(`${h}:${m}`);
+                          }
+                          return opts.map(t => <option key={t} value={t}>{t}</option>);
+                        })()}
                       </select>
                     </div>
                   </div>
