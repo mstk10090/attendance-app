@@ -273,8 +273,8 @@ export default function StaffReport() {
     // 5分刻みの時間オプション生成（基準時間 ±30分）
     const gen5minOptions = (baseTime, fallbackFull) => {
         if (!baseTime && fallbackFull) {
-            // フォールバック: 0:00-23:55全範囲
-            return Array.from({ length: 288 }, (_, i) => {
+            // フォールバック: 0:00-35:55 (36時間)
+            return Array.from({ length: 432 }, (_, i) => {
                 const h = String(Math.floor(i / 12)).padStart(2, "0");
                 const m = String((i % 12) * 5).padStart(2, "0");
                 return `${h}:${m}`;
@@ -284,7 +284,7 @@ export default function StaffReport() {
         const [bh, bm] = baseTime.split(":").map(Number);
         const baseMin = bh * 60 + bm;
         const startMin = Math.max(0, baseMin - 30);
-        const endMin = Math.min(24 * 60 - 1, baseMin + 30);
+        const endMin = baseMin + 30; // 制限なしで＋30分まで
         const opts = [];
         for (let t = startMin; t <= endMin; t += 5) {
             const h = String(Math.floor(t / 60)).padStart(2, "0");
