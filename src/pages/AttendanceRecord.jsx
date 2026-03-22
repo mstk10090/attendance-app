@@ -1685,6 +1685,29 @@ export default function AttendanceRecord({ user: propUser }) {
     return { count };
   }, [items, user, shiftMap, currentMonth, currentDate]);
 
+  // 締日と最終出勤日の計算
+  const closingInfo = useMemo(() => {
+    if (!currentDate || !user) return { closingDate: null, lastShiftDate: null };
+    const eom = endOfMonth(currentDate);
+    const closingDate = addDays(eom, -1);
+    
+    let lastShiftDate = null;
+    if (shiftLoaded) {
+      const startOfM = startOfMonth(currentDate);
+      let curr = closingDate;
+      while (curr >= startOfM) {
+        const dStr = format(curr, "yyyy-MM-dd");
+        const shift = getShift(user.userName, dStr);
+        if (shift && !shift.isOff) {
+          lastShiftDate = dStr;
+          break;
+        }
+        curr = addDays(curr, -1);
+      }
+    }
+    return { closingDate, lastShiftDate };
+  }, [currentDate, user, shiftMap, shiftLoaded]);
+
   return (
     <div className="record-container" style={{ width: "100%", margin: "0 auto" }}> {/* RESTORED FULL WIDTH */}
 
@@ -1697,6 +1720,12 @@ export default function AttendanceRecord({ user: propUser }) {
             出退勤入力
             <span style={{ fontSize: "0.9rem", color: "#6b7280", fontWeight: "normal", marginLeft: "12px" }}>
               ({format(currentDate, "M")}月の規定日数: {user?.employmentType === "学生バイト" ? 16 : (() => { const s = startOfMonth(currentDate); const e = endOfMonth(currentDate); return eachDayOfInterval({ start: s, end: e }).filter(d => !isSaturday(d) && !isSunday(d) && !HOLIDAYS.includes(format(d, "yyyy-MM-dd"))).length; })()}日)
+              <span style={{ marginLeft: "12px", borderLeft: "1px solid #d1d5db", paddingLeft: "12px" }}>
+                締日: <strong style={{ color: "#374151" }}>{closingInfo.closingDate ? format(closingInfo.closingDate, "M/d") : "-"}</strong>
+                <span style={{ marginLeft: "8px", fontSize: "0.85rem" }}>
+                  (締日前最終出勤: <strong style={{ color: "#374151" }}>{closingInfo.lastShiftDate ? format(new Date(closingInfo.lastShiftDate), "M/d") : "-"}</strong>)
+                </span>
+              </span>
               {todayShift && (
                 <span style={{ marginLeft: "12px", color: "#2563eb", fontWeight: "bold" }}>
                   本日のシフト: {todayShift.isOff ? "休み" : `${todayShift.start} - ${todayShift.end}`}

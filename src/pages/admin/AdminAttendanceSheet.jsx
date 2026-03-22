@@ -364,6 +364,8 @@ export default function AdminAttendanceSheet() {
                     clockOut = app.appliedOut || clockOut;
                 } else if (app.status === "absent") {
                     status = "absent";
+                } else if (app.status === "day_off") {
+                    status = "day_off";
                 } else if (app.status === "cancelled") {
                     status = "cancelled";
                 }
@@ -584,7 +586,8 @@ export default function AdminAttendanceSheet() {
             case "pending": return "#fbcfe8";           // 井本承認待ち（桃）
             case "resubmission": return "#e9d5ff";      // 再提出（紫）
             case "absent": return "#800000";            // 欠勤（えんじ）
-            case "no_shift": return "#e5e7eb";          // 休み（薄灰）
+            case "day_off": return "#2563eb";           // 休み（青）
+            case "no_shift": return "#e5e7eb";          // シフトなし（薄灰）
             case "scheduled": return "#ffffff";         // シフトあり未出勤（白）
             case "cancelled": return "#fecaca";
             case "no_application": return "#fbcfe8";    // 井本承認待ちと同じ桃
@@ -636,7 +639,8 @@ export default function AdminAttendanceSheet() {
             {/* 凡例 */}
             <div style={{ display: "flex", gap: "12px", marginBottom: "10px", flexWrap: "wrap", fontSize: "12px", flexShrink: 0, alignItems: "center" }}>
                 {[
-                    { color: "#e5e7eb", label: "休み" },
+                    { color: "#e5e7eb", label: "シフトなし" },
+                    { color: "#2563eb", label: "休み", textColor: "#fff" },
                     { color: "#800000", label: "欠勤", textColor: "#fff" },
                     { color: "#e9d5ff", label: "再提出" },
                     { color: "#fbcfe8", label: "井本承認待ち" },
@@ -764,7 +768,7 @@ export default function AdminAttendanceSheet() {
                                                 borderRight: cellBorder,
                                                 textAlign: "center",
                                                 background: bg,
-                                                color: cell.status === "absent" ? "#fff" : "inherit",
+                                                color: (cell.status === "absent" || cell.status === "day_off") ? "#fff" : "inherit",
                                                 cursor: hasData ? "pointer" : "default",
                                                 transition: "background 0.15s",
                                                 boxShadow: isTodayRow ? "inset 0 2px 0 0 #f59e0b, inset 0 -2px 0 0 #f59e0b" : "none",
