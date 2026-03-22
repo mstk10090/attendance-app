@@ -95,9 +95,10 @@ const hasNightWork = (e) => {
 };
 
 const isLongWork = (item) => {
-  if (!item.clockIn || !item.clockOut) return false;
-  if (item.clockIn && !item.clockOut) {
-    const start = new Date(`${item.workDate}T${item.clockIn}`);
+  if (!item.clockIn) return false;
+  if (!item.clockOut) {
+    const baseDate = item.workDate.split('_')[0];
+    const start = new Date(`${baseDate}T${item.clockIn}`);
     const now = new Date();
     return (now - start) > (24 * 3600 * 1000);
   }

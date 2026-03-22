@@ -1769,7 +1769,8 @@ export default function AttendanceRecord({ user: propUser }) {
   const resubmissionCount = resubmissionItems.length;
   const resubmissionDates = resubmissionItems.map(i => {
     const workDate = i.displayDate || i.workDate;
-    const d = new Date(workDate);
+    const baseDate = workDate.split("_")[0];
+    const d = new Date(baseDate);
     const dayNames = ["日", "月", "火", "水", "木", "金", "土"];
     const p = parseComment(i.comment);
     const adminComment = p.application?.adminComment || "";
@@ -1791,7 +1792,9 @@ export default function AttendanceRecord({ user: propUser }) {
     if (workDate === todayStr) return false;
     return workDate.startsWith(currentMonth) && i.clockIn && !i.clockOut;
   }).map(i => {
-    const d = new Date(i.displayDate || i.workDate);
+    const workDate = i.displayDate || i.workDate;
+    const baseDate = workDate.split("_")[0];
+    const d = new Date(baseDate);
     const dayNames = ["日", "月", "火", "水", "木", "金", "土"];
     return `${d.getMonth() + 1}/${d.getDate()}(${dayNames[d.getDay()]})`;
   });

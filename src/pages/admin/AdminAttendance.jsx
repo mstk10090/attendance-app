@@ -3194,7 +3194,7 @@ export default function AdminAttendance() {
             }}>
               <h3 style={{ margin: "0 0 8px", fontSize: "16px" }}>再提出依頼</h3>
               <div style={{ fontSize: "13px", color: "#6b7280", marginBottom: "16px" }}>
-                {resubmitTarget.userName} ({format(new Date(resubmitTarget.workDate), "MM/dd")}) への再提出理由を選択してください
+                {resubmitTarget.userName} ({format(new Date(resubmitTarget.workDate.split('_')[0]), "MM/dd")}) への再提出理由を選択してください
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
