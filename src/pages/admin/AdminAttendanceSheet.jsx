@@ -302,16 +302,17 @@ export default function AdminAttendanceSheet() {
     const isDispatchUser = useCallback((user) => {
         if (user.employmentType === "派遣") return true;
         const fullName = normalizeName((user.lastName || "") + (user.firstName || ""));
+        const targetMonthPrefix = format(currentMonth, "yyyy-MM");
         for (const shiftUserName of Object.keys(shiftMap)) {
             if (normalizeName(shiftUserName) === fullName) {
                 const userShifts = shiftMap[shiftUserName];
                 for (const dateStr of Object.keys(userShifts || {})) {
-                    if (userShifts[dateStr]?.isDispatch) return true;
+                    if (dateStr.startsWith(targetMonthPrefix) && userShifts[dateStr]?.isDispatch) return true;
                 }
             }
         }
         return false;
-    }, [shiftMap]);
+    }, [shiftMap, currentMonth]);
 
     // セルデータ取得
     const getCellData = useCallback((user, dateStr) => {
@@ -414,11 +415,12 @@ export default function AdminAttendanceSheet() {
                     partTimeHours = roundHalf(pMin / 60);
                     // 勤怠確認シートにはバイト時間のみ表示
                     hours = partTimeHours;
-                    // バイト時間が0の場合（派遣のみ）は全て空白
+                    // バイト時間が0の場合（派遣のみ）は全て空白ではなく、緑のステータスにする
                     if (pMin <= 0) {
                         displayIn = "";
-                        displayOut = "";
+                        displayOut = "バイトなし";
                         hours = "";
+                        status = "dispatch_only";
                     } else if (pMin > 0 && displayOut) {
                         // 開始時間 = 終了時間 - バイト時間
                         const outMinVal = toMin(displayOut);
@@ -459,11 +461,12 @@ export default function AdminAttendanceSheet() {
                 dispatchHours = roundHalf(dMin / 60);
                 partTimeHours = roundHalf(pMin / 60);
                 hours = partTimeHours;
-                // バイト時間が0の場合（派遣のみ）は全て空白
+                // バイト時間が0の場合（派遣のみ）は緑のステータスにする
                 if (pMin <= 0) {
                     displayIn = "";
-                    displayOut = "";
+                    displayOut = "バイトなし";
                     hours = "";
+                    status = "dispatch_only";
                 } else if (pMin > 0 && displayOut) {
                     // 開始時間 = 終了時間 - バイト時間
                     const outMinVal = toMin(displayOut);
@@ -588,6 +591,7 @@ export default function AdminAttendanceSheet() {
             case "absent": return "#800000";            // 欠勤（えんじ）
             case "day_off": return "#2563eb";           // 休み（青）
             case "no_shift": return "#e5e7eb";          // シフトなし（薄灰）
+            case "dispatch_only": return "#bbf7d0";     // 派遣かつバイトなし（緑）
             case "scheduled": return "#ffffff";         // シフトあり未出勤（白）
             case "cancelled": return "#fecaca";
             case "no_application": return "#fbcfe8";    // 井本承認待ちと同じ桃
@@ -641,6 +645,7 @@ export default function AdminAttendanceSheet() {
                 {[
                     { color: "#e5e7eb", label: "シフトなし" },
                     { color: "#2563eb", label: "休み", textColor: "#fff" },
+                    { color: "#bbf7d0", label: "バイトなし(派遣)" },
                     { color: "#800000", label: "欠勤", textColor: "#fff" },
                     { color: "#e9d5ff", label: "再提出" },
                     { color: "#fbcfe8", label: "井本承認待ち" },
