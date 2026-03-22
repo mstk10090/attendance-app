@@ -293,8 +293,8 @@ export default function StaffReport() {
         }
         return opts;
     };
-    // 申請時間は30分刻み・36時間対応 (翌日12:00まで)
-    const timeOptions = Array.from({ length: 72 }, (_, i) => {
+    // 申請時間は30分刻み・24:00まで対応 (翌日分は別日として申請)
+    const timeOptions = Array.from({ length: 49 }, (_, i) => {
         const h = String(Math.floor(i / 2)).padStart(2, "0");
         const m = i % 2 === 0 ? "00" : "30";
         return `${h}:${m}`;
