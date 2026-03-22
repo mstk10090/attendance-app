@@ -15,7 +15,7 @@ import {
   MessageCircle
 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSaturday, isSunday, addDays, isSameDay, addMonths, subMonths } from "date-fns";
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSaturday, isSunday, addDays, subDays, isSameDay, addMonths, subMonths } from "date-fns";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { ja } from "date-fns/locale";
 import { HOLIDAYS, LOCATIONS, DEPARTMENTS, REASON_OPTIONS, REASON_SUB_OPTIONS, ABSENT_REASONS } from "../constants";
@@ -65,8 +65,8 @@ const roundTimeToHalfHour = (timeStr, mode = "floor") => {
     // 退勤は切り捨て（過大評価を避ける）
     rounded = Math.floor(mins / 30) * 30;
   }
-  // 24時間を超えた場合は23:30に
-  if (rounded >= 24 * 60) rounded = 23 * 60 + 30;
+  // 24時間を超えた場合（例：日跨ぎで24:00より後になった場合）は最大24:00とする
+  if (rounded > 24 * 60) rounded = 24 * 60;
   return minToTime(rounded);
 };
 
@@ -253,11 +253,20 @@ export default function AttendanceRecord({ user: propUser }) {
 
   // Multi-Shift Support
   const todayStr = format(new Date(), "yyyy-MM-dd");
+  const yesterdayStr = format(subDays(new Date(), 1), "yyyy-MM-dd");
   const todayItems = items.filter(i => i.workDate.startsWith(todayStr));
-  // 当日のレコードのみから未退勤アイテムを検索（過去の未退勤レコードに反応しないように）
-  const activeItem = todayItems.find(i => i.clockIn && !i.clockOut) || null;
-  // 退勤済みかどうか（退勤したらその日はもう出勤できない）
-  const hasClockedOut = todayItems.some(i => i.clockIn && i.clockOut);
+  const yesterdayItems = items.filter(i => i.workDate.startsWith(yesterdayStr));
+
+  // 未退勤アイテムを検索（昨日の未退勤レコードがあれば優先して拾う）
+  let activeItem = yesterdayItems.find(i => i.clockIn && !i.clockOut) || null;
+  if (!activeItem) {
+    activeItem = todayItems.find(i => i.clockIn && !i.clockOut) || null;
+  }
+  
+  // 今日退勤済みかどうか（通常は退勤したらその日の出勤不可だが、夜間20時以降かつ未退勤レコードがなければ夜勤として出勤を再許可する）
+  const currentHour = new Date().getHours();
+  const hasClockedOut = todayItems.some(i => i.clockIn && i.clockOut) && currentHour < 20;
+  
   const displayItem = activeItem || (todayItems.length > 0 ? todayItems[todayItems.length - 1] : null);
 
   const todayShift = useMemo(() => user ? getShift(user.userName, todayStr) : null, [user, shiftMap, todayStr]);
@@ -514,10 +523,145 @@ export default function AttendanceRecord({ user: propUser }) {
     }
   }, [isForgotClockToggle, forgotClockActualIn, forgotClockActualOut, discrepancyMode, discrepancyInfo, calculateDiscrepancies]);
 
+  // 直前の勤務レコードを日またぎで分割退勤する処理
+  const handleOvernightClockOut = async (yesterdayItem, nowTime, todayStr) => {
+    if (!window.confirm(`日またぎの退勤を検出しました。\n前日(${yesterdayItem.displayDate || yesterdayItem.workDate})分を24:00で、\n本日(${todayStr})分を${nowTime}で\nそれぞれ分割して申請します。よろしいですか？`)) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // 1. 昨日分の更新 (24:00退勤)
+      const yesterdayDate = yesterdayItem.displayDate || yesterdayItem.workDate;
+      const yShift = getShift(user.userName, yesterdayDate);
+      
+      const yReasons = calculateDiscrepancies(yesterdayItem.clockIn, "24:00", yShift);
+      const yExistingComment = parseComment(yesterdayItem.comment);
+      
+      let yAppStatus = "pending";
+      let yReasonStr = "-";
+      let yDetailText = "";
+      let autoApp = true;
+      if (yReasons.length > 0) {
+        yAppStatus = "pending";
+        yReasonStr = yReasons.map(r => r.type).join("+");
+        yDetailText = "日跨ぎ自動分割処理による申請";
+        autoApp = false;
+      } else {
+        yReasonStr = "日跨ぎ自動分割";
+      }
+      
+      const yCommentObj = {
+        segments: yExistingComment.segments || [{ location: user.defaultLocation || "未記載", department: user.defaultDepartment || "未記載", hours: "" }],
+        text: yExistingComment.text || "",
+        application: {
+          status: yAppStatus,
+          reason: yReasonStr,
+          detailText: yDetailText,
+          appliedIn: roundTimeToHalfHour(yesterdayItem.clockIn, "ceil"),
+          appliedOut: "24:00",
+          submittedAt: new Date().toISOString(),
+          autoApplied: autoApp
+        },
+        auditLog: [
+          ...(yExistingComment.auditLog || []),
+          { action: "submitted", by: user.userName || user.loginId || "スタッフ", at: new Date().toISOString(), detail: "日跨ぎ退勤（自動分割・前日分）" }
+        ]
+      };
+
+      await fetch(ENDPOINTS.update, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: user.userId,
+          workDate: yesterdayItem.workDate,
+          clockIn: yesterdayItem.clockIn,
+          clockOut: "24:00",
+          breaks: yesterdayItem.breaks || [],
+          comment: JSON.stringify(yCommentObj),
+          location: yesterdayItem.location || "",
+          department: yesterdayItem.department || ""
+        })
+      });
+
+      // 2. 本日分の新規作成 (00:00 〜 nowTime)
+      let todayRecordId = todayStr;
+      const existingToday = items.filter(i => i.workDate.startsWith(todayStr));
+      if (existingToday.length > 0) {
+        todayRecordId = `${todayStr}_${existingToday.length + 1}`;
+      }
+
+      const tShift = getShift(user.userName, todayStr);
+      const tReasons = calculateDiscrepancies("00:00", nowTime, tShift);
+      
+      let tAppStatus = "pending";
+      let tReasonStr = "-";
+      let tDetailText = "";
+      let tAutoApp = true;
+      if (tReasons.length > 0) {
+        tReasonStr = tReasons.map(r => r.type).join("+");
+        tDetailText = "日跨ぎ自動分割処理による申請";
+        tAutoApp = false;
+      } else {
+        tReasonStr = "日跨ぎ自動分割";
+      }
+
+      const tCommentObj = {
+        segments: [{ location: user.defaultLocation || "未記載", department: user.defaultDepartment || "未記載", hours: "" }],
+        text: "",
+        application: {
+          status: tAppStatus,
+          reason: tReasonStr,
+          detailText: tDetailText,
+          appliedIn: "00:00",
+          appliedOut: roundTimeToHalfHour(nowTime, "floor"),
+          submittedAt: new Date().toISOString(),
+          autoApplied: tAutoApp
+        },
+        auditLog: [
+          { action: "submitted", by: user.userName || user.loginId || "スタッフ", at: new Date().toISOString(), detail: "日跨ぎ退勤（自動分割・本日分）" }
+        ]
+      };
+
+      await fetch(ENDPOINTS.update, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: user.userId,
+          workDate: todayRecordId,
+          clockIn: "00:00",
+          clockOut: nowTime,
+          breaks: [],
+          comment: JSON.stringify(tCommentObj),
+          location: user.defaultLocation || "未記載",
+          department: user.defaultDepartment || "未記載"
+        })
+      });
+
+      alert("日またぎの退勤処理が完了しました。管理者の承認をお待ちください。");
+      fetchData(); // リロード
+
+    } catch (e) {
+      console.error(e);
+      alert("エラーが発生しました: " + (e.message || ""));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // 退勤ボタン押下時：乖離チェック → 「問題なし」の場合のみ即退勤、それ以外は全て申請モーダル表示
   const handleClockOut = async () => {
     if (!user || !activeItem) {
       alert("出勤していません");
+      return;
+    }
+
+    const nowTime = format(new Date(), "HH:mm");
+    const todayStr = format(new Date(), "yyyy-MM-dd");
+
+    // もしアクティブなレコードが「今日（todayStr）」以外のものであれば、日跨ぎ自動分割処理に移譲する
+    if (activeItem.workDate !== todayStr && !activeItem.workDate.startsWith(todayStr)) {
+      handleOvernightClockOut(activeItem, nowTime, todayStr);
       return;
     }
 
@@ -541,7 +685,6 @@ export default function AttendanceRecord({ user: propUser }) {
       }
     }
 
-    const nowTime = format(new Date(), "HH:mm");
     const lookupDate = activeItem.displayDate || activeItem.workDate;
 
     // シフトが見つからない場合、再取得を試みる（キャッシュに当日分がない場合の対策）
