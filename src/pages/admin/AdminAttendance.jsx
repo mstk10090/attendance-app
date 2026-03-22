@@ -1631,85 +1631,117 @@ export default function AdminAttendance() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredItems.map(item => {
-                    const rowAppStatus = item._application?.status;
-                    const baseDateStrForCheck = item.workDate.split("_")[0];
-                    const isToday = isSameDay(new Date(baseDateStrForCheck), new Date());
-                    const isWorking = item.clockIn && !item.clockOut && isToday;
-                    const isUnapplied = item.clockIn && item.clockOut && !rowAppStatus;
-                    const isIncomplete = item.clockIn && !item.clockOut && !isToday;
-
-                    // シフト情報を取得（正規化済みキーで検索）
-                    let shift = shiftMap?.[normalizeName(item.userName)]?.[item.workDate] || null;
-
-                    // 見つからない場合は、姓名連結で検索
-                    if (!shift) {
-                      const user = users.find(u => u.userId === item.userId);
-                      if (user) {
-                        const normalized = normalizeName((user.lastName || "") + (user.firstName || ""));
-                        shift = shiftMap?.[normalized]?.[item.workDate] || null;
+                  {(() => {
+                    const groupedItemsMap = new Map();
+                    filteredItems.forEach(item => {
+                      const baseDateForCheck = item.workDate.split("_")[0];
+                      const key = viewMode === "daily" ? `${item.userId}_${baseDate}` : `${item.userId}_${baseDateForCheck}`;
+                      if (!groupedItemsMap.has(key)) {
+                        groupedItemsMap.set(key, {
+                          userId: item.userId,
+                          userName: item.userName,
+                          employmentType: item.employmentType,
+                          displayDateObj: viewMode === "daily" ? new Date(baseDate) : new Date(baseDateForCheck),
+                          records: []
+                        });
                       }
-                    }
+                      groupedItemsMap.get(key).records.push(item);
+                    });
 
-                    // シフトとの比較判定
-                    let shiftCheck = null; // null=判定不可, "ok"=問題なし, "late"=遅刻, "early"=早退, "both"=遅刻+早退, "overtime"=残業, "late_overtime"=遅刻+残業
-                    const appForCheck = item._application || {};
-                    const effectiveIn = item.clockIn || appForCheck.appliedIn;
-                    const effectiveOut = item.clockOut || appForCheck.appliedOut;
-                    if (shift && !shift.isOff && effectiveIn && effectiveOut) {
-                      const shiftStartMin = toMin(shift.start);
-                      const shiftEndMin = toMin(shift.end);
-                      // 管理者修正済みの場合は申請時間ベースで判定
-                      const isAdminEdited = !!appForCheck.adminEdited;
-                      const checkIn = (isAdminEdited && appForCheck.appliedIn) ? toMin(appForCheck.appliedIn) : toMin(effectiveIn);
-                      const checkOut = (isAdminEdited && appForCheck.appliedOut) ? toMin(appForCheck.appliedOut) : toMin(effectiveOut);
+                    const groupedItems = Array.from(groupedItemsMap.values()).sort((a, b) => {
+                      const dateStrA = format(a.displayDateObj, "yyyy-MM-dd");
+                      const dateStrB = format(b.displayDateObj, "yyyy-MM-dd");
+                      if (dateStrA !== dateStrB) return dateStrA.localeCompare(dateStrB);
+                      return normalizeName(a.userName || "").localeCompare(normalizeName(b.userName || ""));
+                    });
 
-                      // 管理者修正: ぴったりは遅刻にしない(>)、通常打刻: ぴったりは遅刻(>=)
-                      const isLate = isAdminEdited ? checkIn > shiftStartMin : checkIn >= shiftStartMin;
-                      const isEarly = checkOut < shiftEndMin;
-                      const isOvertime = checkOut >= shiftEndMin + 30; // シフト終了30分以上で残業判定
+                    groupedItems.forEach(g => {
+                      g.records.sort((a, b) => a.workDate.localeCompare(b.workDate));
+                    });
 
-                      if (isLate && isEarly) shiftCheck = "both";
-                      else if (isLate && isOvertime) shiftCheck = "late_overtime";
-                      else if (isLate) shiftCheck = "late";
-                      else if (isEarly) shiftCheck = "early";
-                      else if (isOvertime) shiftCheck = "overtime";
-                      else shiftCheck = "ok";
-                    }
+                    return groupedItems.map(group => {
+                      return (
+                        <React.Fragment key={`${group.userId}_${format(group.displayDateObj, "yyyy-MM-dd")}`}>
+                          {group.records.map((item, idx) => {
+                            const rowAppStatus = item._application?.status;
+                            const baseDateStrForCheck = item.workDate.split("_")[0];
+                            const isToday = isSameDay(new Date(baseDateStrForCheck), new Date());
+                            const isWorking = item.clockIn && !item.clockOut && isToday;
+                            const isUnapplied = item.clockIn && item.clockOut && !rowAppStatus;
+                            const isIncomplete = item.clockIn && !item.clockOut && !isToday;
 
-                    const category = getItemCategory(item);
-                    const isShiftOnly = category !== "absent" && category !== "day_off" && ((item._shiftOnly && !item.clockIn) || (category === "noshift") || (category === "no_shift_day"));
-                    const isNoShiftDay = category === "no_shift_day";
+                            // シフト情報を取得（正規化済みキーで検索）
+                            let shift = shiftMap?.[normalizeName(item.userName)]?.[item.workDate] || null;
 
-                    let bg = "#fff";
-                    if (isShiftOnly && !isNoShiftDay) bg = "#fef2f2"; // Red (未出勤: シフトあり未打刻)
-                    else if (isNoShiftDay) bg = "#f9fafb"; // Light gray (シフトなし)
-                    else if (category === "absent") bg = "#fce4ec"; // Maroon/pink for absent
-                    else if (category === "day_off") bg = "#eff6ff"; // Light blue for day off
-                    else if (rowAppStatus === "approved") bg = "#d1fae5"; // Stronger green for approved
-                    else if (rowAppStatus === "pending") bg = "#fff7ed"; // Orange
-                    else if (rowAppStatus === "resubmission_requested") bg = "#fcf4ff"; // Purple
-                    else if (rowAppStatus === "sa_return_admin") bg = "#fef2f2"; // Red
-                    else if (rowAppStatus === "sa_return_staff") bg = "#fff7ed"; // Orange
-                    else if (isIncomplete) bg = "#fee2e2"; // Red (Forgot Clockout)
-                    else if ((shiftCheck === "overtime" || shiftCheck === "late_overtime") && isUnapplied) bg = "#eff6ff"; // Light blue for overtime unapplied
-                    else if (shiftCheck === "ok" && isUnapplied) bg = "#f0fdf4"; // Light green for auto-approvable
-                    else if (isUnapplied) bg = "#fef2f2"; // Red (Unapplied)
-                    else if (isWorking) bg = "#ffffff"; // White (Working)
+                            // 見つからない場合は、姓名連結で検索
+                            if (!shift) {
+                              const user = users.find(u => u.userId === item.userId);
+                              if (user) {
+                                const normalized = normalizeName((user.lastName || "") + (user.firstName || ""));
+                                shift = shiftMap?.[normalized]?.[item.workDate] || null;
+                              }
+                            }
 
-                    return (
-                      <tr key={item.userId + item.workDate} style={{ background: bg, borderBottom: "1px solid #f3f4f6" }}>
-                        <td style={{ fontSize: "13px", color: "#374151", padding: "10px 8px" }}>
-                          {(() => {
-                            const [baseDateStr, suffix] = item.workDate.split("_");
-                            const formatted = format(new Date(baseDateStr), "MM/dd(E)", { locale: ja });
-                            return suffix ? `${formatted} (追)` : formatted;
-                          })()}
-                        </td>
-                        <td style={{ fontWeight: "bold", fontSize: "14px", padding: "10px 8px" }}>
-                          {item.userName}
-                          <div style={{ fontSize: "10px", color: "#aaa" }}>{item.employmentType || ""}</div>
-                        </td>
+                            // シフトとの比較判定
+                            let shiftCheck = null; // null=判定不可, "ok"=問題なし, "late"=遅刻, "early"=早退, "both"=遅刻+早退, "overtime"=残業, "late_overtime"=遅刻+残業
+                            const appForCheck = item._application || {};
+                            const effectiveIn = item.clockIn || appForCheck.appliedIn;
+                            const effectiveOut = item.clockOut || appForCheck.appliedOut;
+                            if (shift && !shift.isOff && effectiveIn && effectiveOut) {
+                              const shiftStartMin = toMin(shift.start);
+                              const shiftEndMin = toMin(shift.end);
+                              // 管理者修正済みの場合は申請時間ベースで判定
+                              const isAdminEdited = !!appForCheck.adminEdited;
+                              const checkIn = (isAdminEdited && appForCheck.appliedIn) ? toMin(appForCheck.appliedIn) : toMin(effectiveIn);
+                              const checkOut = (isAdminEdited && appForCheck.appliedOut) ? toMin(appForCheck.appliedOut) : toMin(effectiveOut);
+
+                              // 管理者修正: ぴったりは遅刻にしない(>)、通常打刻: ぴったりは遅刻(>=)
+                              const isLate = isAdminEdited ? checkIn > shiftStartMin : checkIn >= shiftStartMin;
+                              const isEarly = checkOut < shiftEndMin;
+                              const isOvertime = checkOut >= shiftEndMin + 30; // シフト終了30分以上で残業判定
+
+                              if (isLate && isEarly) shiftCheck = "both";
+                              else if (isLate && isOvertime) shiftCheck = "late_overtime";
+                              else if (isLate) shiftCheck = "late";
+                              else if (isEarly) shiftCheck = "early";
+                              else if (isOvertime) shiftCheck = "overtime";
+                              else shiftCheck = "ok";
+                            }
+
+                            const category = getItemCategory(item);
+                            const isShiftOnly = category !== "absent" && category !== "day_off" && ((item._shiftOnly && !item.clockIn) || (category === "noshift") || (category === "no_shift_day"));
+                            const isNoShiftDay = category === "no_shift_day";
+
+                            let bg = "#fff";
+                            if (isShiftOnly && !isNoShiftDay) bg = "#fef2f2"; // Red (未出勤: シフトあり未打刻)
+                            else if (isNoShiftDay) bg = "#f9fafb"; // Light gray (シフトなし)
+                            else if (category === "absent") bg = "#fce4ec"; // Maroon/pink for absent
+                            else if (category === "day_off") bg = "#eff6ff"; // Light blue for day off
+                            else if (rowAppStatus === "approved") bg = "#d1fae5"; // Stronger green for approved
+                            else if (rowAppStatus === "pending") bg = "#fff7ed"; // Orange
+                            else if (rowAppStatus === "resubmission_requested") bg = "#fcf4ff"; // Purple
+                            else if (rowAppStatus === "sa_return_admin") bg = "#fef2f2"; // Red
+                            else if (rowAppStatus === "sa_return_staff") bg = "#fff7ed"; // Orange
+                            else if (isIncomplete) bg = "#fee2e2"; // Red (Forgot Clockout)
+                            else if ((shiftCheck === "overtime" || shiftCheck === "late_overtime") && isUnapplied) bg = "#eff6ff"; // Light blue for overtime unapplied
+                            else if (shiftCheck === "ok" && isUnapplied) bg = "#f0fdf4"; // Light green for auto-approvable
+                            else if (isUnapplied) bg = "#fef2f2"; // Red (Unapplied)
+                            else if (isWorking) bg = "#ffffff"; // White (Working)
+
+                            return (
+                              <tr key={item.userId + item.workDate} style={{ background: bg, borderBottom: idx === group.records.length - 1 ? "2px solid #e5e7eb" : "1px solid #f3f4f6" }}>
+                                {idx === 0 && (
+                                  <td rowSpan={group.records.length} style={{ fontSize: "13px", color: "#374151", padding: "10px 8px", borderRight: "1px solid #e5e7eb", background: "#fff", verticalAlign: "middle" }}>
+                                    {format(group.displayDateObj, "MM/dd(E)", { locale: ja })}
+                                  </td>
+                                )}
+                                {idx === 0 && (
+                                  <td rowSpan={group.records.length} style={{ fontWeight: "bold", fontSize: "14px", padding: "10px 8px", borderRight: "1px solid #e5e7eb", background: "#fff", verticalAlign: "middle" }}>
+                                    {group.userName}
+                                    <div style={{ fontSize: "10px", color: "#aaa", fontWeight: "normal", marginTop: "4px" }}>{group.employmentType || ""}</div>
+                                  </td>
+                                )}
+
                         <td style={{ padding: "10px 8px", fontSize: "13px" }}>
                           {shift ? (
                             shift.isOff ? (
@@ -2315,9 +2347,13 @@ export default function AdminAttendance() {
                             </button>
                           </div>
                         </td>
-                      </tr>
-                    );
-                  })}
+                        </tr>
+                            );
+                          })}
+                        </React.Fragment>
+                      );
+                    });
+                  })()}
                 </tbody>
               </table>
             </div>
