@@ -263,9 +263,10 @@ export default function AttendanceRecord({ user: propUser }) {
     activeItem = todayItems.find(i => i.clockIn && !i.clockOut) || null;
   }
   
-  // 今日退勤済みかどうか（通常は退勤したらその日の出勤不可だが、夜間20時以降かつ未退勤レコードがなければ夜勤として出勤を再許可する）
-  const currentHour = new Date().getHours();
-  const hasClockedOut = todayItems.some(i => i.clockIn && i.clockOut) && currentHour < 20;
+  // 今日退勤済みかどうか
+  // （以前は「退勤したらその日の出勤不可(20時まで)」としていたが、
+  // 日跨ぎ分割や同日複数回出勤の要望により解除。未退勤データがなければいつでも出勤可能とする）
+  const hasClockedOut = false;
   
   const displayItem = activeItem || (todayItems.length > 0 ? todayItems[todayItems.length - 1] : null);
 
