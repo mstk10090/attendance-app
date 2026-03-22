@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
-import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addDays, addMonths, subMonths, startOfYear, endOfYear, isSaturday, isSunday } from "date-fns";
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addDays, addMonths, subMonths, startOfYear, endOfYear, isSaturday, isSunday, subDays } from "date-fns";
 import { ja } from "date-fns/locale";
 import { Search, Filter, AlertTriangle, CheckCircle, XCircle, Clock, MapPin, Download, Save, X, Briefcase, FileText, Send, PieChart, BarChart, ClipboardCheck, Trash2, MessageSquare } from "lucide-react";
 import "../../App.css";
@@ -346,7 +346,10 @@ export default function AdminAttendance() {
 
   const fetchRange = useMemo(() => {
     const d = new Date(baseDate);
-    if (viewMode === "current") return { start: baseDate, end: baseDate };
+    if (viewMode === "current") {
+      const yesterday = format(subDays(d, 1), "yyyy-MM-dd");
+      return { start: yesterday, end: baseDate };
+    }
 
     if (viewMode === "custom") {
       return { start: confirmedRange.start, end: confirmedRange.end };
