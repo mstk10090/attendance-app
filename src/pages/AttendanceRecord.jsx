@@ -1941,6 +1941,7 @@ export default function AttendanceRecord({ user: propUser }) {
           }}>
             <div style={{
               background: "#fff", borderRadius: "16px", padding: "28px", width: "90%", maxWidth: "440px",
+              maxHeight: "90vh", overflowY: "auto",
               boxShadow: "0 20px 60px rgba(0,0,0,0.3)"
             }}>
               <h3 style={{ margin: "0 0 8px", fontSize: "1.1rem", color: "#1f2937" }}>
