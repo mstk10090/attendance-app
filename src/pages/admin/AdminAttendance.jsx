@@ -86,9 +86,10 @@ const hasNightWork = (e) => {
 };
 
 const isLongWork = (item) => {
-  if (!item.clockIn || !item.clockOut) return false;
-  if (item.clockIn && !item.clockOut) {
-    const start = new Date(`${item.workDate}T${item.clockIn}`);
+  if (!item.clockIn) return false;
+  if (!item.clockOut) {
+    const baseDate = item.workDate.split('_')[0];
+    const start = new Date(`${baseDate}T${item.clockIn}`);
     const now = new Date();
     return (now - start) > (24 * 3600 * 1000);
   }
@@ -1619,7 +1620,8 @@ export default function AdminAttendance() {
                 <tbody>
                   {filteredItems.map(item => {
                     const rowAppStatus = item._application?.status;
-                    const isToday = isSameDay(new Date(item.workDate), new Date());
+                    const baseDateStrForCheck = item.workDate.split("_")[0];
+                    const isToday = isSameDay(new Date(baseDateStrForCheck), new Date());
                     const isWorking = item.clockIn && !item.clockOut && isToday;
                     const isUnapplied = item.clockIn && item.clockOut && !rowAppStatus;
                     const isIncomplete = item.clockIn && !item.clockOut && !isToday;
@@ -1685,7 +1687,11 @@ export default function AdminAttendance() {
                     return (
                       <tr key={item.userId + item.workDate} style={{ background: bg, borderBottom: "1px solid #f3f4f6" }}>
                         <td style={{ fontSize: "13px", color: "#374151", padding: "10px 8px" }}>
-                          {format(new Date(item.workDate), "MM/dd(E)", { locale: ja })}
+                          {(() => {
+                            const [baseDateStr, suffix] = item.workDate.split("_");
+                            const formatted = format(new Date(baseDateStr), "MM/dd(E)", { locale: ja });
+                            return suffix ? `${formatted} (追)` : formatted;
+                          })()}
                         </td>
                         <td style={{ fontWeight: "bold", fontSize: "14px", padding: "10px 8px" }}>
                           {item.userName}
