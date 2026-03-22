@@ -293,8 +293,8 @@ export default function StaffReport() {
         }
         return opts;
     };
-    // 申請時間は30分刻み・24時間対応
-    const timeOptions = Array.from({ length: 48 }, (_, i) => {
+    // 申請時間は30分刻み・36時間対応 (翌日12:00まで)
+    const timeOptions = Array.from({ length: 72 }, (_, i) => {
         const h = String(Math.floor(i / 2)).padStart(2, "0");
         const m = i % 2 === 0 ? "00" : "30";
         return `${h}:${m}`;
@@ -342,7 +342,8 @@ export default function StaffReport() {
                             <div>
                                 <div style={{ fontWeight: "bold", fontSize: "1.1rem" }}>修正申請</div>
                                 <div style={{ fontSize: "0.85rem", color: "#6b7280" }}>
-                                    {format(new Date(editModal.dateStr), "yyyy年MM月dd日 (E)", { locale: ja })}
+                                    {format(new Date(editModal.dateStr.split("_")[0]), "yyyy年MM月dd日 (E)", { locale: ja })}
+                                    {editModal.dateStr.includes("_") ? " (追加分)" : ""}
                                     {shift && !shift.isOff && <span style={{ marginLeft: "8px", color: "#2563eb" }}>シフト {shift.start}〜{shift.end}</span>}
                                 </div>
                             </div>
