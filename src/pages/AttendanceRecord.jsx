@@ -2003,6 +2003,13 @@ export default function AttendanceRecord({ user: propUser }) {
           </div>
         )}
 
+        {/* 本日すでに履歴がある場合の注意喚起（誤打刻防止） */}
+        {(!activeItem && todayItems.some(i => i.clockIn && i.clockOut)) && (
+          <div style={{ textAlign: "center", marginBottom: "12px", color: "#d97706", fontSize: "0.9rem", fontWeight: "bold" }}>
+            ⚠️ 本日すでに勤怠履歴があります（2回目の出勤を開始する場合は「出勤」を押してください）
+          </div>
+        )}
+
         {/* Buttons Center */}
         <div style={{ display: "flex", justifyContent: "center", gap: "24px", marginBottom: "16px", flexWrap: "wrap" }}>
           {/* Clock In */}
