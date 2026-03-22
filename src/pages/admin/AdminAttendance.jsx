@@ -354,7 +354,8 @@ export default function AdminAttendance() {
     if (viewMode === "custom") {
       return { start: confirmedRange.start, end: confirmedRange.end };
     } else if (viewMode === "daily") {
-      return { start: baseDate, end: baseDate };
+      const yesterday = format(subDays(d, 1), "yyyy-MM-dd");
+      return { start: yesterday, end: baseDate };
     } else if (viewMode === "weekly") {
       return {
         start: format(startOfWeek(d, { weekStartsOn: 1 }), "yyyy-MM-dd"),
@@ -567,8 +568,8 @@ export default function AdminAttendance() {
           return `${normalizedName}_${i.workDate}`;
         }));
 
-        const days = eachDayOfInterval({ start, end });
-        for (const day of days) {
+        const emptyRowDays = viewMode === "daily" ? [new Date(baseDate)] : eachDayOfInterval({ start, end });
+        for (const day of emptyRowDays) {
           const dateStr = format(day, "yyyy-MM-dd");
           for (const u of staffUsers) {
             const fullName = (u.lastName || "") + (u.firstName || "");
@@ -662,6 +663,15 @@ export default function AdminAttendance() {
   /* Filtering Logic */
   const filteredItems = useMemo(() => {
     return items.filter(item => {
+      // 日次モードの場合、対象日以外のデータ（前日の取得分）は「出勤中かつ未退勤(日跨ぎ)」のみ表示
+      if (viewMode === "daily") {
+        const itemBaseDate = item.workDate.split("_")[0];
+        if (itemBaseDate !== baseDate) {
+          const isActive = item.clockIn && !item.clockOut;
+          if (!isActive) return false;
+        }
+      }
+
       if (filterName && !normalizeName(item.userName).includes(normalizeName(filterName))) return false;
 
       if (filterLocation !== "all") {
