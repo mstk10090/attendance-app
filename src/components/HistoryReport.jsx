@@ -455,13 +455,25 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                             const attendanceMap = {};
                             items.forEach(i => attendanceMap[i.displayDate || i.workDate] = i);
 
-                            return daysToRender.map(dateObj => {
-                                const dateStr = format(dateObj, "yyyy-MM-dd");
-                                const item = attendanceMap[dateStr] || { workDate: dateStr };
-                                const hasAttendance = !!attendanceMap[dateStr];
+                            const renderedRows = [];
+                            daysToRender.forEach(dateObj => {
+                                const baseDateStr = format(dateObj, "yyyy-MM-dd");
+                                const dailyItems = items.filter(i => (i.displayDate || i.workDate).startsWith(baseDateStr));
+                                if (dailyItems.length === 0) {
+                                    renderedRows.push({ dateObj, baseDateStr, item: { workDate: baseDateStr }, isMulti: false, idx: 0 });
+                                } else {
+                                    dailyItems.sort((a,b) => (a.displayDate || a.workDate).localeCompare(b.displayDate || b.workDate)).forEach((item, idx) => {
+                                        renderedRows.push({ dateObj, baseDateStr, item, isMulti: dailyItems.length > 1, idx });
+                                    });
+                                }
+                            });
+
+                            return renderedRows.map(({ dateObj, baseDateStr, item, isMulti, idx }) => {
+                                const dateStr = item.displayDate || item.workDate;
+                                const hasAttendance = !!item.clockIn;
 
                                 const todayStr = format(new Date(), "yyyy-MM-dd");
-                                const isFuture = dateStr > todayStr;
+                                const isFuture = baseDateStr > todayStr;
 
                                 const workMin = calcWorkMin(item);
                                 const rounded = calcRoundedWorkMin(item);
@@ -674,7 +686,7 @@ export default function HistoryReport({ user, items, baseDate, viewMode, shiftMa
                                         }
                                     >
                                         <td style={{ padding: "12px 16px", borderRight: "1px solid #f3f4f6", fontWeight: "500", color: "#374151" }}>
-                                            {format(dateObj, "MM/dd (E)", { locale: ja })}
+                                            {format(dateObj, "MM/dd (E)", { locale: ja })}{isMulti && idx > 0 ? ` (${idx + 1}回目)` : ""}
                                         </td>
                                         <td style={{ padding: "12px 16px", textAlign: "center", fontSize: "0.9rem", color: shift ? "#2563eb" : "#9ca3af" }}>
                                             {shift ? (

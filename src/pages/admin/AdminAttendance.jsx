@@ -308,9 +308,10 @@ export default function AdminAttendance() {
     }
     // URLパラメータで日付が指定されている場合、日付範囲を設定して自動検索
     if (urlDate) {
-      setCustomDateFrom(urlDate);
-      setCustomDateTo(urlDate);
-      setConfirmedRange({ start: urlDate, end: urlDate });
+      const baseDate = urlDate.split("_")[0];
+      setCustomDateFrom(baseDate);
+      setCustomDateTo(baseDate);
+      setConfirmedRange({ start: baseDate, end: baseDate });
       setViewMode("custom");
     }
   }, [users, urlUserId, urlDate]);

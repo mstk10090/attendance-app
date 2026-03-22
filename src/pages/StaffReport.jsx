@@ -140,7 +140,8 @@ export default function StaffReport() {
         const ln = (user.userName || "").replace(/\s/g, "");
         const normalized = normalizeName(ln);
         const userShifts = shiftMap[normalized] || shiftMap[normalizeName(user.userName)] || {};
-        return userShifts[dateStr] || null;
+        const baseDateStr = dateStr.split("_")[0];
+        return userShifts[baseDateStr] || null;
     };
 
     // 行クリック → モーダルオープン
