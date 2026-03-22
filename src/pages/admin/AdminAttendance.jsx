@@ -660,6 +660,42 @@ export default function AdminAttendance() {
     return "other";
   };
 
+  const getShiftCheck = (item) => {
+    let shift = shiftMap?.[normalizeName(item.userName)]?.[item.workDate] || null;
+    if (!shift) {
+      const user = users.find(u => u.userId === item.userId);
+      if (user) {
+        const normalized = normalizeName((user.lastName || "") + (user.firstName || ""));
+        shift = shiftMap?.[normalized]?.[item.workDate] || null;
+      }
+    }
+    
+    let shiftCheck = null;
+    const appForCheck = item._application || {};
+    const effectiveIn = item.clockIn || appForCheck.appliedIn;
+    const effectiveOut = item.clockOut || appForCheck.appliedOut;
+    
+    if (shift && !shift.isOff && effectiveIn && effectiveOut) {
+      const shiftStartMin = toMin(shift.start);
+      const shiftEndMin = toMin(shift.end);
+      const isAdminEdited = !!appForCheck.adminEdited;
+      const checkIn = (isAdminEdited && appForCheck.appliedIn) ? toMin(appForCheck.appliedIn) : toMin(effectiveIn);
+      const checkOut = (isAdminEdited && appForCheck.appliedOut) ? toMin(appForCheck.appliedOut) : toMin(effectiveOut);
+
+      const isLate = isAdminEdited ? checkIn > shiftStartMin : checkIn >= shiftStartMin;
+      const isEarly = checkOut < shiftEndMin;
+      const isOvertime = checkOut >= shiftEndMin + 30;
+
+      if (isLate && isEarly) shiftCheck = "both";
+      else if (isLate && isOvertime) shiftCheck = "late_overtime";
+      else if (isLate) shiftCheck = "late";
+      else if (isEarly) shiftCheck = "early";
+      else if (isOvertime) shiftCheck = "overtime";
+      else shiftCheck = "ok";
+    }
+    return shiftCheck;
+  };
+
   /* Filtering Logic */
   const filteredItems = useMemo(() => {
     return items.filter(item => {
@@ -1574,8 +1610,8 @@ export default function AdminAttendance() {
                 const pendingInView = filteredItems.filter(i => {
                   if (i._application?.status !== "pending") return false;
                   // シフトありかつ問題なしのみ
-                  const cat = getItemCategory(i);
-                  if (cat === "noshift" || cat === "no_shift_day" || cat === "absent" || cat === "day_off") return false;
+                  const check = getShiftCheck(i);
+                  if (check !== "ok") return false;
                   // clockIn/clockOutが揃っていること
                   if (!i.clockIn || !i.clockOut) return false;
                   return true;
@@ -1682,31 +1718,8 @@ export default function AdminAttendance() {
                               }
                             }
 
-                            // シフトとの比較判定
-                            let shiftCheck = null; // null=判定不可, "ok"=問題なし, "late"=遅刻, "early"=早退, "both"=遅刻+早退, "overtime"=残業, "late_overtime"=遅刻+残業
-                            const appForCheck = item._application || {};
-                            const effectiveIn = item.clockIn || appForCheck.appliedIn;
-                            const effectiveOut = item.clockOut || appForCheck.appliedOut;
-                            if (shift && !shift.isOff && effectiveIn && effectiveOut) {
-                              const shiftStartMin = toMin(shift.start);
-                              const shiftEndMin = toMin(shift.end);
-                              // 管理者修正済みの場合は申請時間ベースで判定
-                              const isAdminEdited = !!appForCheck.adminEdited;
-                              const checkIn = (isAdminEdited && appForCheck.appliedIn) ? toMin(appForCheck.appliedIn) : toMin(effectiveIn);
-                              const checkOut = (isAdminEdited && appForCheck.appliedOut) ? toMin(appForCheck.appliedOut) : toMin(effectiveOut);
-
-                              // 管理者修正: ぴったりは遅刻にしない(>)、通常打刻: ぴったりは遅刻(>=)
-                              const isLate = isAdminEdited ? checkIn > shiftStartMin : checkIn >= shiftStartMin;
-                              const isEarly = checkOut < shiftEndMin;
-                              const isOvertime = checkOut >= shiftEndMin + 30; // シフト終了30分以上で残業判定
-
-                              if (isLate && isEarly) shiftCheck = "both";
-                              else if (isLate && isOvertime) shiftCheck = "late_overtime";
-                              else if (isLate) shiftCheck = "late";
-                              else if (isEarly) shiftCheck = "early";
-                              else if (isOvertime) shiftCheck = "overtime";
-                              else shiftCheck = "ok";
-                            }
+                            // シフトとの比較判定を取得
+                            const shiftCheck = getShiftCheck(item);
 
                             const category = getItemCategory(item);
                             const isShiftOnly = category !== "absent" && category !== "day_off" && ((item._shiftOnly && !item.clockIn) || (category === "noshift") || (category === "no_shift_day"));
