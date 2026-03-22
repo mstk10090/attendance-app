@@ -247,7 +247,7 @@ export default function AdminAttendanceSheet() {
                 chunkResults.forEach(({ dateStr, items }) => {
                     items.forEach(item => {
                         if (item && item.userId) {
-                            map[`${item.userId}_${dateStr}`] = item;
+                            map[`${item.userId}_${item.workDate}`] = item;
                         }
                     });
                 });
@@ -314,17 +314,38 @@ export default function AdminAttendanceSheet() {
         return false;
     }, [shiftMap, currentMonth]);
 
-    // セルデータ取得
-    const getCellData = useCallback((user, dateStr) => {
-        // メインuserIdで検索、見つからなければaltUserIdsで検索
-        let att = attendanceMap[`${user.userId}_${dateStr}`];
-        if (!att && user.altUserIds) {
+    // ユーザーと日付に対するすべての対象レコードを取得
+    const getUserRecords = useCallback((user, dateStr) => {
+        const checkId = (id) => {
+            let found = [];
+            let r = attendanceMap[`${id}_${dateStr}`];
+            if (r) found.push(r);
+            let suffixNum = 2;
+            while (true) {
+                let r2 = attendanceMap[`${id}_${dateStr}_${suffixNum}`];
+                if (r2) { found.push(r2); suffixNum++; }
+                else break;
+            }
+            return found;
+        };
+
+        let found = checkId(user.userId);
+        if (found.length === 0 && user.altUserIds) {
             for (const altId of user.altUserIds) {
-                const altAtt = attendanceMap[`${altId}_${dateStr}`];
-                if (altAtt) { att = altAtt; break; }
+                found = checkId(altId);
+                if (found.length > 0) break;
             }
         }
-        const shift = getUserShift(user, dateStr);
+        return found;
+    }, [attendanceMap]);
+
+    // セルデータ取得
+    const getCellData = useCallback((user, baseDateStr, att = null, recordIdx = 0) => {
+        if (recordIdx > 0 && !att) {
+            return { status: "empty", clockIn: "", clockOut: "", displayIn: "", displayOut: "", hours: "", dispatchHours: "", partTimeHours: "", confirmedBy: null, att: null, shift: null, app: null };
+        }
+
+        const shift = recordIdx === 0 ? getUserShift(user, baseDateStr) : null;
         const p = att ? parseComment(att.comment) : null;
         const app = p?.application;
 
@@ -483,15 +504,15 @@ export default function AdminAttendanceSheet() {
         }
 
         return { status, clockIn, clockOut, displayIn, displayOut, hours, dispatchHours, partTimeHours, confirmedBy, att, shift, app };
-    }, [attendanceMap, getUserShift, isDispatchUser]);
+    }, [getUserShift, isDispatchUser]);
 
     // セルクリック → モーダル表示（データがあるセル全般）
-    const handleCellClick = useCallback((user, dateStr) => {
+    const handleCellClick = useCallback((user, dateStr, att, recordIdx) => {
         if (!isAdmin) return;
-        const cell = getCellData(user, dateStr);
+        const cell = getCellData(user, dateStr, att, recordIdx);
         // データがあるセル（no_shift以外）でモーダルを表示
-        if (cell.status !== "no_shift" && cell.status !== "scheduled") {
-            setConfirmModal({ open: true, user, dateStr, cell });
+        if (cell.status !== "no_shift" && cell.status !== "scheduled" && cell.status !== "empty") {
+            setConfirmModal({ open: true, user, dateStr: att?.workDate || dateStr, cell });
         }
     }, [getCellData, isAdmin]);
 
@@ -610,15 +631,26 @@ export default function AdminAttendanceSheet() {
         let workDays = 0;
         days.forEach(day => {
             const dateStr = format(day, "yyyy-MM-dd");
-            const cell = getCellData(user, dateStr);
-            // approved = 安保さん承認待ち、confirmed = 安保さん承認済み
-            if ((cell.status === "approved" || cell.status === "confirmed") && cell.hours && parseFloat(cell.hours) > 0) {
-                totalHours += parseFloat(cell.hours);
-                workDays++;
+            const atts = getUserRecords(user, dateStr);
+            const maxRecords = Math.max(1, atts.length);
+            for (let i = 0; i < maxRecords; i++) {
+                const cell = getCellData(user, dateStr, atts[i] || null, i);
+                // approved = 安保さん承認待ち、confirmed = 安保さん承認済み
+                if ((cell.status === "approved" || cell.status === "confirmed") && cell.hours && parseFloat(cell.hours) > 0) {
+                    totalHours += parseFloat(cell.hours);
+                    // 1日の中に複数レコードあっても、1日としてカウントするならフラグ等が必要だが、
+                    // 現状は明細ごとにカウントするか、日単位でカウントするか。一旦日単位とする
+                }
             }
+            // workDaysは「その日に1つ以上対象レコードがあったか」で1日とカウントする
+            const hasWork = atts.some((att, i) => {
+                const cell = getCellData(user, dateStr, att, i);
+                return (cell.status === "approved" || cell.status === "confirmed") && cell.hours && parseFloat(cell.hours) > 0;
+            });
+            if (hasWork) workDays++;
         });
         return { totalHours: totalHours.toFixed(1), workDays };
-    }, [days, getCellData]);
+    }, [days, getCellData, getUserRecords]);
 
     const cellBorder = "1px solid #d1d5db";
     const userSeparator = "2px solid #9ca3af";
@@ -744,66 +776,73 @@ export default function AdminAttendanceSheet() {
                                 const isTodayRow = dateStr === todayStr;
                                 const dayLabel = `${format(day, "d")}日`;
 
-                                return (
-                                    <tr
-                                        key={dateStr}
-                                        ref={isTodayRow ? todayRowRef : undefined}
-                                        style={{ background: isWeekend ? "#f9fafb" : "transparent" }}
-                                    >
-                                        <td style={{
-                                            position: "sticky", left: 0, zIndex: 2,
-                                            background: isTodayRow ? "#f59e0b" : isWeekend ? "#f3f4f6" : "#fff",
-                                            color: isTodayRow ? "#fff" : dow === 0 ? "#dc2626" : dow === 6 ? "#2563eb" : "#374151",
-                                            padding: "4px 6px", borderRight: userSeparator,
-                                            borderBottom: cellBorder, fontWeight: "bold",
-                                            textAlign: "center",
-                                            boxShadow: isTodayRow ? "inset 0 0 0 2px #f59e0b" : "none"
-                                        }}>
-                                            {dayLabel}({DAY_LABELS[dow]})
-                                        </td>
-                                        {users.map((u, uIdx) => {
-                                            const cell = getCellData(u, dateStr);
-                                            const bg = getCellBg(cell.status);
-                                            const hasData = isAdmin && cell.status !== "no_shift" && cell.status !== "scheduled";
-                                            const isLastUser = uIdx === users.length - 1;
+                                const maxRecords = Math.max(1, ...users.map(u => getUserRecords(u, dateStr).length));
 
-                                            const baseCellStyle = {
-                                                padding: "3px 4px",
-                                                borderBottom: cellBorder,
-                                                borderRight: cellBorder,
+                                return Array.from({ length: maxRecords }).map((_, recordIdx) => {
+                                    const isFirstRow = recordIdx === 0;
+                                    return (
+                                        <tr
+                                            key={`${dateStr}_${recordIdx}`}
+                                            ref={isTodayRow && isFirstRow ? todayRowRef : undefined}
+                                            style={{ background: isWeekend ? "#f9fafb" : "transparent" }}
+                                        >
+                                            <td style={{
+                                                position: "sticky", left: 0, zIndex: 2,
+                                                background: isTodayRow && isFirstRow ? "#f59e0b" : isWeekend ? "#f3f4f6" : "#fff",
+                                                color: isTodayRow && isFirstRow ? "#fff" : dow === 0 ? "#dc2626" : dow === 6 ? "#2563eb" : "#374151",
+                                                padding: "4px 6px", borderRight: userSeparator,
+                                                borderBottom: cellBorder, fontWeight: "bold",
                                                 textAlign: "center",
-                                                background: bg,
-                                                color: (cell.status === "absent" || cell.status === "day_off") ? "#fff" : "inherit",
-                                                cursor: hasData ? "pointer" : "default",
-                                                transition: "background 0.15s",
-                                                boxShadow: isTodayRow ? "inset 0 2px 0 0 #f59e0b, inset 0 -2px 0 0 #f59e0b" : "none",
-                                                overflow: "hidden",
-                                                minWidth: "42px"
-                                            };
+                                                boxShadow: isTodayRow && isFirstRow ? "inset 0 0 0 2px #f59e0b" : "none"
+                                            }}>
+                                                {isFirstRow ? `${dayLabel}(${DAY_LABELS[dow]})` : `${dayLabel}(追加分)`}
+                                            </td>
+                                            {users.map((u, uIdx) => {
+                                                const attRecords = getUserRecords(u, dateStr);
+                                                const attRecord = attRecords[recordIdx] || null;
+                                                const cell = getCellData(u, dateStr, attRecord, recordIdx);
+                                                const bg = getCellBg(cell.status);
+                                                const hasData = isAdmin && cell.status !== "no_shift" && cell.status !== "scheduled" && cell.status !== "empty";
+                                                const isLastUser = uIdx === users.length - 1;
 
-                                            const handleClick = () => { if (hasData) handleCellClick(u, dateStr); };
+                                                const baseCellStyle = {
+                                                    padding: "3px 4px",
+                                                    borderBottom: cellBorder,
+                                                    borderRight: cellBorder,
+                                                    textAlign: "center",
+                                                    background: bg,
+                                                    color: (cell.status === "absent" || cell.status === "day_off") ? "#fff" : "inherit",
+                                                    cursor: hasData ? "pointer" : "default",
+                                                    transition: "background 0.15s",
+                                                    boxShadow: isTodayRow && isFirstRow ? "inset 0 2px 0 0 #f59e0b, inset 0 -2px 0 0 #f59e0b" : "none",
+                                                    overflow: "hidden",
+                                                    minWidth: "42px"
+                                                };
 
-                                            return (
-                                                <React.Fragment key={u.userId}>
-                                                    <td style={baseCellStyle} onClick={handleClick} title={hasData ? "クリックで詳細表示" : ""}>
-                                                        {cell.displayIn}
-                                                    </td>
-                                                    <td style={baseCellStyle} onClick={handleClick}>
-                                                        {cell.displayOut}
-                                                    </td>
-                                                    <td style={{
-                                                        ...baseCellStyle,
-                                                        borderRight: isLastUser ? cellBorder : userSeparator,
-                                                        fontWeight: cell.hours ? "bold" : "normal",
-                                                        minWidth: "36px"
-                                                    }} onClick={handleClick}>
-                                                        {cell.hours !== "" && cell.hours !== undefined ? cell.hours : ""}
-                                                    </td>
-                                                </React.Fragment>
-                                            );
-                                        })}
-                                    </tr>
-                                );
+                                                const handleClick = () => { if (hasData) handleCellClick(u, dateStr, attRecord, recordIdx); };
+
+                                                return (
+                                                    <React.Fragment key={u.userId}>
+                                                        <td style={baseCellStyle} onClick={handleClick} title={hasData ? "クリックで詳細表示" : ""}>
+                                                            {cell.displayIn}
+                                                        </td>
+                                                        <td style={baseCellStyle} onClick={handleClick}>
+                                                            {cell.displayOut}
+                                                        </td>
+                                                        <td style={{
+                                                            ...baseCellStyle,
+                                                            borderRight: isLastUser ? cellBorder : userSeparator,
+                                                            fontWeight: cell.hours ? "bold" : "normal",
+                                                            minWidth: "36px"
+                                                        }} onClick={handleClick}>
+                                                            {cell.hours !== "" && cell.hours !== undefined ? cell.hours : ""}
+                                                        </td>
+                                                    </React.Fragment>
+                                                );
+                                            })}
+                                        </tr>
+                                    );
+                                });
                             })}
                         </tbody>
                         {/* 合計行 - 同じテーブル内のtfootでsticky固定 → 列ズレなし */}
