@@ -1794,7 +1794,8 @@ export default function AdminAttendance() {
                           {(() => {
                             const app = item._application;
                             if (app?.appliedIn && app?.appliedOut) {
-                              const breakDur = app.breakDuration || 0;
+                              const actualBreakMin = calcBreakTime(item);
+                              const breakDur = (app.breakDuration !== undefined && app.breakDuration !== null) ? app.breakDuration : actualBreakMin;
                               const adminEdited = app?.adminEdited;
                               return (
                                 <>
@@ -1853,7 +1854,10 @@ export default function AdminAttendance() {
                             const totalDuration = Math.max(0, effOutMin - effInMin);
 
                             // 申請に休憩時間がある場合はそれを差し引く
-                            const breakDuration = app.breakDuration || 0;
+                            const actualBreakMin = calcBreakTime(item);
+                            const breakDuration = (app && app.breakDuration !== undefined && app.breakDuration !== null) 
+                                                  ? app.breakDuration 
+                                                  : actualBreakMin;
                             const netDuration = Math.max(0, totalDuration - breakDuration);
 
                             // 30分単位に丸める

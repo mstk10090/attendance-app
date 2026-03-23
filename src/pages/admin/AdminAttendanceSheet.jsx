@@ -85,6 +85,18 @@ const calcHours = (startStr, endStr) => {
     return roundHalf((e - s) / 60);
 };
 
+const calcBreakTime = (breaks) => {
+    if (!breaks || breaks.length === 0) return 0;
+    const raw = breaks.reduce((acc, b) => {
+        if (b.start && b.end) {
+            return acc + (toMin(b.end) - toMin(b.start));
+        }
+        return acc;
+    }, 0);
+    if (raw <= 0) return 0;
+    return Math.ceil(raw / 30) * 30; // 30分単位に切り上げ
+};
+
 export default function AdminAttendanceSheet() {
     const navigate = useNavigate();
     const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -413,8 +425,13 @@ export default function AdminAttendanceSheet() {
             if (clockIn && clockOut) {
                 const inMin = toMin(clockIn);
                 const outMin = toMin(clockOut);
-                // 休憩時間を考慮
-                const breakDur = app?.breakDuration || 0;
+                
+                // 休憩時間を考慮 (手動設定されたbreakDurationがあれば優先、なければ実打刻を使用)
+                const actualBreakMin = att ? calcBreakTime(att.breaks) : 0;
+                const breakDur = (app && app.breakDuration !== undefined && app.breakDuration !== null) 
+                                 ? app.breakDuration 
+                                 : actualBreakMin;
+
                 const totalMin = Math.max(0, outMin - inMin - breakDur);
                 // 30分単位に丸める
                 const roundedMin = Math.floor(totalMin / 30) * 30;
