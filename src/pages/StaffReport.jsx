@@ -146,6 +146,13 @@ export default function StaffReport() {
 
     // 行クリック → モーダルオープン
     const handleRowClick = (dateStr, item) => {
+        // 出勤中のデータ（本日で退勤が完了していない）は編集不可とする
+        const todayStr = format(new Date(), "yyyy-MM-dd");
+        if (dateStr.startsWith(todayStr) && item?.clockIn && !item?.clockOut) {
+            alert("出勤中のデータは修正申請できません。退勤時に画面の指示に従うか、退勤後に申請を行ってください。");
+            return;
+        }
+
         const shift = getShift(dateStr);
         const p = parseComment(item?.comment);
         const app = p.application || {};
