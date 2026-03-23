@@ -3495,7 +3495,40 @@ export default function AdminAttendance() {
             <div style={{ flex: 1, overflowY: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: "12px" }}>
               {(() => {
                 const p = parseComment(logModalItem.comment);
-                const logs = p.auditLog || [];
+                let logs = [...(p.auditLog || [])];
+
+                const makeLogAt = (timeStr) => {
+                  if (!timeStr) return new Date().toISOString();
+                  const dStr = logModalItem.workDate.substring(0, 10);
+                  const baseD = new Date(`${dStr}T00:00:00+09:00`);
+                  if (isNaN(baseD.getTime())) return new Date().toISOString();
+                  const pts = timeStr.split(':');
+                  const hh = parseInt(pts[0] || '0', 10);
+                  const mm = parseInt(pts[1] || '0', 10);
+                  const ss = parseInt(pts[2] || '0', 10);
+                  baseD.setUTCHours(baseD.getUTCHours() + hh, baseD.getUTCMinutes() + mm, baseD.getUTCSeconds() + ss);
+                  return baseD.toISOString();
+                };
+
+                const userName = logModalItem.userName || "本人";
+
+                if (logModalItem.clockIn) {
+                  // createdAtはUTC(Z付き)だが中身がJSTの場合があるため、makeLogAtで生成したものを極力使う
+                  logs.push({ action: "clock_in", by: userName, at: makeLogAt(logModalItem.clockIn), detail: `出勤打刻しました（${logModalItem.clockIn}）` });
+                }
+                if (logModalItem.breaks && logModalItem.breaks.length > 0) {
+                  logModalItem.breaks.forEach(b => {
+                    if (b.start) logs.push({ action: "break_start", by: userName, at: makeLogAt(b.start), detail: `休憩を開始しました（${b.start}）` });
+                    if (b.end) logs.push({ action: "break_end", by: userName, at: makeLogAt(b.end), detail: `休憩を終了しました（${b.end}）` });
+                  });
+                }
+                if (logModalItem.clockOut) {
+                  logs.push({ action: "clock_out", by: userName, at: makeLogAt(logModalItem.clockOut), detail: `退勤打刻しました（${logModalItem.clockOut}）` });
+                }
+
+                // 日時順に並び替え
+                logs.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+
                 if (logs.length === 0) {
                   return (
                     <div style={{ textAlign: "center", color: "#8b7e74", padding: "40px 0", fontSize: "14px" }}>
@@ -3518,6 +3551,8 @@ export default function AdminAttendance() {
                   else if (log.action === "sa_return_admin") { bubbleBg = "#fef2f2"; textColor = "#be123c"; }
                   else if (log.action === "sa_return_staff") { bubbleBg = "#fff7ed"; textColor = "#c2410c"; }
                   else if (log.action === "confirmed") { bubbleBg = "#fef9c3"; textColor = "#854d0e"; }
+                  else if (log.action === "clock_in" || log.action === "clock_out") { bubbleBg = "#e0f2fe"; textColor = "#0369a1"; }
+                  else if (log.action === "break_start" || log.action === "break_end") { bubbleBg = "#f1f5f9"; textColor = "#475569"; }
 
                   return (
                     <div key={idx} style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
