@@ -610,7 +610,7 @@ export default function AdminAttendanceSheet() {
             case "pending": return "#fbcfe8";           // 井本承認待ち（桃）
             case "resubmission": return "#e9d5ff";      // 再提出（紫）
             case "absent": return "#800000";            // 欠勤（えんじ）
-            case "day_off": return "#2563eb";           // 休み（青）
+            case "day_off": return "#e5e7eb";           // 休み（グレー: シフトなしと同等）
             case "no_shift": return "#e5e7eb";          // シフトなし（薄灰）
             case "dispatch_only": return "#bbf7d0";     // 派遣かつバイトなし（緑）
             case "scheduled": return "#ffffff";         // シフトあり未出勤（白）
@@ -676,7 +676,7 @@ export default function AdminAttendanceSheet() {
             <div style={{ display: "flex", gap: "12px", marginBottom: "10px", flexWrap: "wrap", fontSize: "12px", flexShrink: 0, alignItems: "center" }}>
                 {[
                     { color: "#e5e7eb", label: "シフトなし" },
-                    { color: "#2563eb", label: "休み", textColor: "#fff" },
+                    { color: "#e5e7eb", label: "休み" }, // テキストカラー指定なしで黒字
                     { color: "#bbf7d0", label: "バイトなし(派遣)" },
                     { color: "#800000", label: "欠勤", textColor: "#fff" },
                     { color: "#e9d5ff", label: "再提出" },
@@ -811,7 +811,7 @@ export default function AdminAttendanceSheet() {
                                                     borderRight: cellBorder,
                                                     textAlign: "center",
                                                     background: bg,
-                                                    color: (cell.status === "absent" || cell.status === "day_off") ? "#fff" : "inherit",
+                                                    color: (cell.status === "absent") ? "#fff" : "inherit",
                                                     cursor: hasData ? "pointer" : "default",
                                                     transition: "background 0.15s",
                                                     boxShadow: isTodayRow && isFirstRow ? "inset 0 2px 0 0 #f59e0b, inset 0 -2px 0 0 #f59e0b" : "none",
