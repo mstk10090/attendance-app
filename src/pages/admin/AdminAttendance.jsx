@@ -2086,8 +2086,21 @@ export default function AdminAttendance() {
                                   } else {
                                     parts.push(`${r.type}: ${r.subReason}`);
                                   }
-                                } else if (r.type === "その他" && r.subReasonText) {
-                                  parts.push(r.subReasonText);
+                                } else if (r.subReasonText) {
+                                  // その他等、直接テキストが入っている場合
+                                  // もし r.type が「その他」の場合は type は省略し、それ以外なら type を付ける
+                                  if (r.type === "その他") {
+                                    parts.push(r.subReasonText);
+                                  } else {
+                                    parts.push(`${r.type}: ${r.subReasonText}`);
+                                  }
+                                } else if (r.detail) {
+                                  // detailプロパティに入っている場合
+                                  if (r.type === "その他" || r.type === "その他乖離") {
+                                    parts.push(r.detail);
+                                  } else {
+                                    parts.push(`${r.type}: ${r.detail}`);
+                                  }
                                 }
                               });
                             } else {
