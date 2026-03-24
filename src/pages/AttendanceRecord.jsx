@@ -537,21 +537,19 @@ export default function AttendanceRecord({ user: propUser }) {
     return reasons;
   }, []);
 
-  // 打刻忘れトグルや時間が変更されたら乖離判定を再計算（退勤モーダル時のみ）
+  // 申請時間やトグルが変更されたら乖離判定を再計算（退勤モーダル時のみ）
   useEffect(() => {
     if (discrepancyMode === "clockOut" && discrepancyInfo && discrepancyInfo.shiftObj) {
-      const inTime = isForgotClockToggle ? forgotClockActualIn : discrepancyInfo.clockIn;
-      const outTime = isForgotClockToggle ? forgotClockActualOut : discrepancyInfo.clockOutTime;
-      // 実際の時間が未入力の場合は、シフト通りなどの判定が狂うため計算スキップするか、未入力扱いで計算する
-      // ここでは入力されていると仮定して計算
+      // 乖離の判定基準は「ユーザーが申請しようとしている時間（discrepancyAppliedIn / Out）」とする
+      const inTime = discrepancyAppliedIn || discrepancyInfo.clockIn;
+      const outTime = discrepancyAppliedOut || discrepancyInfo.clockOutTime;
+      
       const newReasons = calculateDiscrepancies(inTime, outTime, discrepancyInfo.shiftObj);
       
       setDetectedReasons(prev => {
-        // 同じ状態なら更新しない（無限ループ防止）
         if (prev.length === newReasons.length && prev.every((p, i) => p.type === newReasons[i].type)) {
           return prev;
         }
-        // 入力済みの詳細理由をマージ
         return newReasons.map(nr => {
           const existing = prev.find(p => p.type === nr.type);
           if (existing) {
@@ -561,7 +559,7 @@ export default function AttendanceRecord({ user: propUser }) {
         });
       });
     }
-  }, [isForgotClockToggle, forgotClockActualIn, forgotClockActualOut, discrepancyMode, discrepancyInfo, calculateDiscrepancies]);
+  }, [discrepancyAppliedIn, discrepancyAppliedOut, isForgotClockToggle, discrepancyMode, discrepancyInfo, calculateDiscrepancies]);
 
   // 直前の勤務レコードを日またぎで分割退勤する処理
   const handleOvernightClockOut = async (yesterdayItem, nowTime, todayStr) => {
