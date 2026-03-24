@@ -2129,6 +2129,11 @@ export default function AdminAttendance() {
                                   }
                                 }
                               });
+                              // detailTextがあれば追加（打刻忘れ時の実打刻時間など）
+                              const dt = item._application?.detailText;
+                              if (dt && dt.trim() && !parts.includes(dt.trim())) {
+                                parts.push(dt.trim());
+                              }
                             } else {
                               // 旧データ: 括弧除去
                               const parenIdx = appReason.indexOf('（');
@@ -3565,6 +3570,12 @@ export default function AdminAttendance() {
                 }
                 if (logModalItem.clockOut) {
                   logs.push({ action: "clock_out", by: userName, at: makeLogAt(logModalItem.clockOut), detail: `退勤打刻しました（${logModalItem.clockOut}）` });
+                }
+
+                // detailText が存在する場合は、申請ログとして追加
+                const detailText = logModalItem._application?.detailText;
+                if (detailText) {
+                  logs.push({ action: "submitted", by: userName, at: makeLogAt(logModalItem._application?.appliedAt || logModalItem.clockOut), detail: `申請時追記: ${detailText}` });
                 }
 
                 // 日時順に並び替え
