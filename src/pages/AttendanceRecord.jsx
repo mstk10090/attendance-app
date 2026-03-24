@@ -1340,6 +1340,9 @@ export default function AttendanceRecord({ user: propUser }) {
           const lookupDate = item.displayDate || item.workDate;
           if (lookupDate > today) continue;
 
+          // 未退勤（出勤中）のレコードは自動処理しない
+          if (item.clockIn && !item.clockOut) continue;
+
           // シフトを取得
           const shift = getShift(user.userName, lookupDate);
 
