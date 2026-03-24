@@ -2375,21 +2375,51 @@ export default function AttendanceRecord({ user: propUser }) {
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                           <div>
                             <label style={{ display: "block", fontSize: "0.8rem", color: "#6b7280", marginBottom: "4px" }}>実際の出社時間</label>
-                            <input 
-                              type="time" 
-                              value={forgotClockActualIn} 
+                            <select
+                              value={forgotClockActualIn}
                               onChange={e => setForgotClockActualIn(e.target.value)}
-                              style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.9rem" }}
-                            />
+                              style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.9rem", background: "#fff" }}
+                            >
+                              <option value="">--:--</option>
+                              {(() => {
+                                const base = discrepancyAppliedIn || discrepancyInfo?.clockIn || "09:00";
+                                const [bh, bm] = base.split(":").map(Number);
+                                const baseMin = bh * 60 + bm;
+                                const start = Math.max(0, baseMin - 30);
+                                const end = Math.min(24 * 60 - 1, baseMin + 30);
+                                const opts = [];
+                                for (let t = start; t <= end; t += 5) {
+                                  const h = String(Math.floor(t / 60)).padStart(2, "0");
+                                  const m = String(t % 60).padStart(2, "0");
+                                  opts.push(`${h}:${m}`);
+                                }
+                                return opts.map(t => <option key={t} value={t}>{t}</option>);
+                              })()}
+                            </select>
                           </div>
                           <div>
                             <label style={{ display: "block", fontSize: "0.8rem", color: "#6b7280", marginBottom: "4px" }}>実際の退勤時間 *</label>
-                            <input 
-                              type="time" 
-                              value={forgotClockActualOut} 
+                            <select
+                              value={forgotClockActualOut}
                               onChange={e => setForgotClockActualOut(e.target.value)}
-                              style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.9rem" }}
-                            />
+                              style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.9rem", background: "#fff" }}
+                            >
+                              <option value="">--:--</option>
+                              {(() => {
+                                const base = discrepancyAppliedOut || discrepancyInfo?.clockOutTime || "18:00";
+                                const [bh, bm] = base.split(":").map(Number);
+                                const baseMin = bh * 60 + bm;
+                                const start = Math.max(0, baseMin - 30);
+                                const end = Math.min(24 * 60 - 1, baseMin + 30);
+                                const opts = [];
+                                for (let t = start; t <= end; t += 5) {
+                                  const h = String(Math.floor(t / 60)).padStart(2, "0");
+                                  const m = String(t % 60).padStart(2, "0");
+                                  opts.push(`${h}:${m}`);
+                                }
+                                return opts.map(t => <option key={t} value={t}>{t}</option>);
+                              })()}
+                            </select>
                           </div>
                         </div>
                       </div>
