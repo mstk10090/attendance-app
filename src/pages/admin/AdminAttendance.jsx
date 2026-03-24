@@ -1750,12 +1750,12 @@ export default function AdminAttendance() {
                             return (
                               <tr key={item.userId + item.workDate} style={{ background: bg, borderBottom: idx === group.records.length - 1 ? "2px solid #e5e7eb" : "1px solid #f3f4f6" }}>
                                 {idx === 0 && (
-                                  <td rowSpan={group.records.length} style={{ fontSize: "13px", color: "#374151", padding: "10px 8px", borderRight: "1px solid #e5e7eb", background: "#fff", verticalAlign: "middle" }}>
+                                  <td rowSpan={group.records.length} style={{ fontSize: "13px", color: "#374151", padding: "10px 8px", borderRight: "1px solid #e5e7eb", borderBottom: "2px solid #e5e7eb", background: bg, verticalAlign: "middle" }}>
                                     {format(group.displayDateObj, "MM/dd(E)", { locale: ja })}
                                   </td>
                                 )}
                                 {idx === 0 && (
-                                  <td rowSpan={group.records.length} style={{ fontWeight: "bold", fontSize: "14px", padding: "10px 8px", borderRight: "1px solid #e5e7eb", background: "#fff", verticalAlign: "middle" }}>
+                                  <td rowSpan={group.records.length} style={{ fontWeight: "bold", fontSize: "14px", padding: "10px 8px", borderRight: "1px solid #e5e7eb", borderBottom: "2px solid #e5e7eb", background: bg, verticalAlign: "middle" }}>
                                     {group.userName}
                                     <div style={{ fontSize: "10px", color: "#aaa", fontWeight: "normal", marginTop: "4px" }}>{group.employmentType || ""}</div>
                                   </td>
