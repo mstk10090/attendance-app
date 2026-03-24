@@ -365,15 +365,15 @@ export default function AdminAttendanceSheet() {
             clockOut = att.clockOut || "";
 
             if (app) {
+                // まず申請時間があれば優先適用（再提出・差戻し時も申請時間を表示するため）
+                clockIn = app.appliedIn || clockIn;
+                clockOut = app.appliedOut || clockOut;
+
                 if (app.confirmedBy) {
                     status = "confirmed";
                     confirmedBy = app.confirmedBy;
-                    clockIn = app.appliedIn || clockIn;
-                    clockOut = app.appliedOut || clockOut;
                 } else if (app.status === "approved") {
                     status = "approved";
-                    clockIn = app.appliedIn || clockIn;
-                    clockOut = app.appliedOut || clockOut;
                 } else if (app.status === "resubmission_requested") {
                     status = "resubmission";
                 } else if (app.status === "sa_return_admin") {
@@ -382,8 +382,6 @@ export default function AdminAttendanceSheet() {
                     status = "sa_return_staff";
                 } else if (app.status === "pending") {
                     status = "pending";
-                    clockIn = app.appliedIn || clockIn;
-                    clockOut = app.appliedOut || clockOut;
                 } else if (app.status === "absent") {
                     status = "absent";
                 } else if (app.status === "day_off") {
