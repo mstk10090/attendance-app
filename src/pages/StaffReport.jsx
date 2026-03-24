@@ -118,7 +118,12 @@ export default function StaffReport() {
                     else if ((item.updatedAt || "") > (existing.updatedAt || "")) dateMap.set(item.workDate, item);
                 }
             });
-            const filtered = Array.from(dateMap.values()).map(item => ({
+            const filtered = Array.from(dateMap.values()).filter(item => {
+                // キラリン（勤怠取り消し）済みのレコードはスキップ
+                const p = parseComment(item.comment);
+                if (p._cancelled) return false;
+                return true;
+            }).map(item => ({
                 ...item,
                 _application: parseComment(item.comment)?.application || null,
             }));

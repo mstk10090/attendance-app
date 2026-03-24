@@ -502,7 +502,11 @@ export default function AdminAttendance() {
         };
       }).filter(item => {
         const name = (item.userName || "").replace(/\s+/g, "").trim();
-        return name && name !== "不明" && name !== "-" && name !== "不明-";
+        if (!name || name === "不明" || name === "-" || name === "不明-") return false;
+        // キラリン（勤怠取り消し）済みのレコードはスキップ → シフトのみの空行が再生成される
+        const p = parseComment(item.comment);
+        if (p._cancelled) return false;
+        return true;
       });
 
       // Sort
@@ -2884,17 +2888,17 @@ export default function AdminAttendance() {
                         ✈️ 出張として申請する
                       </button>
                     </div>
-                    {/* 勤怠取り消し */}
+                    {/* キラリンボタン（勤怠取り消し → 出勤前の状態にリセット） */}
                     <button
                       className="btn"
                       onClick={async () => {
-                        if (!await showConfirm(`${editingItem.userName}さんの${editingItem.workDate}の勤怠を取り消しますか？\n\n⚠️ 申請内容・打刻・実働・判定・理由がすべてリセットされます。`)) return;
+                        if (!await showConfirm(`${editingItem.userName}さんの${editingItem.workDate}の勤怠をリセットしますか？\n\n🪄 出勤前の朝の状態に戻ります（打刻・申請内容がすべてクリアされます）`)) return;
                         setLoading(true);
                         try {
                           const p = parseComment(editingItem.comment);
                           const existingLog = p.auditLog || [];
-                          existingLog.push({ action: "cancelled", by: "管理者", at: new Date().toISOString(), detail: "勤怠を取り消しました（申請内容・実働・判定・理由をリセット）" });
-                          const resetComment = JSON.stringify({ segments: p.segments || [], application: null, text: "", auditLog: existingLog });
+                          existingLog.push({ action: "cancelled", by: "管理者", at: new Date().toISOString(), detail: "キラリン🪄（出勤前の状態にリセット）" });
+                          const resetComment = JSON.stringify({ _cancelled: true, segments: [], application: null, text: "", auditLog: existingLog });
                           const payload = {
                             userId: editingItem.userId,
                             workDate: editingItem.workDate,
@@ -2908,7 +2912,7 @@ export default function AdminAttendance() {
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify(payload),
                           });
-                          alert("勤怠を取り消しました");
+                          alert("🪄 キラリン！出勤前の状態に戻しました");
                           setEditingItem(null);
                           fetchAttendances();
                         } catch (e) {
@@ -2920,11 +2924,11 @@ export default function AdminAttendance() {
                       }}
                       style={{
                         width: "100%", padding: "10px", fontSize: "0.95rem", fontWeight: "bold",
-                        background: "#dc2626", color: "#fff", border: "none", borderRadius: "6px",
+                        background: "linear-gradient(135deg, #8b5cf6, #ec4899)", color: "#fff", border: "none", borderRadius: "6px",
                         cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px"
                       }}
                     >
-                      <Trash2 size={16} /> 勤怠を取り消す
+                      🪄 キラリンボタン
                     </button>
                   </div>
                 </details>
