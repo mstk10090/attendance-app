@@ -231,15 +231,17 @@ export default function AttendanceRecord({ user: propUser }) {
   }, []);
 
   const getShift = (uName, dateStr) => {
-    if (!uName || !shiftMap) return null;
+    if (!uName || !shiftMap || !dateStr) return null;
+
+    const baseDateStr = dateStr.split("_")[0];
 
     // normalizeName で正規化してルックアップ（parseCsv/キャッシュ側も正規化済み）
     const normalized = normalizeName(uName);
-    if (shiftMap[normalized]?.[dateStr]) return shiftMap[normalized][dateStr];
+    if (shiftMap[normalized]?.[baseDateStr]) return shiftMap[normalized][baseDateStr];
 
     // loginIdで試行
     const loginId = localStorage.getItem("loginId");
-    if (loginId && shiftMap[loginId]?.[dateStr]) return shiftMap[loginId][dateStr];
+    if (loginId && shiftMap[loginId]?.[baseDateStr]) return shiftMap[loginId][baseDateStr];
 
     return null;
   };
@@ -540,11 +542,20 @@ export default function AttendanceRecord({ user: propUser }) {
   // 申請時間やトグルが変更されたら乖離判定を再計算（退勤モーダル時のみ）
   useEffect(() => {
     if (discrepancyMode === "clockOut" && discrepancyInfo && discrepancyInfo.shiftObj) {
-      // 乖離の判定基準は「ユーザーが申請しようとしている時間（discrepancyAppliedIn / Out）」とする
-      const inTime = discrepancyAppliedIn || discrepancyInfo.clockIn;
-      const outTime = discrepancyAppliedOut || discrepancyInfo.clockOutTime;
+      // 1. 実際の時間による判定
+      const actualInTime = isForgotClockToggle ? forgotClockActualIn : discrepancyInfo.clockIn;
+      const actualOutTime = isForgotClockToggle ? forgotClockActualOut : discrepancyInfo.clockOutTime;
+      const reasonsFromActual = calculateDiscrepancies(actualInTime, actualOutTime, discrepancyInfo.shiftObj);
+
+      // 2. ユーザーが申請しようとしている時間による判定
+      const appliedInTime = discrepancyAppliedIn || discrepancyInfo.clockIn;
+      const appliedOutTime = discrepancyAppliedOut || discrepancyInfo.clockOutTime;
+      const reasonsFromApplied = calculateDiscrepancies(appliedInTime, appliedOutTime, discrepancyInfo.shiftObj);
       
-      const newReasons = calculateDiscrepancies(inTime, outTime, discrepancyInfo.shiftObj);
+      // 両方の理由をマージ（同種の理由は重複させない）
+      const mergedMap = new Map();
+      [...reasonsFromActual, ...reasonsFromApplied].forEach(r => mergedMap.set(r.type, r));
+      const newReasons = Array.from(mergedMap.values());
       
       setDetectedReasons(prev => {
         if (prev.length === newReasons.length && prev.every((p, i) => p.type === newReasons[i].type)) {
@@ -559,7 +570,7 @@ export default function AttendanceRecord({ user: propUser }) {
         });
       });
     }
-  }, [discrepancyAppliedIn, discrepancyAppliedOut, isForgotClockToggle, discrepancyMode, discrepancyInfo, calculateDiscrepancies]);
+  }, [discrepancyAppliedIn, discrepancyAppliedOut, isForgotClockToggle, forgotClockActualIn, forgotClockActualOut, discrepancyMode, discrepancyInfo, calculateDiscrepancies]);
 
   // 直前の勤務レコードを日またぎで分割退勤する処理
   const handleOvernightClockOut = async (yesterdayItem, nowTime, todayStr) => {
