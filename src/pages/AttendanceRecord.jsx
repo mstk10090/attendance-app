@@ -542,19 +542,24 @@ export default function AttendanceRecord({ user: propUser }) {
   // 申請時間やトグルが変更されたら乖離判定を再計算（退勤モーダル時のみ）
   useEffect(() => {
     if (discrepancyMode === "clockOut" && discrepancyInfo && discrepancyInfo.shiftObj) {
-      // 1. 実際の時間による判定
+      // 1. システムの純粋な物理打刻時間による判定（忘れて打刻した場合でも、実際のシステム記録時間を必ず判定に含める）
+      const physicalInTime = discrepancyInfo.clockIn;
+      const physicalOutTime = discrepancyInfo.clockOutTime;
+      const reasonsFromPhysical = calculateDiscrepancies(physicalInTime, physicalOutTime, discrepancyInfo.shiftObj);
+
+      // 2. 実際の時間による判定（打刻忘れの場合はユーザー申告の実時間）
       const actualInTime = isForgotClockToggle ? forgotClockActualIn : discrepancyInfo.clockIn;
       const actualOutTime = isForgotClockToggle ? forgotClockActualOut : discrepancyInfo.clockOutTime;
       const reasonsFromActual = calculateDiscrepancies(actualInTime, actualOutTime, discrepancyInfo.shiftObj);
 
-      // 2. ユーザーが申請しようとしている時間による判定
+      // 3. ユーザーが申請しようとしている時間による判定
       const appliedInTime = discrepancyAppliedIn || discrepancyInfo.clockIn;
       const appliedOutTime = discrepancyAppliedOut || discrepancyInfo.clockOutTime;
       const reasonsFromApplied = calculateDiscrepancies(appliedInTime, appliedOutTime, discrepancyInfo.shiftObj);
       
-      // 両方の理由をマージ（同種の理由は重複させない）
+      // 全ての理由をマージ（同種の理由は重複させない）
       const mergedMap = new Map();
-      [...reasonsFromActual, ...reasonsFromApplied].forEach(r => mergedMap.set(r.type, r));
+      [...reasonsFromPhysical, ...reasonsFromActual, ...reasonsFromApplied].forEach(r => mergedMap.set(r.type, r));
       const newReasons = Array.from(mergedMap.values());
       
       setDetectedReasons(prev => {
