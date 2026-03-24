@@ -68,3 +68,16 @@ export const EMPLOYMENT_TYPES = ["派遣", "常駐", "学生バイト", "バイ�
 // 欠勤理由定数（後方互換性のため残す）
 export const ABSENT_REASONS = ["体調不良", "家庭の事情", "私用", "その他"];
 
+// IP→打刻場所マッピング
+export const IP_LOCATION_MAP = {
+    "153.189.108.157": "細川",
+    "153.164.248.198": "呉羽",
+    "180.4.25.88": "山葉",
+};
+
+// IPから場所名を取得するヘルパー
+export const getLocationByIp = (ip) => {
+    if (!ip) return "不明";
+    return IP_LOCATION_MAP[ip] || "その他";
+};
+

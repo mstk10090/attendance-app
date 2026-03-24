@@ -18,7 +18,7 @@ import { useSearchParams } from "react-router-dom";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSaturday, isSunday, addDays, subDays, isSameDay, addMonths, subMonths } from "date-fns";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { ja } from "date-fns/locale";
-import { HOLIDAYS, LOCATIONS, DEPARTMENTS, REASON_OPTIONS, REASON_SUB_OPTIONS, ABSENT_REASONS } from "../constants";
+import { HOLIDAYS, LOCATIONS, DEPARTMENTS, REASON_OPTIONS, REASON_SUB_OPTIONS, ABSENT_REASONS, getLocationByIp } from "../constants";
 import HistoryReport from "../components/HistoryReport";
 import StaffManual from "./StaffManual";
 import { normalizeName } from "../utils/shiftParser";
@@ -359,6 +359,33 @@ export default function AttendanceRecord({ user: propUser }) {
     update: `${API_BASE}/attendance/update`,
   };
 
+  // IPアドレス取得ユーティリティ
+  const fetchClientIp = async () => {
+    try {
+      const res = await fetch("https://api.ipify.org?format=json", { signal: AbortSignal.timeout(5000) });
+      const data = await res.json();
+      return data.ip || null;
+    } catch {
+      return null;
+    }
+  };
+
+  // auditLogに打刻ログを追加するヘルパー
+  const addPunchLog = (existingComment, action, userName, ip) => {
+    const p = parseComment(existingComment || "");
+    const location = getLocationByIp(ip);
+    const logEntry = {
+      action,
+      by: userName || "スタッフ",
+      at: new Date().toISOString(),
+      detail: ip ? `${action === "clock_in" ? "出勤" : action === "clock_out" ? "退勤" : action === "break_start" ? "休憩開始" : "休憩終了"}（${location}）` : `${action === "clock_in" ? "出勤" : action === "clock_out" ? "退勤" : action === "break_start" ? "休憩開始" : "休憩終了"}`,
+      ip: ip || null,
+      location: location
+    };
+    const auditLog = [...(p.auditLog || []), logEntry];
+    return { ...p, auditLog };
+  };
+
   // Clock In/Out Handlers
   // Clock In/Out Handlers
   const handleClockIn = async () => {
@@ -400,6 +427,9 @@ export default function AttendanceRecord({ user: propUser }) {
 
       alert("出勤しました！");
 
+      // IPアドレス取得（バックグラウンド）
+      const clientIp = await fetchClientIp();
+
       // 乖離理由がある場合はコメントに保存
       const baseSegment = {
         location: user.defaultLocation || "未記載",
@@ -421,27 +451,36 @@ export default function AttendanceRecord({ user: propUser }) {
         };
       }
 
+      // 出勤ログをauditLogに記録
+      const clockInLog = {
+        action: "clock_in",
+        by: user.userName || user.loginId || "スタッフ",
+        at: new Date().toISOString(),
+        detail: `出勤（${getLocationByIp(clientIp)}）`,
+        ip: clientIp,
+        location: getLocationByIp(clientIp)
+      };
+
       const defaultComment = JSON.stringify({
         segments: [baseSegment],
         text: "",
-        application: applicationData
+        application: applicationData,
+        auditLog: [clockInLog]
       });
 
-      // 乖離理由があればコメント更新をAPIに送信
-      if (reasonStr) {
-        await fetch(`${API_BASE}/attendance/update`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            userId: user.userId,
-            workDate: targetDateKey,
-            clockIn: clockInTime,
-            clockOut: '',
-            breaks: [],
-            comment: defaultComment
-          }),
-        });
-      }
+      // コメント更新をAPIに送信（理由の有無に関わらず、出勤ログを記録するため常に更新）
+      await fetch(`${API_BASE}/attendance/update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: user.userId,
+          workDate: targetDateKey,
+          clockIn: clockInTime,
+          clockOut: '',
+          breaks: [],
+          comment: defaultComment
+        }),
+      });
 
       const newItems = [...items];
       newItems.push({
@@ -785,6 +824,39 @@ export default function AttendanceRecord({ user: propUser }) {
 
       alert("退勤しました！お疲れ様でした。");
 
+      // IP取得+退勤ログをauditLogに追記
+      const clientIp = await fetchClientIp();
+      {
+        const existingComment = parseComment(activeItem.comment);
+        const clockOutLog = {
+          action: "clock_out",
+          by: user.userName || user.loginId || "スタッフ",
+          at: new Date().toISOString(),
+          detail: `退勤（${getLocationByIp(clientIp)}）`,
+          ip: clientIp,
+          location: getLocationByIp(clientIp)
+        };
+        const commentWithClockOut = {
+          ...existingComment,
+          auditLog: [...(existingComment.auditLog || []), clockOutLog]
+        };
+        // 退勤ログをまず保存（後続の処理で上書きされる場合もauditLogは引き継がれる）
+        await fetch(ENDPOINTS.update, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userId: user.userId,
+            workDate: activeItem.workDate,
+            clockIn: activeItem.clockIn,
+            clockOut: clockOutTime,
+            breaks: activeItem.breaks || [],
+            comment: JSON.stringify(commentWithClockOut)
+          }),
+        });
+        // activeItemのcommentを更新して後続処理で引き継ぐ
+        activeItem.comment = JSON.stringify(commentWithClockOut);
+      }
+
       // Optimistic Update
       const newItems = [...items];
       const idx = newItems.findIndex(i => i.workDate === activeItem.workDate);
@@ -1095,13 +1167,33 @@ export default function AttendanceRecord({ user: propUser }) {
         body: JSON.stringify(payload),
       });
 
-      // Optimistic
+      // IP取得と休憩開始ログ記録
+      const clientIp = await fetchClientIp();
       const nowTime = format(new Date(), "HH:mm");
+      const updatedComment = addPunchLog(activeItem.comment, "break_start", user.userName || user.loginId, clientIp);
+      const commentStr = JSON.stringify(updatedComment);
+
+      // comment更新
       const newBreaks = [...(activeItem.breaks || []), { start: nowTime, end: "" }];
+      await fetch(ENDPOINTS.update, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: user.userId,
+          workDate: activeItem.workDate,
+          clockIn: activeItem.clockIn,
+          clockOut: activeItem.clockOut || "",
+          breaks: newBreaks,
+          comment: commentStr
+        }),
+      });
+
+      // Optimistic
       const newItems = [...items];
       const idx = newItems.findIndex(i => i.workDate === activeItem.workDate);
       if (idx >= 0) {
         newItems[idx].breaks = newBreaks;
+        newItems[idx].comment = commentStr;
       }
       setItems(newItems);
 
@@ -1126,16 +1218,36 @@ export default function AttendanceRecord({ user: propUser }) {
         body: JSON.stringify(payload),
       });
 
-      // Optimistic
+      // IP取得と休憩終了ログ記録
+      const clientIp = await fetchClientIp();
       const nowTime = format(new Date(), "HH:mm");
+      const updatedComment = addPunchLog(activeItem.comment, "break_end", user.userName || user.loginId, clientIp);
+      const commentStr = JSON.stringify(updatedComment);
+
       const newBreaks = [...(activeItem.breaks || [])];
       if (newBreaks.length > 0) {
         newBreaks[newBreaks.length - 1].end = nowTime;
       }
+
+      // comment更新
+      await fetch(ENDPOINTS.update, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: user.userId,
+          workDate: activeItem.workDate,
+          clockIn: activeItem.clockIn,
+          clockOut: activeItem.clockOut || "",
+          breaks: newBreaks,
+          comment: commentStr
+        }),
+      });
+
       const newItems = [...items];
       const idx = newItems.findIndex(i => i.workDate === activeItem.workDate);
       if (idx >= 0) {
         newItems[idx].breaks = newBreaks;
+        newItems[idx].comment = commentStr;
       }
       setItems(newItems);
 

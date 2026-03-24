@@ -3584,6 +3584,9 @@ export default function AdminAttendance() {
                       }}>
                         <div style={{ fontWeight: "bold", fontSize: "12px", marginBottom: "4px", opacity: 0.7 }}>{log.by || "管理者"}</div>
                         {log.detail}
+                        {log.location && log.location !== "不明" && (
+                          <div style={{ fontSize: "11px", marginTop: "4px", opacity: 0.6 }}>📍 {log.location}{log.ip ? ` (${log.ip})` : ""}</div>
+                        )}
                       </div>
                       <div style={{ fontSize: "11px", color: "#8b7e74", marginTop: "4px", paddingRight: "4px" }}>
                         {timeStr}
