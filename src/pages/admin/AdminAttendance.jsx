@@ -1747,8 +1747,9 @@ export default function AdminAttendance() {
                             else if (isUnapplied) bg = "#fef2f2"; // Red (Unapplied)
                             else if (isWorking) bg = "#ffffff"; // White (Working)
 
+                            const rowBorder = idx === group.records.length - 1 ? "2px solid #e5e7eb" : "1px solid #f3f4f6";
                             return (
-                              <tr key={item.userId + item.workDate} style={{ background: bg, borderBottom: idx === group.records.length - 1 ? "2px solid #e5e7eb" : "1px solid #f3f4f6" }}>
+                              <tr key={item.userId + item.workDate} style={{ background: bg }}>
                                 {idx === 0 && (
                                   <td rowSpan={group.records.length} style={{ fontSize: "13px", color: "#374151", padding: "10px 8px", borderRight: "1px solid #d1d5db", borderBottom: "2px solid #e5e7eb", background: bg, verticalAlign: "middle" }}>
                                     {format(group.displayDateObj, "MM/dd(E)", { locale: ja })}
@@ -1761,7 +1762,7 @@ export default function AdminAttendance() {
                                   </td>
                                 )}
 
-                        <td style={{ padding: "10px 8px", fontSize: "13px" }}>
+                        <td style={{ padding: "10px 8px", fontSize: "13px", borderBottom: rowBorder }}>
                           {shift ? (
                             shift.isOff ? (
                               <span style={{ color: "#ef4444", fontWeight: "bold" }}>休み</span>
@@ -1787,7 +1788,7 @@ export default function AdminAttendance() {
                             <span style={{ color: "#9ca3af" }}>-</span>
                           )}
                         </td>
-                        <td style={{ padding: "10px 8px", fontSize: "13px" }}>
+                        <td style={{ padding: "10px 8px", fontSize: "13px", borderBottom: rowBorder }}>
                           {item.clockIn ? (
                             <span style={{ fontFamily: "monospace" }}>
                               {item.clockIn.slice(0, 5)}-{item.clockOut ? item.clockOut.slice(0, 5) : "..."}
@@ -1796,7 +1797,7 @@ export default function AdminAttendance() {
                             <span style={{ color: "#9ca3af" }}>-</span>
                           )}
                         </td>
-                        <td style={{ padding: "10px 8px", fontSize: "13px" }}>
+                        <td style={{ padding: "10px 8px", fontSize: "13px", borderBottom: rowBorder }}>
                           {(() => {
                             const app = item._application;
                             if (app?.appliedIn && app?.appliedOut) {
@@ -1831,7 +1832,7 @@ export default function AdminAttendance() {
                             return <span style={{ color: "#9ca3af" }}>-</span>;
                           })()}
                         </td>
-                        <td style={{ padding: "10px 8px" }}>
+                        <td style={{ padding: "10px 8px", borderBottom: rowBorder }}>
                           {isShiftOnly && !isNoShiftDay && <span className="status-badge" style={{ background: "#fee2e2", color: "#991b1b", border: "1px solid #fca5a5", fontSize: "11px", fontWeight: "bold" }}>未出勤</span>}
                           {isNoShiftDay && <span className="status-badge" style={{ background: "#f3f4f6", color: "#6b7280", border: "1px solid #d1d5db", fontSize: "11px", fontWeight: "bold" }}>シフトなし</span>}
                           {!isShiftOnly && isWorking && <span className="status-badge green" style={{ background: "#dcfce7", color: "#166534", border: "1px solid #bbf7d0", fontSize: "11px" }}>出勤中</span>}
@@ -1845,7 +1846,7 @@ export default function AdminAttendance() {
                           {!isShiftOnly && rowAppStatus === "sa_return_staff" && <span className="status-badge" style={{ background: "#c2410c", color: "#fff", fontSize: "11px", fontWeight: "bold", padding: "3px 8px" }}>🟠 上位差戻(ス)</span>}
                           {!isShiftOnly && isUnapplied && !isWorking && !isIncomplete && <span className="status-badge orange" style={{ fontSize: "11px" }}>承認待</span>}
                         </td>
-                        <td style={{ padding: "10px 8px", fontSize: "14px", fontFamily: "monospace", fontWeight: "bold" }}>
+                        <td style={{ padding: "10px 8px", fontSize: "14px", fontFamily: "monospace", fontWeight: "bold", borderBottom: rowBorder }}>
                           {(() => {
                             // 申請時間がある場合はそちらを使用、なければ打刻時間
                             const app = item._application || {};
@@ -1943,7 +1944,7 @@ export default function AdminAttendance() {
                             return `${h}.${m}H`;
                           })()}
                         </td>
-                        <td style={{ padding: "10px 8px" }}>
+                        <td style={{ padding: "10px 8px", borderBottom: rowBorder }}>
                           {(() => {
                             const lateCancelled = item._application?.lateCancelled;
                             const earlyCancelled = item._application?.earlyCancelled;
@@ -2090,7 +2091,7 @@ export default function AdminAttendance() {
                             return null;
                           })()}
                         </td>
-                        <td style={{ padding: "10px 8px", fontSize: "12px", color: "#374151", maxWidth: "160px" }}>
+                        <td style={{ padding: "10px 8px", fontSize: "12px", color: "#374151", maxWidth: "160px", borderBottom: rowBorder }}>
                           {(() => {
                             const appReason = item._application?.reason;
                             if (!appReason || appReason === "-") {
@@ -2192,7 +2193,7 @@ export default function AdminAttendance() {
                             );
                           })()}
                         </td>
-                        <td style={{ fontSize: "13px", padding: "10px 8px" }}>
+                        <td style={{ fontSize: "13px", padding: "10px 8px", borderBottom: rowBorder }}>
                           <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                             {/* 承認済み → 管理者の承認取消（非上位管理者） */}
                             {rowAppStatus === "approved" && !isSuperAdmin && (
