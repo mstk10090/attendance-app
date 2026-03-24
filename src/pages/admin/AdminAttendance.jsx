@@ -1867,6 +1867,27 @@ export default function AdminAttendance() {
                             if (min <= 0) return "-";
 
 
+                            // applicationに派遣/バイト時間が直接設定されている場合は優先表示
+                            if (app.dispatchHours != null) {
+                              const dH = parseFloat(app.dispatchHours) || 0;
+                              const pH = parseFloat(app.partTimeHours) || 0;
+                              const dWhole = Math.floor(dH);
+                              const dDec = (dH % 1) >= 0.5 ? 5 : 0;
+                              const pWhole = Math.floor(pH);
+                              const pDec = (pH % 1) >= 0.5 ? 5 : 0;
+                              const dispatchStartTime = shift?.dispatchRange?.start || shift?.start || "17:00";
+                              const SHIFT_CODE_MAP_INLINE = { "07:00": "朝", "09:00": "早", "10:00": "中", "12:00": "遅", "13:00": "遅", "17:00": "深" };
+                              const codeColorsInline = { "朝": "#d97706", "早": "#059669", "中": "#2563eb", "遅": "#db2777", "深": "#6d28d9" };
+                              const shiftCode = app.dispatchCode || SHIFT_CODE_MAP_INLINE[dispatchStartTime] || "深";
+                              const dColor = codeColorsInline[shiftCode] || "#6d28d9";
+                              return (
+                                <div style={{ fontSize: "12px", lineHeight: "1.3" }}>
+                                  {dH > 0 ? <div style={{ color: dColor }}>{shiftCode}{dWhole}.{dDec}H</div> : <div style={{ color: "#9ca3af", fontSize: "11px" }}>派遣なし</div>}
+                                  {pH > 0 ? <div style={{ color: "#16a34a" }}>バイト{pWhole}.{pDec}H</div> : <div style={{ color: "#9ca3af", fontSize: "11px" }}>バイトなし</div>}
+                                </div>
+                              );
+                            }
+
                             // 派遣ユーザーの場合は派遣/バイト分離表示
                             const isDispatch = shift?.isDispatch || shift?.location === "派遣" || ["朝", "早", "遅", "中"].includes(shift?.type || "");
                             if (isDispatch && shift && effectiveIn && effectiveOut) {
