@@ -658,7 +658,20 @@ export default function AdminAttendance() {
       // APIから来たレコードだがclockInなし → applicationの有無とシフト有無で判定
       const app = item._application || {};
       if (!app.status && !app.appliedIn) {
-        // 取り消し済み（application null）→ シフトなし扱い
+        // 取り消し済み（application null）の場合、シフトの有無で判定
+        let shift = shiftMap?.[normalizeName(item.userName)]?.[item.workDate] || null;
+        if (!shift) {
+          const user = users.find(u => u.userId === item.userId);
+          if (user) {
+            const normalized = normalizeName((user.lastName || "") + (user.firstName || ""));
+            shift = shiftMap?.[normalized]?.[item.workDate] || null;
+          }
+        }
+        if (shift && !shift.isOff) {
+          // シフトが存在するなら「未出勤」扱い
+          return "noshift";
+        }
+        // シフトがない、または「休み」ならシフトなし扱い
         return "no_shift_day";
       }
       return "noshift";
