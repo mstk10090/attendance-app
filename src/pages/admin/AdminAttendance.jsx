@@ -2608,7 +2608,7 @@ export default function AdminAttendance() {
                           style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "6px" }}
                         >
                           <option value="">--</option>
-                          {Array.from({ length: 48 }, (_, i) => {
+                          {Array.from({ length: 49 }, (_, i) => {
                             const h = String(Math.floor(i / 2)).padStart(2, "0");
                             const m = i % 2 === 0 ? "00" : "30";
                             return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>;
@@ -2629,7 +2629,7 @@ export default function AdminAttendance() {
                           style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "6px" }}
                         >
                           <option value="">--</option>
-                          {Array.from({ length: 48 }, (_, i) => {
+                          {Array.from({ length: 49 }, (_, i) => {
                             const h = String(Math.floor(i / 2)).padStart(2, "0");
                             const m = i % 2 === 0 ? "00" : "30";
                             return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>;
@@ -2861,14 +2861,14 @@ export default function AdminAttendance() {
                         <div>
                           <label style={{ fontSize: "0.78rem", color: "#6b7280", display: "block", marginBottom: "3px" }}>出勤時間 <span style={{ color: "#ef4444" }}>(必須)</span></label>
                           <select id="adminTripIn" defaultValue={(() => { const s = findShiftForItem(editingItem); return s?.start || "09:00"; })()} style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.9rem" }}>
-                            {Array.from({ length: 48 }, (_, i) => { const h = String(Math.floor(i / 2)).padStart(2, "0"); const m = i % 2 === 0 ? "00" : "30"; return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>; })}
+                            {Array.from({ length: 49 }, (_, i) => { const h = String(Math.floor(i / 2)).padStart(2, "0"); const m = i % 2 === 0 ? "00" : "30"; return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>; })}
                           </select>
                         </div>
                         <div style={{ fontSize: "1rem", color: "#6b7280", paddingBottom: "6px" }}>〜</div>
                         <div>
                           <label style={{ fontSize: "0.78rem", color: "#6b7280", display: "block", marginBottom: "3px" }}>退勤時間 <span style={{ color: "#ef4444" }}>(必須)</span></label>
                           <select id="adminTripOut" defaultValue={(() => { const s = findShiftForItem(editingItem); return s?.end || "18:00"; })()} style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.9rem" }}>
-                            {Array.from({ length: 48 }, (_, i) => { const h = String(Math.floor(i / 2)).padStart(2, "0"); const m = i % 2 === 0 ? "00" : "30"; return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>; })}
+                            {Array.from({ length: 49 }, (_, i) => { const h = String(Math.floor(i / 2)).padStart(2, "0"); const m = i % 2 === 0 ? "00" : "30"; return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>; })}
                           </select>
                         </div>
                       </div>
