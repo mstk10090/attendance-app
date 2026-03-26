@@ -884,6 +884,18 @@ export default function AttendanceRecord({ user: propUser }) {
         const shift = getShift(user.userName, lookupDate);
         const clockInTime = newItems[idx].clockIn;
 
+        // 物理の休憩打刻(breaks)から合計休憩時間(分)を計算し、30分単位で切り上げる
+        const physicalBreaks = newItems[idx].breaks || [];
+        let computedBreakDur = 0;
+        physicalBreaks.forEach(b => {
+          if (b.start && b.end) {
+            const bIn = toMin(b.start);
+            const bOut = toMin(b.end);
+            if (bOut > bIn) computedBreakDur += (bOut - bIn);
+          }
+        });
+        const defaultBreakDur = Math.ceil(computedBreakDur / 30) * 30;
+
         let appliedIn, appliedOut;
         let shouldAutoApply = false;
 
@@ -911,6 +923,7 @@ export default function AttendanceRecord({ user: propUser }) {
               reason: "-",
               appliedIn: appliedIn,
               appliedOut: appliedOut,
+              breakDuration: existingComment.application?.breakDuration ?? defaultBreakDur,
               submittedAt: new Date().toISOString(),
               autoApplied: true
             },
@@ -950,6 +963,7 @@ export default function AttendanceRecord({ user: propUser }) {
               ...(textVal ? { detailText: textVal } : {}),
               appliedIn: appliedInVal,
               appliedOut: appliedOutVal,
+              breakDuration: existingComment.application?.breakDuration ?? defaultBreakDur,
               submittedAt: new Date().toISOString(),
               autoApplied: false
             },
@@ -977,7 +991,7 @@ export default function AttendanceRecord({ user: propUser }) {
           if (existingComment.application && existingComment.application.status && !existingComment.application.appliedOut) {
             // 出勤時に打刻忘れ等で申請があるがappliedOutが未設定 → 退勤時間で補完
             const clockOutRounded = roundTimeToHalfHour(clockOutTime, "floor");
-            const updatedApp = { ...existingComment.application, appliedOut: clockOutRounded };
+            const updatedApp = { ...existingComment.application, appliedOut: clockOutRounded, breakDuration: existingComment.application.breakDuration ?? defaultBreakDur };
             const updatedComment = {
               segments: existingComment.segments || [],
               text: existingComment.text || "",
@@ -1011,6 +1025,7 @@ export default function AttendanceRecord({ user: propUser }) {
                 reason: "シフトなし",
                 appliedIn: clockInRounded,
                 appliedOut: clockOutRounded,
+                breakDuration: defaultBreakDur,
                 submittedAt: new Date().toISOString(),
                 autoApplied: true
               },
@@ -1473,7 +1488,17 @@ export default function AttendanceRecord({ user: propUser }) {
       setFormIn(clockInRounded || shift?.start || "");
       setFormOut(clockOutRounded || "");
       setFormBreaks(item.breaks || []);
-      setFormBreakDuration(app.breakDuration || 0);
+      
+      let computedBreakDur = 0;
+      (item.breaks || []).forEach(b => {
+        if (b.start && b.end) {
+          const bIn = toMin(b.start);
+          const bOut = toMin(b.end);
+          if (bOut > bIn) computedBreakDur += (bOut - bIn);
+        }
+      });
+      const defaultBreakDur = Math.ceil(computedBreakDur / 30) * 30;
+      setFormBreakDuration(app.breakDuration ?? defaultBreakDur);
 
       if (item.segments && item.segments.length > 0) {
         setFormSegments(item.segments);
