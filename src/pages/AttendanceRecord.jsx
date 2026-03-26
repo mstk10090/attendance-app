@@ -505,7 +505,7 @@ export default function AttendanceRecord({ user: propUser }) {
   };
 
   // 動的な乖離再計算関数
-  const calculateDiscrepancies = useCallback((compareInStr, compareOutStr, shiftObj) => {
+  const calculateDiscrepancies = useCallback((compareInStr, compareOutStr, shiftObj, isPhysical = false) => {
     if (!shiftObj || !shiftObj.start || !shiftObj.end) {
       return [{ type: "シフトなし", label: "シフト未登録", detail: "", subReason: "", subReasonText: "" }];
     }
@@ -515,8 +515,10 @@ export default function AttendanceRecord({ user: propUser }) {
     const cOut = compareOutStr ? toMin(compareOutStr) : null;
 
     const reasons = [];
-    if (cIn !== null && cIn > sStart) {
-      // 出勤打刻がシフト開始より後 = 遅刻
+    const isLateCondition = isPhysical ? (cIn >= sStart) : (cIn > sStart);
+
+    if (cIn !== null && isLateCondition) {
+      // 出勤打刻がシフト開始より後（物理打刻は同時刻も含む） = 遅刻
       reasons.push({ type: "遅刻", label: `遅刻（シフト${shiftObj.start} → 出勤${compareInStr}）`, detail: "", subReason: "", subReasonText: "" });
     }
     if (cOut !== null && cOut >= sEnd + 30) {
@@ -525,7 +527,7 @@ export default function AttendanceRecord({ user: propUser }) {
     }
     
     // 遅刻でも残業でもなく早退などの乖離ありの場合
-    const isLate = (cIn !== null && cIn > sStart);
+    const isLate = (cIn !== null && isLateCondition);
     const isClockOutOk = (cOut !== null && cOut >= sEnd && cOut < sEnd + 30);
     const isOnTime = !isLate && isClockOutOk;
 
@@ -545,17 +547,18 @@ export default function AttendanceRecord({ user: propUser }) {
       // 1. システムの純粋な物理打刻時間による判定（忘れて打刻した場合でも、実際のシステム記録時間を必ず判定に含める）
       const physicalInTime = discrepancyInfo.clockIn;
       const physicalOutTime = discrepancyInfo.clockOutTime;
-      const reasonsFromPhysical = calculateDiscrepancies(physicalInTime, physicalOutTime, discrepancyInfo.shiftObj);
+      const reasonsFromPhysical = calculateDiscrepancies(physicalInTime, physicalOutTime, discrepancyInfo.shiftObj, true);
 
       // 2. 実際の時間による判定（打刻忘れの場合はユーザー申告の実時間）
       const actualInTime = isForgotClockToggle ? forgotClockActualIn : discrepancyInfo.clockIn;
       const actualOutTime = isForgotClockToggle ? forgotClockActualOut : discrepancyInfo.clockOutTime;
-      const reasonsFromActual = calculateDiscrepancies(actualInTime, actualOutTime, discrepancyInfo.shiftObj);
+      const reasonsFromActual = calculateDiscrepancies(actualInTime, actualOutTime, discrepancyInfo.shiftObj, false);
 
       // 3. ユーザーが申請しようとしている時間による判定
+      // 申請上の場合は isPhysical = false とし、ジャスト時刻(例07:00シフト等に対して07:00申請)は遅刻にならない
       const appliedInTime = discrepancyAppliedIn || discrepancyInfo.clockIn;
       const appliedOutTime = discrepancyAppliedOut || discrepancyInfo.clockOutTime;
-      const reasonsFromApplied = calculateDiscrepancies(appliedInTime, appliedOutTime, discrepancyInfo.shiftObj);
+      const reasonsFromApplied = calculateDiscrepancies(appliedInTime, appliedOutTime, discrepancyInfo.shiftObj, false);
       
       // 全ての理由をマージ（同種の理由は重複させない）
       const mergedMap = new Map();
