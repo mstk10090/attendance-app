@@ -521,9 +521,15 @@ export default function AttendanceRecord({ user: propUser }) {
       // 出勤打刻がシフト開始より後（物理打刻は同時刻も含む） = 遅刻
       reasons.push({ type: "遅刻", label: `遅刻（シフト${shiftObj.start} → 出勤${compareInStr}）`, detail: "", subReason: "", subReasonText: "" });
     }
-    if (cOut !== null && cOut >= sEnd + 30) {
-      // 退勤打刻がシフト終了30分以上過ぎている = 残業
-      reasons.push({ type: "残業", label: `残業（シフト${shiftObj.end} → 退勤${compareOutStr}）`, detail: "", subReason: "", subReasonText: "" });
+    
+    if (cOut !== null) {
+      if (cOut >= sEnd + 30) {
+        // 退勤打刻がシフト終了30分以上過ぎている = 残業
+        reasons.push({ type: "残業", label: `残業（シフト${shiftObj.end} → 退勤${compareOutStr}）`, detail: "", subReason: "", subReasonText: "" });
+      } else if (cOut < sEnd) {
+        // 退勤打刻がシフト終了前 = 早退
+        reasons.push({ type: "早退", label: `早退（シフト${shiftObj.end} → 退勤${compareOutStr}）`, detail: "", subReason: "", subReasonText: "" });
+      }
     }
     
     // 遅刻でも残業でもなく早退などの乖離ありの場合
@@ -532,11 +538,7 @@ export default function AttendanceRecord({ user: propUser }) {
     const isOnTime = !isLate && isClockOutOk;
 
     if (!isOnTime && reasons.length === 0) {
-      if (cOut !== null && cOut < sEnd) {
-        reasons.push({ type: "早退", label: `早退（シフト${shiftObj.end} → 退勤${compareOutStr}）`, detail: "", subReason: "", subReasonText: "" });
-      } else {
-        reasons.push({ type: "その他乖離", label: "シフトとの時間乖離あり", detail: "", subReason: "", subReasonText: "" });
-      }
+      reasons.push({ type: "その他乖離", label: "シフトとの時間乖離あり", detail: "", subReason: "", subReasonText: "" });
     }
     return reasons;
   }, []);
