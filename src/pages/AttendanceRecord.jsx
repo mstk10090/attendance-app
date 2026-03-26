@@ -515,7 +515,7 @@ export default function AttendanceRecord({ user: propUser }) {
     const cOut = compareOutStr ? toMin(compareOutStr) : null;
 
     const reasons = [];
-    if (cIn !== null && cIn >= sStart) {
+    if (cIn !== null && cIn > sStart) {
       // 出勤打刻がシフト開始より後 = 遅刻
       reasons.push({ type: "遅刻", label: `遅刻（シフト${shiftObj.start} → 出勤${compareInStr}）`, detail: "", subReason: "", subReasonText: "" });
     }
@@ -525,7 +525,7 @@ export default function AttendanceRecord({ user: propUser }) {
     }
     
     // 遅刻でも残業でもなく早退などの乖離ありの場合
-    const isLate = (cIn !== null && cIn >= sStart);
+    const isLate = (cIn !== null && cIn > sStart);
     const isClockOutOk = (cOut !== null && cOut >= sEnd && cOut < sEnd + 30);
     const isOnTime = !isLate && isClockOutOk;
 
