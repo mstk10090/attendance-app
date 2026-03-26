@@ -194,6 +194,9 @@ export default function AttendanceRecord({ user: propUser }) {
   // 複数乖離理由 STATE
   const [detectedReasons, setDetectedReasons] = useState([]); // [{ type: "遅刻"|"残業", label: "...", detail: "", subReason: "", subReasonText: "" }]
 
+  // 複数乖離理由 STATE (Edit Form用)
+  const [editDetectedReasons, setEditDetectedReasons] = useState([]);
+
   const handlePrevMonth = () => {
     setCurrentDate(prev => subMonths(prev, 1));
   };
@@ -581,6 +584,60 @@ export default function AttendanceRecord({ user: propUser }) {
       });
     }
   }, [discrepancyAppliedIn, discrepancyAppliedOut, isForgotClockToggle, forgotClockActualIn, forgotClockActualOut, discrepancyMode, discrepancyInfo, calculateDiscrepancies]);
+
+  // 打刻修正画面（Edit）用のリアルタイム乖離判定
+  useEffect(() => {
+    if (expandedDate) {
+      const item = items.find(i => i.workDate === expandedDate);
+      if (!item) return;
+
+      // 出張や欠勤、打刻間違いなど手動理由がメインの場合は自動判定のUIを隠すため空にする
+      if (reason === "出張" || reason === "欠勤" || reason === "打刻間違い" || reason === "その他") {
+        setEditDetectedReasons([]);
+        return;
+      }
+
+      const lookupDate = item.displayDate || expandedDate;
+      const shift = getShift(user?.userName, lookupDate);
+      
+      const physicalInTime = item.clockIn;
+      const physicalOutTime = item.clockOut;
+      const reasonsFromPhysical = calculateDiscrepancies(physicalInTime, physicalOutTime, shift, true);
+
+      // 実時間の判定（打刻忘れ選択時のみフォームから取得）
+      const actualInTime = reason === "打刻忘れ" ? formForgotActualIn : item.clockIn;
+      const actualOutTime = reason === "打刻忘れ" ? formForgotActualOut : (item.clockOut || formOut);
+      const reasonsFromActual = calculateDiscrepancies(actualInTime, actualOutTime, shift, false);
+
+      // UIで入力されている申請時間による判定
+      const appliedInTime = formIn;
+      const appliedOutTime = formOut;
+      const reasonsFromApplied = calculateDiscrepancies(appliedInTime, appliedOutTime, shift, false);
+      
+      const mergedMap = new Map();
+      [...reasonsFromPhysical, ...reasonsFromActual, ...reasonsFromApplied].forEach(r => {
+        if (r.type !== "シフトなし") {
+          mergedMap.set(r.type, r);
+        }
+      });
+      const newReasons = Array.from(mergedMap.values());
+      
+      setEditDetectedReasons(prev => {
+        if (prev.length === newReasons.length && prev.every((p, i) => p.type === newReasons[i].type)) {
+          return prev;
+        }
+        return newReasons.map(nr => {
+          const existing = prev.find(p => p.type === nr.type);
+          if (existing) {
+            return { ...nr, subReason: existing.subReason, subReasonText: existing.subReasonText, detail: existing.detail };
+          }
+          return nr;
+        });
+      });
+    } else {
+      setEditDetectedReasons([]);
+    }
+  }, [expandedDate, items, reason, formForgotActualIn, formForgotActualOut, formIn, formOut, calculateDiscrepancies, user]);
 
   // 直前の勤務レコードを日またぎで分割退勤する処理
   const handleOvernightClockOut = async (yesterdayItem, nowTime, todayStr) => {
@@ -1517,17 +1574,28 @@ export default function AttendanceRecord({ user: propUser }) {
 
       setFormText(p.text || ""); // Set text
       // Set Reason: Use existing or default to "-"
-      if (app.reason && REASON_OPTIONS.includes(app.reason)) {
-        setReason(app.reason);
-        // サブ理由復元
-        if (app.subReason) setSubReason(app.subReason);
-        else setSubReason("");
-        if (app.subReasonText) setSubReasonText(app.subReasonText);
-        else setSubReasonText("");
+      const existingReason = app.reason;
+      if (existingReason === "出張" || existingReason === "欠勤" || existingReason === "打刻間違い" || existingReason === "その他" || existingReason === "打刻忘れ" || existingReason === "-") {
+        setReason(existingReason);
+      } else if (existingReason && existingReason.includes("打刻忘れ")) {
+        setReason("打刻忘れ");
+      } else if (existingReason) {
+        setReason("-");
       } else {
-        setReason(REASON_OPTIONS[0]);
-        setSubReason("");
-        setSubReasonText("");
+        setReason(item.clockOut ? "-" : "");
+      }
+
+      // サブ理由復元
+      if (app.subReason) setSubReason(app.subReason);
+      else setSubReason("");
+      if (app.subReasonText) setSubReasonText(app.subReasonText);
+      else setSubReasonText("");
+
+      // 複数乖離理由の復元
+      if (app.reasonsDetail && Array.isArray(app.reasonsDetail)) {
+        setEditDetectedReasons(app.reasonsDetail);
+      } else {
+        setEditDetectedReasons([]);
       }
       // 打刻忘れの実際の時間復元
       if (app.actualClockIn) setFormForgotActualIn(app.actualClockIn);
@@ -1601,17 +1669,40 @@ export default function AttendanceRecord({ user: propUser }) {
         return;
       }
 
-      // 1. サブ理由が必要なカテゴリのバリデーション
-      const subOptions = REASON_SUB_OPTIONS[reason] || [];
-      if (subOptions.length > 0 && !subReason) {
-        alert(`${reason}の詳細理由を選択してください`);
-        setLoading(false);
-        return;
+      // 0c. editDetectedReasons Validation
+      const isManualReason = reason === "欠勤" || reason === "出張" || reason === "打刻間違い" || reason === "その他";
+      if (editDetectedReasons.length > 0 && !isManualReason) {
+        for (const r of editDetectedReasons) {
+          if (r.type === "遅刻" || r.type === "早退") {
+            if (!r.subReason) {
+              alert(`${r.type}の詳細理由を選択してください`);
+              setLoading(false); return;
+            }
+            if (r.subReason === "その他" && !r.subReasonText.trim()) {
+              alert(`${r.type}のその他理由を入力してください`);
+              setLoading(false); return;
+            }
+          }
+          if (r.type === "残業" || r.type === "その他乖離") {
+            if (!r.detail.trim()) {
+              alert(r.type === "残業" ? "残業理由を入力してください" : "理由を入力してください");
+              setLoading(false); return;
+            }
+          }
+        }
       }
-      if (subReason === "その他" && (!subReasonText || !subReasonText.trim())) {
-        alert("「その他」の場合は具体的な理由を入力してください");
-        setLoading(false);
-        return;
+
+      // 1. サブ理由が必要なカテゴリのバリデーション (手動理由の場合のみ)
+      if (editDetectedReasons.length === 0 || isManualReason) {
+        const subOptions = REASON_SUB_OPTIONS[reason] || [];
+        if (subOptions.length > 0 && !subReason) {
+          alert(`${reason}の詳細理由を選択してください`);
+          setLoading(false); return;
+        }
+        if (subReason === "その他" && (!subReasonText || !subReasonText.trim())) {
+          alert("「その他」の場合は具体的な理由を入力してください");
+          setLoading(false); return;
+        }
       }
 
       // 2. 出張・残業のテキスト入力バリデーション
@@ -1643,10 +1734,14 @@ export default function AttendanceRecord({ user: propUser }) {
 
       // --- VALIDATION END ---
 
-      // 最終的な理由文字列を組み立て（大枠のみ、詳細は付け足さない）
+      // 最終的な理由文字列を組み立て
       let finalReason = reason;
-      // subReason/subReasonTextは別フィールドで保存するので、finalReasonには含めない
-      // 出張・残業・打刻間違いのテキストもtextフィールドに保存済みなのでreasonには含めない
+      if (editDetectedReasons.length > 0 && !isManualReason) {
+        const joinedReasons = editDetectedReasons.map(r => r.type).join("+");
+        finalReason = reason === "打刻忘れ" ? ("打刻忘れ+" + joinedReasons) : joinedReasons;
+      } else if (!finalReason) {
+        finalReason = "-";
+      }
 
       const p = parseComment(originalItem?.comment);
 
@@ -1656,10 +1751,11 @@ export default function AttendanceRecord({ user: propUser }) {
         appliedIn: reason === "欠勤" ? "" : formIn,
         appliedOut: reason === "欠勤" ? "" : formOut,
         reason: finalReason,
-        subReason: subReason || null,
-        subReasonText: subReasonText || null,
+        subReason: editDetectedReasons.length === 0 || isManualReason ? (subReason || null) : null,
+        subReasonText: editDetectedReasons.length === 0 || isManualReason ? (subReasonText || null) : null,
         detailText: formText || null,
         breakDuration: formBreakDuration || 0,
+        reasonsDetail: editDetectedReasons.length > 0 && !isManualReason ? editDetectedReasons : null,
         adminComment: null,
         actualClockIn: reason === "打刻忘れ" ? formForgotActualIn : null,
         actualClockOut: reason === "打刻忘れ" ? formForgotActualOut : null
@@ -2887,33 +2983,131 @@ export default function AttendanceRecord({ user: propUser }) {
                 style={{ width: "100%", padding: "12px", borderRadius: "8px", border: "1px solid #d1d5db", marginBottom: "12px", fontSize: "0.95rem" }}
               >
                 <option value="">理由を選択してください</option>
-                {REASON_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                <option value="-">時間乖離（遅刻・早退・残業等）</option>
+                <option value="打刻忘れ">打刻忘れ</option>
+                <option value="出張">出張</option>
+                <option value="欠勤">欠勤</option>
+                <option value="打刻間違い">打刻間違い</option>
+                <option value="その他">その他</option>
               </select>
 
-              {/* サブ理由: 早退/欠勤/遅刻 */}
-              {reason && REASON_SUB_OPTIONS[reason] && REASON_SUB_OPTIONS[reason].length > 0 && (
-                <div style={{ background: "#f0f9ff", padding: "12px", borderRadius: "8px", border: "1px solid #bae6fd", marginBottom: "12px" }}>
-                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "bold", color: "#0369a1", marginBottom: "6px" }}>
-                    {reason}の詳細理由
-                  </label>
-                  <select
-                    value={subReason}
-                    onChange={e => { setSubReason(e.target.value); setSubReasonText(""); }}
-                    style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.9rem", marginBottom: subReason === "その他" ? "8px" : "0" }}
-                  >
-                    <option value="">選択してください</option>
-                    {REASON_SUB_OPTIONS[reason].map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                  {subReason === "その他" && (
-                    <input
-                      type="text"
-                      placeholder="具体的な理由を入力してください"
-                      value={subReasonText}
-                      onChange={e => setSubReasonText(e.target.value)}
-                      style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.9rem", boxSizing: "border-box" }}
-                    />
-                  )}
+              {/* 打刻忘れ: 実際の出社/退勤時間入力 */}
+              {reason === "打刻忘れ" && (
+                <div style={{ background: "#fef3c7", borderRadius: "8px", padding: "16px", marginBottom: "12px", border: "1px solid #fde68a" }}>
+                  <div style={{ fontSize: "0.85rem", fontWeight: "bold", color: "#92400e", marginBottom: "12px" }}>
+                    ⏰ 実際の時間を入力してください（再計算されます）
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                    <div>
+                      <label style={{ display: "block", fontSize: "0.8rem", color: "#6b7280", marginBottom: "4px" }}>実際の出社時間</label>
+                      <select value={formForgotActualIn} onChange={e => setFormForgotActualIn(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.9rem", background: "#fff" }}>
+                        <option value="">--:--</option>
+                        {Array.from({ length: 48 }, (_, i) => { const h = String(Math.floor(i / 2)).padStart(2, "0"); const m = (i % 2 === 0) ? "00" : "30"; return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>; })}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ display: "block", fontSize: "0.8rem", color: "#6b7280", marginBottom: "4px" }}>実際の退勤時間</label>
+                      <select value={formForgotActualOut} onChange={e => setFormForgotActualOut(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.9rem", background: "#fff" }}>
+                        <option value="">--:--</option>
+                        {Array.from({ length: 48 }, (_, i) => { const h = String(Math.floor(i / 2)).padStart(2, "0"); const m = (i % 2 === 0) ? "00" : "30"; return <option key={i} value={`${h}:${m}`}>{`${h}:${m}`}</option>; })}
+                      </select>
+                    </div>
+                  </div>
                 </div>
+              )}
+
+              {/* 複数乖離理由ブロック (自動判定時) */}
+              {editDetectedReasons.length > 0 && reason !== "欠勤" && reason !== "出張" && reason !== "打刻間違い" && reason !== "その他" ? (
+                <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "16px", marginBottom: "12px" }}>
+                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "bold", color: "#374151", marginBottom: "12px" }}>⚠ 検出された乖離 *</label>
+                  {editDetectedReasons.map((r, idx) => (
+                    <div key={idx} style={{ background: r.type === "遅刻" ? "#fef2f2" : "#fffbeb", border: r.type === "遅刻" ? "1px solid #fca5a5" : "1px solid #fcd34d", borderRadius: "8px", padding: "14px", marginBottom: "10px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+                        <span style={{ fontWeight: "bold", fontSize: "0.9rem", color: r.type === "遅刻" ? "#dc2626" : "#d97706" }}>
+                          {r.label}
+                        </span>
+                      </div>
+                      
+                      {(r.type === "遅刻" || r.type === "早退") && (
+                        <div style={{ marginLeft: "8px" }}>
+                          <label style={{ display: "block", fontSize: "0.8rem", color: "#6b7280", marginBottom: "4px" }}>{r.type}理由 *</label>
+                          <select
+                            value={r.subReason}
+                            onChange={e => {
+                              const newReasons = [...editDetectedReasons];
+                              newReasons[idx] = { ...newReasons[idx], subReason: e.target.value, subReasonText: "" };
+                              setEditDetectedReasons(newReasons);
+                            }}
+                            style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.9rem", marginBottom: "6px" }}
+                          >
+                            <option value="">-- 選択してください --</option>
+                            {(REASON_SUB_OPTIONS[r.type] || []).map(s => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                          {r.subReason === "その他" && (
+                            <textarea
+                              placeholder="理由を入力してください"
+                              value={r.subReasonText}
+                              onChange={e => {
+                                const newReasons = [...editDetectedReasons];
+                                newReasons[idx] = { ...newReasons[idx], subReasonText: e.target.value };
+                                setEditDetectedReasons(newReasons);
+                              }}
+                              style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.85rem", minHeight: "50px", resize: "vertical" }}
+                            />
+                          )}
+                        </div>
+                      )}
+
+                      {(r.type === "残業" || r.type === "その他乖離") && (
+                        <div style={{ marginLeft: "8px" }}>
+                          <label style={{ display: "block", fontSize: "0.8rem", color: "#6b7280", marginBottom: "4px" }}>{r.type === "残業" ? "残業理由 *" : "理由 *"}</label>
+                          <textarea
+                            placeholder={r.type === "残業" ? "残業理由を入力してください" : "理由を入力してください"}
+                            value={r.detail}
+                            onChange={e => {
+                              const newReasons = [...editDetectedReasons];
+                              newReasons[idx] = { ...newReasons[idx], detail: e.target.value };
+                              setEditDetectedReasons(newReasons);
+                            }}
+                            style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.85rem", minHeight: "50px", resize: "vertical" }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                /* 単一の手動理由UI（欠勤など手動で選択されたもののみ表示） */
+                (reason === "欠勤" || reason === "その他") && (() => {
+                  return (
+                    <div style={{ background: "#f0f9ff", padding: "12px", borderRadius: "8px", border: "1px solid #bae6fd", marginBottom: "12px" }}>
+                      {reason === "欠勤" && REASON_SUB_OPTIONS[reason] && REASON_SUB_OPTIONS[reason].length > 0 && (
+                        <>
+                          <label style={{ display: "block", fontSize: "0.85rem", fontWeight: "bold", color: "#0369a1", marginBottom: "6px" }}>
+                            {reason}の詳細理由
+                          </label>
+                          <select
+                            value={subReason}
+                            onChange={e => { setSubReason(e.target.value); setSubReasonText(""); }}
+                            style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.9rem", marginBottom: subReason === "その他" ? "8px" : "0" }}
+                          >
+                            <option value="">選択してください</option>
+                            {REASON_SUB_OPTIONS[reason].map(s => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                          {subReason === "その他" && (
+                            <input
+                              type="text"
+                              placeholder="具体的な理由を入力してください"
+                              value={subReasonText}
+                              onChange={e => setSubReasonText(e.target.value)}
+                              style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.9rem", boxSizing: "border-box" }}
+                            />
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })()
               )}
 
               {/* 出張: 場所入力 */}
